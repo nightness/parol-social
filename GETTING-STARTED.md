@@ -235,12 +235,17 @@ cd pwa && bash build.sh
 
 After building the PWA, you need to serve it over HTTP. The Service Worker requires either HTTPS or `localhost` to function.
 
-#### Using Python (built into most systems)
+#### Using Docker (Recommended)
 
 ```bash
-cd pwa
-python3 -m http.server 8080
+docker compose up -d
 # Open http://localhost:8080
+```
+
+This serves the distribution landing page at `/` and the PWA at `/pwa/`. To stop:
+
+```bash
+docker compose down
 ```
 
 #### Using Node.js
