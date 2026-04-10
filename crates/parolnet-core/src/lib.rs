@@ -10,11 +10,13 @@
 //! - C FFI for mobile integration
 
 pub mod bootstrap;
+pub mod call;
 pub mod client;
 pub mod config;
 pub mod decoy;
 pub mod error;
 pub mod ffi;
+pub mod file_transfer;
 pub mod panic;
 pub mod session;
 

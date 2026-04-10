@@ -329,3 +329,277 @@ fn test_panic_wipe_nested_storage() {
     client.panic_wipe().unwrap();
     assert!(!dir.exists());
 }
+
+// ── File Transfer Tests ─────────────────────────────────────────
+
+#[test]
+fn test_file_transfer_small_file() {
+    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+
+    let data = b"hello world, this is a test file!".to_vec();
+    let mut sender = FileTransferSender::new(data.clone(), "test.txt".into(), None);
+    let mut receiver = FileTransferReceiver::new(sender.offer.clone());
+
+    while let Some((header, chunk)) = sender.next() {
+        receiver.receive_chunk(&header, chunk).unwrap();
+    }
+
+    assert!(sender.is_complete());
+    assert!(receiver.is_complete());
+
+    let assembled = receiver.assemble().unwrap();
+    assert_eq!(assembled, data);
+}
+
+#[test]
+fn test_file_transfer_large_file() {
+    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+
+    // 100KB file — should produce 25 chunks at 4096 bytes each
+    let data = vec![0xABu8; 100_000];
+    let mut sender = FileTransferSender::new(data.clone(), "large.bin".into(), Some("application/octet-stream".into()));
+    let mut receiver = FileTransferReceiver::new(sender.offer.clone());
+
+    assert_eq!(sender.total_chunks(), 25); // ceil(100000/4096) = 25
+
+    let mut count = 0;
+    while let Some((header, chunk)) = sender.next() {
+        receiver.receive_chunk(&header, chunk).unwrap();
+        count += 1;
+    }
+    assert_eq!(count, 25);
+
+    let assembled = receiver.assemble().unwrap();
+    assert_eq!(assembled, data);
+}
+
+#[test]
+fn test_file_transfer_empty_file() {
+    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+
+    let data = vec![];
+    let mut sender = FileTransferSender::new(data.clone(), "empty.txt".into(), None);
+    let mut receiver = FileTransferReceiver::new(sender.offer.clone());
+
+    assert_eq!(sender.total_chunks(), 1);
+
+    let (header, chunk) = sender.next().unwrap();
+    assert!(header.is_last);
+    assert!(chunk.is_empty());
+    receiver.receive_chunk(&header, chunk).unwrap();
+
+    assert!(sender.is_complete());
+    assert!(receiver.is_complete());
+    let assembled = receiver.assemble().unwrap();
+    assert_eq!(assembled, data);
+}
+
+#[test]
+fn test_file_transfer_resume() {
+    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+
+    let data = vec![0xCDu8; 20_000]; // 5 chunks
+    let mut sender = FileTransferSender::new(data.clone(), "resume.bin".into(), None);
+    let mut receiver = FileTransferReceiver::new(sender.offer.clone());
+
+    // Send first 3 chunks
+    for _ in 0..3 {
+        let (header, chunk) = sender.next().unwrap();
+        receiver.receive_chunk(&header, chunk).unwrap();
+    }
+
+    assert_eq!(sender.progress(), (3, 5));
+    assert_eq!(receiver.progress(), (3, 5));
+    assert!(!receiver.is_complete());
+
+    // Simulate interruption — create new sender, resume from chunk 3
+    let mut sender2 = FileTransferSender::new(data.clone(), "resume.bin".into(), None);
+    sender2.offer.file_id = sender.offer.file_id; // same file
+    sender2.resume_from(3);
+
+    while let Some((header, chunk)) = sender2.next() {
+        receiver.receive_chunk(&header, chunk).unwrap();
+    }
+
+    assert!(receiver.is_complete());
+    let assembled = receiver.assemble().unwrap();
+    assert_eq!(assembled, data);
+}
+
+#[test]
+fn test_file_transfer_integrity_failure() {
+    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+
+    let data = b"original data".to_vec();
+    let mut sender = FileTransferSender::new(data, "test.txt".into(), None);
+    let mut receiver = FileTransferReceiver::new(sender.offer.clone());
+
+    // Tamper with chunk data
+    let (header, mut chunk) = sender.next().unwrap();
+    if !chunk.is_empty() {
+        chunk[0] ^= 0xFF;
+    }
+    receiver.receive_chunk(&header, chunk).unwrap();
+
+    // Assembly should fail SHA-256 check
+    assert!(receiver.assemble().is_err());
+}
+
+#[test]
+fn test_file_transfer_progress() {
+    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+
+    let data = vec![0u8; 8192]; // exactly 2 chunks
+    let mut sender = FileTransferSender::new(data, "progress.bin".into(), None);
+
+    assert_eq!(sender.progress(), (0, 2));
+    sender.next();
+    assert_eq!(sender.progress(), (1, 2));
+    sender.next();
+    assert_eq!(sender.progress(), (2, 2));
+    assert!(sender.is_complete());
+}
+
+// ── Call Signaling Tests ────────────────────────────────────────
+
+#[test]
+fn test_call_offer_answer_hangup() {
+    use parolnet_core::call::Call;
+    use parolnet_protocol::media::{CallSignalMessage, CallState};
+
+    let call_id = [0x11; 16];
+    let peer = PeerId([1; 32]);
+    let mut call = Call::new_outgoing(call_id, peer);
+    assert_eq!(call.state, CallState::Offering);
+
+    let answer = CallSignalMessage::Answer {
+        call_id,
+        sdp: "v=0...".into(),
+    };
+    call.handle_signal(&answer).unwrap();
+    assert_eq!(call.state, CallState::Active);
+    assert!(call.started_at.is_some());
+
+    let hangup = CallSignalMessage::Hangup { call_id };
+    call.handle_signal(&hangup).unwrap();
+    assert_eq!(call.state, CallState::Ended);
+}
+
+#[test]
+fn test_call_offer_reject() {
+    use parolnet_core::call::Call;
+    use parolnet_protocol::media::{CallSignalMessage, CallState};
+
+    let call_id = [0xAB; 16];
+    let peer = PeerId([1; 32]);
+    let mut call = Call::new_outgoing(call_id, peer);
+
+    let reject = CallSignalMessage::Reject { call_id };
+    call.handle_signal(&reject).unwrap();
+    assert_eq!(call.state, CallState::Rejected);
+}
+
+#[test]
+fn test_call_incoming_answer() {
+    use parolnet_core::call::CallManager;
+    use parolnet_protocol::media::CallState;
+
+    let manager = CallManager::new();
+    let call_id = [0xCD; 16];
+    let peer = PeerId([2; 32]);
+
+    manager.incoming_call(call_id, peer);
+    assert_eq!(manager.get_state(&call_id), Some(CallState::Ringing));
+
+    manager.answer(&call_id).unwrap();
+    assert_eq!(manager.get_state(&call_id), Some(CallState::Active));
+    assert_eq!(manager.active_call_count(), 1);
+
+    manager.hangup(&call_id).unwrap();
+    assert_eq!(manager.get_state(&call_id), Some(CallState::Ended));
+    assert_eq!(manager.active_call_count(), 0);
+}
+
+#[test]
+fn test_call_incoming_reject() {
+    use parolnet_core::call::CallManager;
+    use parolnet_protocol::media::CallState;
+
+    let manager = CallManager::new();
+    let call_id = [0xEF; 16];
+    let peer = PeerId([3; 32]);
+
+    manager.incoming_call(call_id, peer);
+    manager.reject(&call_id).unwrap();
+    assert_eq!(manager.get_state(&call_id), Some(CallState::Rejected));
+}
+
+#[test]
+fn test_call_mute_toggle() {
+    use parolnet_core::call::CallManager;
+
+    let manager = CallManager::new();
+    let call_id = [0x42; 16];
+    let peer = PeerId([4; 32]);
+
+    manager.incoming_call(call_id, peer);
+
+    // Can't mute before answering
+    assert!(manager.toggle_mute(&call_id, true).is_err());
+
+    manager.answer(&call_id).unwrap();
+    manager.toggle_mute(&call_id, true).unwrap();
+    manager.toggle_mute(&call_id, false).unwrap();
+}
+
+#[test]
+fn test_call_wrong_id_fails() {
+    use parolnet_core::call::Call;
+    use parolnet_protocol::media::CallSignalMessage;
+
+    let call_id = [0x01; 16];
+    let wrong_id = [0x02; 16];
+    let peer = PeerId([1; 32]);
+    let mut call = Call::new_outgoing(call_id, peer);
+
+    let answer = CallSignalMessage::Answer {
+        call_id: wrong_id,
+        sdp: "".into(),
+    };
+    assert!(call.handle_signal(&answer).is_err());
+}
+
+#[test]
+fn test_call_manager_prune() {
+    use parolnet_core::call::CallManager;
+
+    let manager = CallManager::new();
+
+    // Start 1 call, register 2 incoming, reject 2, keep 1 active
+    let id1 = manager.start_call(PeerId([1; 32])).unwrap();
+    let id2 = [0xAA; 16];
+    let id3 = [0xBB; 16];
+    manager.incoming_call(id2, PeerId([2; 32]));
+    manager.incoming_call(id3, PeerId([3; 32]));
+
+    manager.reject(&id2).unwrap();
+    manager.reject(&id3).unwrap();
+
+    assert_eq!(manager.total_call_count(), 3);
+    let pruned = manager.prune_finished();
+    assert_eq!(pruned, 2);
+    assert_eq!(manager.total_call_count(), 1);
+}
+
+#[test]
+fn test_call_cannot_answer_twice() {
+    use parolnet_core::call::CallManager;
+
+    let manager = CallManager::new();
+    let call_id = [0x99; 16];
+    manager.incoming_call(call_id, PeerId([5; 32]));
+
+    manager.answer(&call_id).unwrap();
+    // Second answer should fail (already active)
+    assert!(manager.answer(&call_id).is_err());
+}
