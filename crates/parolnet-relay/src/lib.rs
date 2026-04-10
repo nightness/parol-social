@@ -42,6 +42,7 @@ pub enum CellType {
     Destroy = 0x06,
     Padding = 0x07,
     RelayEarly = 0x08,
+    MediaData = 0x09,
 }
 
 /// Information about a relay node.
@@ -79,6 +80,7 @@ impl CellType {
             0x06 => Some(Self::Destroy),
             0x07 => Some(Self::Padding),
             0x08 => Some(Self::RelayEarly),
+            0x09 => Some(Self::MediaData),
             _ => None,
         }
     }

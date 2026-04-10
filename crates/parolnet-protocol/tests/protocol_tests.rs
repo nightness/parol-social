@@ -362,3 +362,126 @@ fn test_padding_unpad_too_short() {
     let padder = BucketPadding;
     assert!(padder.unpad(&[0x00, 0x01, 0x02]).is_err());
 }
+
+// ── New Message Type Tests ─────────────────────────────────────
+
+#[test]
+fn test_new_message_types() {
+    // Audio through CallSignal from_u8 roundtrip
+    assert_eq!(MessageType::from_u8(0x07), Some(MessageType::Audio));
+    assert_eq!(MessageType::from_u8(0x08), Some(MessageType::Video));
+    assert_eq!(MessageType::from_u8(0x09), Some(MessageType::FileChunk));
+    assert_eq!(MessageType::from_u8(0x0A), Some(MessageType::FileControl));
+    assert_eq!(MessageType::from_u8(0x0B), Some(MessageType::CallSignal));
+
+    // Verify repr roundtrip
+    assert_eq!(MessageType::Audio as u8, 0x07);
+    assert_eq!(MessageType::Video as u8, 0x08);
+    assert_eq!(MessageType::FileChunk as u8, 0x09);
+    assert_eq!(MessageType::FileControl as u8, 0x0A);
+    assert_eq!(MessageType::CallSignal as u8, 0x0B);
+
+    // Invalid codes still return None
+    assert!(MessageType::from_u8(0x0C).is_none());
+    assert!(MessageType::from_u8(0x00).is_none());
+}
+
+// ── File Transfer Tests ────────────────────────────────────────
+
+#[test]
+fn test_file_offer_total_chunks() {
+    use parolnet_protocol::file::FileOffer;
+
+    // 10000 byte file with 4096 chunk size = 3 chunks
+    let offer = FileOffer {
+        file_id: [0u8; 16],
+        file_name: "test.bin".to_string(),
+        file_size: 10000,
+        chunk_size: 4096,
+        sha256: [0u8; 32],
+        mime_type: None,
+    };
+    assert_eq!(offer.total_chunks(), 3);
+
+    // 0 byte file = 1 chunk
+    let empty = FileOffer {
+        file_size: 0,
+        ..offer.clone()
+    };
+    assert_eq!(empty.total_chunks(), 1);
+
+    // Exact multiple: 8192 / 4096 = 2
+    let exact = FileOffer {
+        file_size: 8192,
+        ..offer.clone()
+    };
+    assert_eq!(exact.total_chunks(), 2);
+}
+
+#[test]
+fn test_file_action_serialization() {
+    use parolnet_protocol::file::{FileOffer, FileControl, FileAction};
+
+    let offer = FileOffer {
+        file_id: [0xAB; 16],
+        file_name: "photo.jpg".to_string(),
+        file_size: 1024000,
+        chunk_size: 4096,
+        sha256: [0xCD; 32],
+        mime_type: Some("image/jpeg".to_string()),
+    };
+
+    // Serialize and deserialize FileOffer via CBOR
+    let mut buf = Vec::new();
+    ciborium::into_writer(&offer, &mut buf).unwrap();
+    let decoded: FileOffer = ciborium::from_reader(&buf[..]).unwrap();
+    assert_eq!(decoded.file_id, offer.file_id);
+    assert_eq!(decoded.file_name, offer.file_name);
+    assert_eq!(decoded.file_size, offer.file_size);
+    assert_eq!(decoded.sha256, offer.sha256);
+    assert_eq!(decoded.mime_type, Some("image/jpeg".to_string()));
+
+    // Serialize and deserialize FileControl via CBOR
+    let control = FileControl {
+        file_id: [0xAB; 16],
+        action: FileAction::Accept,
+        resume_from: None,
+    };
+    let mut buf2 = Vec::new();
+    ciborium::into_writer(&control, &mut buf2).unwrap();
+    let decoded_ctrl: FileControl = ciborium::from_reader(&buf2[..]).unwrap();
+    assert_eq!(decoded_ctrl.file_id, control.file_id);
+    assert!(decoded_ctrl.resume_from.is_none());
+}
+
+// ── Media / Call Tests ─────────────────────────────────────────
+
+#[test]
+fn test_call_state_distinct() {
+    use parolnet_protocol::media::CallState;
+
+    let states = [
+        CallState::Idle,
+        CallState::Offering,
+        CallState::Ringing,
+        CallState::Active,
+        CallState::Ended,
+        CallState::Rejected,
+    ];
+    for i in 0..states.len() {
+        for j in (i + 1)..states.len() {
+            assert_ne!(states[i], states[j], "{:?} should differ from {:?}", states[i], states[j]);
+        }
+    }
+}
+
+#[test]
+fn test_video_config_default() {
+    use parolnet_protocol::media::{VideoConfig, VideoCodec};
+
+    let config = VideoConfig::default();
+    assert_eq!(config.width, 320);
+    assert_eq!(config.height, 240);
+    assert_eq!(config.bitrate_kbps, 200);
+    assert_eq!(config.codec, VideoCodec::VP8);
+}

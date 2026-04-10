@@ -12,6 +12,11 @@ pub enum MessageType {
     Decoy = 0x04,
     Handshake = 0x05,
     RelayControl = 0x06,
+    Audio = 0x07,
+    Video = 0x08,
+    FileChunk = 0x09,
+    FileControl = 0x0A,
+    CallSignal = 0x0B,
 }
 
 impl MessageType {
@@ -23,6 +28,11 @@ impl MessageType {
             0x04 => Some(Self::Decoy),
             0x05 => Some(Self::Handshake),
             0x06 => Some(Self::RelayControl),
+            0x07 => Some(Self::Audio),
+            0x08 => Some(Self::Video),
+            0x09 => Some(Self::FileChunk),
+            0x0A => Some(Self::FileControl),
+            0x0B => Some(Self::CallSignal),
             _ => None,
         }
     }

@@ -17,6 +17,8 @@ pub enum BandwidthMode {
     Normal,
     /// ~40 KB/s idle, 40% dummy traffic, 100ms padding interval.
     High,
+    /// ~50 cells/s, no burst smoothing, audio-sized padding.
+    MediaCall,
 }
 
 impl BandwidthMode {
@@ -25,6 +27,7 @@ impl BandwidthMode {
             Self::Low => Duration::from_millis(2000),
             Self::Normal => Duration::from_millis(500),
             Self::High => Duration::from_millis(100),
+            Self::MediaCall => Duration::from_millis(20),
         }
     }
 
@@ -33,6 +36,7 @@ impl BandwidthMode {
             Self::Low => Duration::from_millis(500),
             Self::Normal => Duration::from_millis(100),
             Self::High => Duration::from_millis(30),
+            Self::MediaCall => Duration::from_millis(5),
         }
     }
 
@@ -41,6 +45,7 @@ impl BandwidthMode {
             Self::Low => 5,
             Self::Normal => 20,
             Self::High => 40,
+            Self::MediaCall => 10,
         }
     }
 }

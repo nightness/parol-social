@@ -556,3 +556,12 @@ async fn test_tls_peer_addr_is_set() {
 
     server_handle.await.expect("server task");
 }
+
+// ── MediaCall Bandwidth Mode Test ──────────────────────────────
+
+#[test]
+fn test_media_call_bandwidth_mode() {
+    assert_eq!(BandwidthMode::MediaCall.padding_interval(), Duration::from_millis(20));
+    assert_eq!(BandwidthMode::MediaCall.jitter_max(), Duration::from_millis(5));
+    assert_eq!(BandwidthMode::MediaCall.dummy_traffic_percent(), 10);
+}

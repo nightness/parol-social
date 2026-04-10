@@ -59,11 +59,11 @@ fn test_destroy_cell() {
 
 #[test]
 fn test_cell_type_roundtrip() {
-    for v in 0x01..=0x08 {
+    for v in 0x01..=0x09 {
         assert!(CellType::from_u8(v).is_some());
     }
     assert!(CellType::from_u8(0x00).is_none());
-    assert!(CellType::from_u8(0x09).is_none());
+    assert!(CellType::from_u8(0x0A).is_none());
 }
 
 // ── Circuit Tests ───────────────────────────────────────────────
