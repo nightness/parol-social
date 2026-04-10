@@ -45,7 +45,7 @@ serde_bytes = "0.11"
 
 # Async / Networking
 tokio = { version = "1", features = ["full"] }
-rustls = { version = "0.23", default-features = false }
+rustls = "0.23"
 webpki-roots = "0.26"
 tokio-tungstenite = "0.26"
 tokio-rustls = "0.26"
@@ -64,6 +64,7 @@ serde-wasm-bindgen = "0.6"
 
 # Utilities
 curve25519-dalek = "4"
+futures-util = "0.3"
 hex = "0.4"
 
 # Testing
