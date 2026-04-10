@@ -6,17 +6,21 @@ license.workspace = true
 rust-version.workspace = true
 description = "ParolNet client library: session management, bootstrap, panic wipe, decoy mode"
 
+[features]
+default = ["native"]
+native = ["parolnet-transport", "parolnet-mesh", "parolnet-relay", "tokio", "tracing-subscriber", "opus-rs", "codec2"]
+
 [dependencies]
 parolnet-crypto.workspace = true
 parolnet-protocol.workspace = true
-parolnet-transport.workspace = true
-parolnet-mesh.workspace = true
-parolnet-relay.workspace = true
-tokio.workspace = true
+parolnet-transport = { workspace = true, optional = true }
+parolnet-mesh = { workspace = true, optional = true }
+parolnet-relay = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
 async-trait.workspace = true
 ciborium.workspace = true
 hmac.workspace = true
@@ -25,8 +29,8 @@ subtle.workspace = true
 rand.workspace = true
 zeroize.workspace = true
 serde_bytes.workspace = true
-opus-rs.workspace = true
-codec2.workspace = true
+opus-rs = { workspace = true, optional = true }
+codec2 = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test.workspace = true

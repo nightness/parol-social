@@ -9,6 +9,9 @@ description = "WASM bindings for ParolNet — exposes crypto + protocol to JS/TS
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [dependencies]
 parolnet-crypto.workspace = true
 parolnet-protocol.workspace = true
@@ -26,3 +29,5 @@ serde.workspace = true
 hex.workspace = true
 sha2.workspace = true
 subtle.workspace = true
+getrandom_02.workspace = true
+getrandom_03.workspace = true

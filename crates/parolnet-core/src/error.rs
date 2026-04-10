@@ -20,12 +20,15 @@ pub enum CoreError {
     #[error("protocol error: {0}")]
     Protocol(#[from] parolnet_protocol::ProtocolError),
 
+    #[cfg(feature = "native")]
     #[error("transport error: {0}")]
     Transport(#[from] parolnet_transport::TransportError),
 
+    #[cfg(feature = "native")]
     #[error("relay error: {0}")]
     Relay(#[from] parolnet_relay::RelayError),
 
+    #[cfg(feature = "native")]
     #[error("mesh error: {0}")]
     Mesh(#[from] parolnet_mesh::MeshError),
 }
