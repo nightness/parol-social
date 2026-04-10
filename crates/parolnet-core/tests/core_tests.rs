@@ -209,3 +209,123 @@ fn test_panic_wipe_with_storage() {
     client.panic_wipe().unwrap();
     assert!(!dir.exists());
 }
+
+// ── Missing API Coverage Tests ──────────────────────────────────
+
+#[test]
+fn test_process_qr_roundtrip() {
+    let alice = ParolNet::new(ParolNetConfig::default());
+    let qr_data = alice.generate_qr(None).unwrap();
+
+    let bob = ParolNet::new(ParolNetConfig::default());
+    let (payload, _bs) = bob.process_qr(&qr_data).unwrap();
+
+    assert_eq!(payload.ik, alice.public_key().to_vec());
+}
+
+#[test]
+fn test_process_qr_invalid_data() {
+    let client = ParolNet::new(ParolNetConfig::default());
+    let result = client.process_qr(&[0xFF; 10]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_send_without_session_fails() {
+    let client = ParolNet::new(ParolNetConfig::default());
+    let random_peer = PeerId([0xAB; 32]);
+    let result = client.send(&random_peer, b"hello");
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        parolnet_core::CoreError::NoSession => {}
+        other => panic!("expected NoSession, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_multiple_sessions() {
+    use rand::rngs::OsRng;
+
+    let client = ParolNet::new(ParolNetConfig::default());
+
+    for i in 0..3u8 {
+        let peer_id = PeerId([i + 10; 32]);
+        let shared_secret = SharedSecret([i + 1; 32]);
+        let ratchet_secret = x25519_dalek::StaticSecret::random_from_rng(&mut OsRng);
+        let ratchet_pub = *x25519_dalek::PublicKey::from(&ratchet_secret).as_bytes();
+
+        client
+            .establish_session(peer_id, shared_secret, &ratchet_pub, true)
+            .unwrap();
+    }
+
+    assert_eq!(client.session_count(), 3);
+
+    // Send a message to each peer
+    for i in 0..3u8 {
+        let peer_id = PeerId([i + 10; 32]);
+        let (_header, ciphertext) = client.send(&peer_id, b"test message").unwrap();
+        assert!(!ciphertext.is_empty());
+    }
+}
+
+// ── Bootstrap Edge Case Tests ───────────────────────────────────
+
+#[test]
+fn test_bootstrap_secret_same_peer() {
+    let seed = [0x42; 32];
+    let same_ik = [1u8; 32];
+
+    // derive_bootstrap_secret where our_ik == their_ik
+    let result = bootstrap::derive_bootstrap_secret(&seed, &same_ik, &same_ik);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_sas_different_inputs() {
+    let bs1 = [0x42; 32];
+    let bs2 = [0x43; 32];
+    let ik_a = [1u8; 32];
+    let ik_b = [2u8; 32];
+    let ek_a = [3u8; 32];
+    let ek_b = [4u8; 32];
+
+    let sas1 = bootstrap::compute_sas(&bs1, &ik_a, &ik_b, &ek_a, &ek_b).unwrap();
+    let sas2 = bootstrap::compute_sas(&bs2, &ik_a, &ik_b, &ek_a, &ek_b).unwrap();
+
+    assert_ne!(sas1, sas2);
+}
+
+// ── Panic Wipe Edge Case Tests ──────────────────────────────────
+
+#[test]
+fn test_panic_wipe_nonexistent_storage() {
+    let nonexistent = std::path::PathBuf::from("/tmp/parolnet_test_nonexistent_dir_xyz");
+    // Make sure it really doesn't exist
+    let _ = std::fs::remove_dir_all(&nonexistent);
+
+    let mut client = ParolNet::new(ParolNetConfig {
+        storage_path: Some(nonexistent.clone()),
+        ..Default::default()
+    });
+
+    // Should succeed even though the directory doesn't exist
+    client.panic_wipe().unwrap();
+}
+
+#[test]
+fn test_panic_wipe_nested_storage() {
+    let dir = std::env::temp_dir().join("parolnet_test_nested_wipe");
+    let sub = dir.join("subdir");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("secret.dat"), b"top secret").unwrap();
+    std::fs::write(dir.join("root.dat"), b"also secret").unwrap();
+
+    let mut client = ParolNet::new(ParolNetConfig {
+        storage_path: Some(dir.clone()),
+        ..Default::default()
+    });
+
+    client.panic_wipe().unwrap();
+    assert!(!dir.exists());
+}

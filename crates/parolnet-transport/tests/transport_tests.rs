@@ -135,3 +135,112 @@ fn test_fingerprint_builds_client_config() {
     let config = config.unwrap();
     assert_eq!(config.alpn_protocols.len(), 2);
 }
+
+// ── Traffic Shaper Property Tests ──────────────────────────────
+
+#[test]
+fn test_shaper_jitter_never_below_base() {
+    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let base = Duration::from_millis(500);
+    for _ in 0..1000 {
+        let delay = shaper.delay_before_send();
+        assert!(
+            delay >= base,
+            "delay {delay:?} is below base interval {base:?}"
+        );
+    }
+}
+
+#[test]
+fn test_shaper_shape_preserves_message_order() {
+    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let messages: Vec<Vec<u8>> = (0..10).map(|i| format!("{i}").into_bytes()).collect();
+    let shaped = shaper.shape(messages);
+    assert_eq!(shaped.len(), 10);
+    for (i, (_delay, data)) in shaped.iter().enumerate() {
+        let expected = format!("{i}");
+        assert_eq!(
+            String::from_utf8_lossy(data),
+            expected,
+            "message at index {i} has wrong content"
+        );
+    }
+}
+
+#[test]
+fn test_shaper_shape_empty_input() {
+    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let shaped = shaper.shape(vec![]);
+    assert!(shaped.is_empty());
+}
+
+// ── TLS Fingerprint Validation Tests ───────────────────────────
+
+#[test]
+fn test_fingerprint_both_profiles_have_cipher_suites() {
+    let chrome = FingerprintProfile::chrome();
+    let firefox = FingerprintProfile::firefox();
+    assert!(!chrome.cipher_suites.is_empty(), "Chrome profile has no cipher suites");
+    assert!(!firefox.cipher_suites.is_empty(), "Firefox profile has no cipher suites");
+}
+
+#[test]
+fn test_fingerprint_alpn_h2_first() {
+    let chrome = FingerprintProfile::chrome();
+    let firefox = FingerprintProfile::firefox();
+    assert_eq!(chrome.alpn_protocols[0], "h2", "Chrome ALPN[0] should be h2");
+    assert_eq!(firefox.alpn_protocols[0], "h2", "Firefox ALPN[0] should be h2");
+}
+
+#[test]
+fn test_fingerprint_x25519_in_groups() {
+    let chrome = FingerprintProfile::chrome();
+    let firefox = FingerprintProfile::firefox();
+    assert!(
+        chrome.supported_groups.contains(&0x001D),
+        "Chrome profile missing x25519 (0x001D)"
+    );
+    assert!(
+        firefox.supported_groups.contains(&0x001D),
+        "Firefox profile missing x25519 (0x001D)"
+    );
+}
+
+// ── Transport Error Tests ──────────────────────────────────────
+
+#[test]
+fn test_fingerprint_config_alpn_matches() {
+    let profile = FingerprintProfile::chrome();
+    let config = profile.build_client_config().expect("build_client_config failed");
+    assert_eq!(
+        config.alpn_protocols.len(),
+        2,
+        "Expected 2 ALPN entries in client config"
+    );
+}
+
+#[test]
+fn test_bandwidth_modes_are_distinct() {
+    let modes = [BandwidthMode::Low, BandwidthMode::Normal, BandwidthMode::High];
+    for i in 0..modes.len() {
+        for j in (i + 1)..modes.len() {
+            let a = modes[i];
+            let b = modes[j];
+            assert_ne!(
+                a.padding_interval(),
+                b.padding_interval(),
+                "{a:?} and {b:?} have same padding_interval"
+            );
+            assert_ne!(
+                a.jitter_max(),
+                b.jitter_max(),
+                "{a:?} and {b:?} have same jitter_max"
+            );
+            assert_ne!(
+                a.dummy_traffic_percent(),
+                b.dummy_traffic_percent(),
+                "{a:?} and {b:?} have same dummy_traffic_percent"
+            );
+        }
+    }
+}

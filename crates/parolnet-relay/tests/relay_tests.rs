@@ -1,10 +1,12 @@
 use parolnet_relay::*;
 use parolnet_relay::circuit::{EstablishedCircuit, StandardCircuitBuilder};
 use parolnet_relay::directory::{RelayDescriptor, RelayDirectory};
-use parolnet_relay::onion::HopKeys;
+use parolnet_relay::onion::{self, HopKeys};
 use parolnet_relay::relay_node::StandardRelayNode;
 use parolnet_protocol::address::PeerId;
+use rand::rngs::OsRng;
 use std::net::SocketAddr;
+use x25519_dalek::{PublicKey, StaticSecret};
 
 // ── Constants Tests ─────────────────────────────────────────────
 
@@ -223,4 +225,270 @@ fn test_directory_select_path() {
     assert_ne!(path[0].identity_key, path[1].identity_key);
     assert_ne!(path[1].identity_key, path[2].identity_key);
     assert_ne!(path[0].identity_key, path[2].identity_key);
+}
+
+// ── Circuit Tests (new) ────────────────────────────────────────
+
+#[tokio::test]
+async fn test_circuit_build_wrong_hop_count() {
+    let builder = StandardCircuitBuilder;
+
+    // Build two RelayInfo structs (need 3)
+    let hops: Vec<RelayInfo> = (1u8..=2)
+        .map(|id| {
+            let secret = StaticSecret::random_from_rng(&mut OsRng);
+            let public = PublicKey::from(&secret);
+            RelayInfo {
+                peer_id: PeerId([id; 32]),
+                identity_key: [id; 32],
+                x25519_key: *public.as_bytes(),
+                addr: format!("127.0.0.{id}:9000").parse().unwrap(),
+                bandwidth_class: 1,
+            }
+        })
+        .collect();
+
+    let result = builder.build_circuit(&hops).await;
+    assert!(result.is_err());
+    let err = result.err().unwrap();
+    assert!(
+        matches!(err, RelayError::CircuitBuildFailed(_)),
+        "expected CircuitBuildFailed, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_circuit_build_with_3_relays() {
+    let builder = StandardCircuitBuilder;
+
+    let hops: Vec<RelayInfo> = (1u8..=3)
+        .map(|id| {
+            let secret = StaticSecret::random_from_rng(&mut OsRng);
+            let public = PublicKey::from(&secret);
+            RelayInfo {
+                peer_id: PeerId([id; 32]),
+                identity_key: [id; 32],
+                x25519_key: *public.as_bytes(),
+                addr: format!("127.0.0.{id}:9000").parse().unwrap(),
+                bandwidth_class: 1,
+            }
+        })
+        .collect();
+
+    let circuit = builder.build_circuit(&hops).await;
+    assert!(circuit.is_ok(), "build_circuit should succeed with 3 hops");
+}
+
+#[test]
+fn test_circuit_wrap_then_manual_peel() {
+    let hop1 = HopKeys::from_shared_secret(&[10u8; 32]).unwrap();
+    let hop2 = HopKeys::from_shared_secret(&[20u8; 32]).unwrap();
+    let hop3 = HopKeys::from_shared_secret(&[30u8; 32]).unwrap();
+
+    let circuit = EstablishedCircuit::from_hop_keys(
+        vec![hop1.clone(), hop2.clone(), hop3.clone()],
+        100,
+    );
+
+    let plaintext = b"hello";
+    let encrypted = circuit.wrap_data(plaintext).unwrap();
+
+    // Manually peel three layers in order: hop1, hop2, hop3
+    let after1 = onion::onion_peel(
+        &encrypted,
+        &hop1.forward_key,
+        &hop1.forward_nonce_seed,
+        0,
+    )
+    .unwrap();
+    let after2 = onion::onion_peel(
+        &after1,
+        &hop2.forward_key,
+        &hop2.forward_nonce_seed,
+        0,
+    )
+    .unwrap();
+    let after3 = onion::onion_peel(
+        &after2,
+        &hop3.forward_key,
+        &hop3.forward_nonce_seed,
+        0,
+    )
+    .unwrap();
+
+    assert_eq!(after3, plaintext);
+}
+
+// ── Relay Node Forwarding Tests (new) ──────────────────────────
+
+#[tokio::test]
+async fn test_relay_node_data_exit_delivers() {
+    let node = StandardRelayNode::new();
+    let keys = HopKeys::from_shared_secret(&[50u8; 32]).unwrap();
+    let circuit_id = 77;
+
+    // Register as exit relay (no next_hop)
+    node.register_circuit(circuit_id, keys.clone(), None).unwrap();
+
+    // Encrypt one onion layer with the hop's forward key
+    let plaintext = b"exit-delivery-test";
+    let encrypted = onion::onion_wrap(
+        plaintext,
+        &keys.forward_key,
+        &keys.forward_nonce_seed,
+        0,
+    )
+    .unwrap();
+
+    // Build DATA cell with encrypted payload
+    let mut payload = [0u8; CELL_PAYLOAD_SIZE];
+    payload[..encrypted.len()].copy_from_slice(&encrypted);
+
+    let cell = RelayCell {
+        circuit_id,
+        cell_type: CellType::Data,
+        payload,
+        payload_len: encrypted.len() as u16,
+    };
+
+    let action = node.handle_cell(cell).await.unwrap();
+    match action {
+        RelayAction::Deliver { payload: delivered } => {
+            assert_eq!(delivered, plaintext);
+        }
+        other => panic!("expected Deliver, got: {:?}", std::mem::discriminant(&other)),
+    }
+}
+
+#[tokio::test]
+async fn test_relay_node_data_with_next_hop_forwards() {
+    let node = StandardRelayNode::new();
+    let keys = HopKeys::from_shared_secret(&[60u8; 32]).unwrap();
+    let circuit_id = 88;
+    let next_addr: SocketAddr = "10.0.0.2:443".parse().unwrap();
+    let next_cid = 200;
+
+    // Register with a next_hop
+    node.register_circuit(circuit_id, keys.clone(), Some((next_addr, next_cid)))
+        .unwrap();
+
+    let plaintext = b"forward-test-payload";
+    let encrypted = onion::onion_wrap(
+        plaintext,
+        &keys.forward_key,
+        &keys.forward_nonce_seed,
+        0,
+    )
+    .unwrap();
+
+    let mut payload = [0u8; CELL_PAYLOAD_SIZE];
+    payload[..encrypted.len()].copy_from_slice(&encrypted);
+
+    let cell = RelayCell {
+        circuit_id,
+        cell_type: CellType::Data,
+        payload,
+        payload_len: encrypted.len() as u16,
+    };
+
+    let action = node.handle_cell(cell).await.unwrap();
+    match action {
+        RelayAction::Forward { next_hop, cell: forwarded } => {
+            assert_eq!(next_hop, next_addr);
+            assert_eq!(forwarded.circuit_id, next_cid);
+        }
+        other => panic!("expected Forward, got: {:?}", std::mem::discriminant(&other)),
+    }
+}
+
+// ── Onion Edge Case Tests (new) ────────────────────────────────
+
+#[test]
+fn test_onion_encrypt_empty() {
+    let hop1 = HopKeys::from_shared_secret(&[1u8; 32]).unwrap();
+    let hop2 = HopKeys::from_shared_secret(&[2u8; 32]).unwrap();
+    let hop3 = HopKeys::from_shared_secret(&[3u8; 32]).unwrap();
+    let hops = [hop1.clone(), hop2.clone(), hop3.clone()];
+    let counters = [0u32, 0, 0];
+
+    let encrypted = onion::onion_encrypt(b"", &hops, &counters).unwrap();
+
+    // Peel 3 layers
+    let after1 = onion::onion_peel(&encrypted, &hop1.forward_key, &hop1.forward_nonce_seed, 0).unwrap();
+    let after2 = onion::onion_peel(&after1, &hop2.forward_key, &hop2.forward_nonce_seed, 0).unwrap();
+    let after3 = onion::onion_peel(&after2, &hop3.forward_key, &hop3.forward_nonce_seed, 0).unwrap();
+
+    assert_eq!(after3, b"");
+}
+
+#[test]
+fn test_onion_key_counter_mismatch() {
+    let hop1 = HopKeys::from_shared_secret(&[1u8; 32]).unwrap();
+    let hop2 = HopKeys::from_shared_secret(&[2u8; 32]).unwrap();
+    let hops = [hop1, hop2];
+    let counters = [0u32, 0, 0]; // 3 counters for 2 hops — mismatch
+
+    let result = onion::onion_encrypt(b"test", &hops, &counters);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_onion_wrong_key_peel_fails() {
+    let hop1 = HopKeys::from_shared_secret(&[1u8; 32]).unwrap();
+    let hop2 = HopKeys::from_shared_secret(&[2u8; 32]).unwrap();
+
+    // Encrypt with hop1's key
+    let encrypted = onion::onion_wrap(
+        b"secret data",
+        &hop1.forward_key,
+        &hop1.forward_nonce_seed,
+        0,
+    )
+    .unwrap();
+
+    // Try to peel with hop2's key — should fail with AeadFailed
+    let result = onion::onion_peel(
+        &encrypted,
+        &hop2.forward_key,
+        &hop2.forward_nonce_seed,
+        0,
+    );
+    assert!(result.is_err());
+    assert!(
+        matches!(result.unwrap_err(), RelayError::AeadFailed),
+        "expected AeadFailed error"
+    );
+}
+
+// ── Directory / Cell Edge Case Tests (new) ─────────────────────
+
+#[test]
+fn test_cell_from_bytes_invalid_type() {
+    let mut buf = [0u8; CELL_SIZE];
+    // circuit_id = 1
+    buf[0..4].copy_from_slice(&1u32.to_be_bytes());
+    // cell_type = 0x00 (invalid)
+    buf[4] = 0x00;
+    // payload_len = 0
+    buf[5] = 0;
+    buf[6] = 0;
+
+    let result = RelayCell::from_bytes(&buf);
+    assert!(result.is_err());
+    let err = result.err().unwrap();
+    assert!(
+        matches!(err, RelayError::InvalidCellType(0x00)),
+        "expected InvalidCellType(0x00), got: {err:?}"
+    );
+}
+
+#[test]
+fn test_directory_select_path_insufficient_relays() {
+    let mut dir = RelayDirectory::new();
+    // Only 2 relays — need at least 3 for a path
+    dir.insert(make_descriptor(1, 30));
+    dir.insert(make_descriptor(2, 20));
+
+    let path = dir.select_path();
+    assert!(path.is_none(), "select_path should return None with only 2 relays");
 }

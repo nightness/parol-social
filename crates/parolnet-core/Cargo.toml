@@ -29,3 +29,7 @@ serde_bytes.workspace = true
 [dev-dependencies]
 tokio-test.workspace = true
 x25519-dalek.workspace = true
+hex.workspace = true
+parolnet-crypto.workspace = true
+parolnet-protocol.workspace = true
+parolnet-relay.workspace = true

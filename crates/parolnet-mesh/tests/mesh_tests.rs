@@ -206,3 +206,168 @@ async fn test_store_expire() {
     assert_eq!(expired, 1);
     assert_eq!(store.count_for_peer(&peer), 0);
 }
+
+// ── Additional Bloom Filter Tests ───────────────────────────────
+
+#[test]
+fn test_bloom_filter_false_positive_rate() {
+    let mut bloom = SeenBloomFilter::new();
+
+    // Insert 100 distinct PeerIds
+    for i in 0u8..100 {
+        bloom.insert(&PeerId([i; 32]));
+    }
+
+    // Verify all inserted entries are found
+    for i in 0u8..100 {
+        assert!(bloom.probably_contains(&PeerId([i; 32])));
+    }
+
+    // Check 1000 non-inserted PeerIds and count false positives
+    let mut false_positives = 0u32;
+    for i in 100u16..1100 {
+        let mut id = [0u8; 32];
+        id[0] = (i & 0xFF) as u8;
+        id[1] = (i >> 8) as u8;
+        if bloom.probably_contains(&PeerId(id)) {
+            false_positives += 1;
+        }
+    }
+
+    // FP rate should be < 5% (fewer than 50 out of 1000)
+    assert!(
+        false_positives < 50,
+        "False positive rate too high: {false_positives}/1000 = {}%",
+        false_positives as f64 / 10.0
+    );
+}
+
+// ── Additional Dedup Filter Tests ───────────────────────────────
+
+#[test]
+fn test_dedup_filter_len() {
+    let dedup = DedupFilter::new();
+    for i in 0u8..10 {
+        dedup.mark_seen([i; 32]);
+    }
+    assert_eq!(dedup.len(), 10);
+}
+
+#[test]
+fn test_dedup_filter_double_rotate_clears() {
+    let dedup = DedupFilter::new();
+    let id = [0xAA; 32];
+
+    dedup.mark_seen(id);
+    assert!(dedup.is_seen(&id));
+
+    dedup.rotate(); // id moves to previous
+    assert!(dedup.is_seen(&id)); // still visible in previous
+
+    dedup.rotate(); // previous is discarded
+    assert!(!dedup.is_seen(&id)); // id is gone
+}
+
+// ── Additional Store-and-Forward Tests ──────────────────────────
+
+#[tokio::test]
+async fn test_store_retrieve_empty_peer() {
+    let store = InMemoryStore::new();
+    let peer = PeerId([0xFF; 32]);
+
+    let messages = store.retrieve(&peer).await.unwrap();
+    assert!(messages.is_empty());
+}
+
+#[tokio::test]
+async fn test_store_multiple_peers() {
+    let store = InMemoryStore::new();
+    let peer_a = PeerId([1; 32]);
+    let peer_b = PeerId([2; 32]);
+    let peer_c = PeerId([3; 32]);
+
+    // Store 2 messages for peer_a, 3 for peer_b, 1 for peer_c
+    for i in 0..2u8 {
+        let mut env = make_test_envelope(peer_a);
+        env.header.message_id[0] = i;
+        store.store(&env, Duration::from_secs(3600)).await.unwrap();
+    }
+    for i in 0..3u8 {
+        let mut env = make_test_envelope(peer_b);
+        env.header.message_id[0] = i;
+        store.store(&env, Duration::from_secs(3600)).await.unwrap();
+    }
+    {
+        let env = make_test_envelope(peer_c);
+        store.store(&env, Duration::from_secs(3600)).await.unwrap();
+    }
+
+    assert_eq!(store.count_for_peer(&peer_a), 2);
+    assert_eq!(store.count_for_peer(&peer_b), 3);
+    assert_eq!(store.count_for_peer(&peer_c), 1);
+
+    // Retrieve each independently and verify counts
+    let msgs_a = store.retrieve(&peer_a).await.unwrap();
+    assert_eq!(msgs_a.len(), 2);
+    assert_eq!(store.count_for_peer(&peer_a), 0); // cleared after retrieve
+
+    let msgs_b = store.retrieve(&peer_b).await.unwrap();
+    assert_eq!(msgs_b.len(), 3);
+
+    let msgs_c = store.retrieve(&peer_c).await.unwrap();
+    assert_eq!(msgs_c.len(), 1);
+}
+
+#[tokio::test]
+async fn test_store_eviction_order() {
+    let store = InMemoryStore::new();
+    let peer = PeerId([1; 32]);
+
+    // Store exactly MAX_MESSAGES_PER_PEER (256) messages
+    for i in 0..256u16 {
+        let mut env = make_test_envelope(peer);
+        env.header.message_id[0] = (i & 0xFF) as u8;
+        env.header.message_id[1] = (i >> 8) as u8;
+        store.store(&env, Duration::from_secs(3600)).await.unwrap();
+    }
+    assert_eq!(store.count_for_peer(&peer), 256);
+
+    // Store one more — should trigger eviction, count stays at 256
+    let mut env = make_test_envelope(peer);
+    env.header.message_id[0] = 0xFF;
+    env.header.message_id[1] = 0xFF;
+    store.store(&env, Duration::from_secs(3600)).await.unwrap();
+    assert_eq!(store.count_for_peer(&peer), 256);
+}
+
+// ── Additional Proof-of-Work Tests ──────────────────────────────
+
+#[test]
+fn test_pow_difficulty_16() {
+    let msg_id = [0x42; 32];
+    let sender = PeerId([0x13; 32]);
+    let timestamp = 1700000000u64;
+    let difficulty = 16;
+
+    let nonce = ProofOfWork::compute(&msg_id, &sender, timestamp, difficulty);
+    assert!(ProofOfWork::verify(&msg_id, &sender, timestamp, &nonce, difficulty));
+}
+
+#[test]
+fn test_pow_different_inputs_different_nonces() {
+    let msg_id_1 = [0x01; 32];
+    let msg_id_2 = [0x02; 32];
+    let sender = PeerId([0xAA; 32]);
+    let timestamp = 1700000000u64;
+    let difficulty = 8;
+
+    let nonce_1 = ProofOfWork::compute(&msg_id_1, &sender, timestamp, difficulty);
+    let nonce_2 = ProofOfWork::compute(&msg_id_2, &sender, timestamp, difficulty);
+
+    // Both should verify correctly
+    assert!(ProofOfWork::verify(&msg_id_1, &sender, timestamp, &nonce_1, difficulty));
+    assert!(ProofOfWork::verify(&msg_id_2, &sender, timestamp, &nonce_2, difficulty));
+
+    // Nonces should differ for different inputs
+    assert_ne!(nonce_1, nonce_2);
+}
