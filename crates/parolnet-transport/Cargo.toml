@@ -22,3 +22,5 @@ futures-util.workspace = true
 
 [dev-dependencies]
 tokio-test.workspace = true
+rcgen.workspace = true
+tokio = { workspace = true, features = ["full", "macros", "rt-multi-thread"] }

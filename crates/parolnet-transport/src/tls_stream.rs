@@ -45,6 +45,20 @@ impl TlsTransport {
             server_config: Some(Arc::new(server_config)),
         })
     }
+
+    /// Create a TLS transport with explicit client and server configs.
+    ///
+    /// Useful for testing with self-signed certificates where the default
+    /// client config (which trusts only webpki roots) would reject the cert.
+    pub fn with_configs(
+        client_config: rustls::ClientConfig,
+        server_config: rustls::ServerConfig,
+    ) -> Self {
+        Self {
+            client_config: Arc::new(client_config),
+            server_config: Some(Arc::new(server_config)),
+        }
+    }
 }
 
 /// A TLS connection wrapping a tokio TCP stream.

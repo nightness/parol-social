@@ -1,6 +1,10 @@
 use parolnet_transport::noise::{BandwidthMode, StandardShaper};
 use parolnet_transport::tls_camouflage::FingerprintProfile;
+use parolnet_transport::tls_stream::TlsTransport;
 use parolnet_transport::traits::TrafficShaper;
+use parolnet_transport::websocket::WebSocketConnection;
+use parolnet_transport::{Connection, Listener, Transport, TransportError};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 // ── Bandwidth Mode Tests ────────────────────────────────────────
@@ -242,5 +246,120 @@ fn test_bandwidth_modes_are_distinct() {
                 "{a:?} and {b:?} have same dummy_traffic_percent"
             );
         }
+    }
+}
+
+// ── Helper: build TlsTransport with self-signed cert ──────────────
+
+/// Generate a self-signed cert for "www.example.com" (matching the
+/// hardcoded SNI in TlsTransport::connect) and return a TlsTransport
+/// configured to trust it.
+fn build_test_tls_transport() -> TlsTransport {
+    let rcgen::CertifiedKey { cert, key_pair } =
+        rcgen::generate_simple_self_signed(vec!["www.example.com".to_string()])
+            .expect("generate self-signed cert");
+
+    let cert_der = cert.der().clone();
+    let key_der = key_pair.serialize_der();
+
+    // Server config
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![rustls::pki_types::CertificateDer::from(cert_der.to_vec())],
+            rustls::pki_types::PrivateKeyDer::Pkcs8(
+                rustls::pki_types::PrivatePkcs8KeyDer::from(key_der),
+            ),
+        )
+        .expect("build server config");
+
+    // Client config trusting the self-signed cert
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.add(cert_der).expect("add self-signed cert to root store");
+    let client_config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    TlsTransport::with_configs(client_config, server_config)
+}
+
+// ── TLS Loopback Tests ────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_tls_loopback_send_recv() {
+    let transport = build_test_tls_transport();
+
+    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let listener = transport.listen(addr).await.expect("listen");
+    let bound_addr = listener.local_addr();
+
+    // Spawn echo server
+    let server_handle = tokio::spawn(async move {
+        let conn = listener.accept().await.expect("accept");
+        let data = conn.recv().await.expect("server recv");
+        conn.send(&data).await.expect("server send");
+        conn.close().await.expect("server close");
+    });
+
+    // Client connects, sends, receives echo
+    let client_conn = transport.connect(bound_addr).await.expect("connect");
+    client_conn.send(b"hello parolnet").await.expect("client send");
+    let echoed = client_conn.recv().await.expect("client recv");
+    assert_eq!(echoed, b"hello parolnet");
+    client_conn.close().await.expect("client close");
+
+    server_handle.await.expect("server task");
+}
+
+#[tokio::test]
+async fn test_tls_connect_refused() {
+    let transport = build_test_tls_transport();
+    // Port 1 should have nothing listening (and even if it did, our
+    // self-signed cert wouldn't match).
+    let addr: SocketAddr = "127.0.0.1:1".parse().unwrap();
+    let result = transport.connect(addr).await;
+    assert!(result.is_err(), "connecting to a closed port should fail");
+}
+
+#[tokio::test]
+async fn test_tls_loopback_multiple_messages() {
+    let transport = build_test_tls_transport();
+
+    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let listener = transport.listen(addr).await.expect("listen");
+    let bound_addr = listener.local_addr();
+
+    // Spawn echo server that echoes 10 messages
+    let server_handle = tokio::spawn(async move {
+        let conn = listener.accept().await.expect("accept");
+        for _ in 0..10 {
+            let data = conn.recv().await.expect("server recv");
+            conn.send(&data).await.expect("server send");
+        }
+        conn.close().await.expect("server close");
+    });
+
+    let client_conn = transport.connect(bound_addr).await.expect("connect");
+    for i in 0..10u32 {
+        let msg = format!("message {i}");
+        client_conn.send(msg.as_bytes()).await.expect("client send");
+        let echoed = client_conn.recv().await.expect("client recv");
+        assert_eq!(echoed, msg.as_bytes(), "echo mismatch at message {i}");
+    }
+    client_conn.close().await.expect("client close");
+
+    server_handle.await.expect("server task");
+}
+
+// ── WebSocket Error Test ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_websocket_connect_invalid_url() {
+    let result = WebSocketConnection::connect("ws://127.0.0.1:1/invalid").await;
+    assert!(result.is_err(), "connecting to invalid WS URL should fail");
+    match result {
+        Err(TransportError::ConnectionFailed(_)) => {} // expected
+        Err(other) => panic!("expected ConnectionFailed, got: {other:?}"),
+        Ok(_) => panic!("expected error, got Ok"),
     }
 }

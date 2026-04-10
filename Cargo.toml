@@ -70,3 +70,4 @@ hex = "0.4"
 # Testing
 proptest = "1"
 tokio-test = "0.4"
+rcgen = "0.13"
