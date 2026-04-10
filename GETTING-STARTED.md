@@ -239,7 +239,7 @@ After building the PWA, you need to serve it over HTTP. The Service Worker requi
 
 ```bash
 docker compose up -d
-# Open http://localhost:8080
+# Open http://localhost:1411
 ```
 
 This serves the distribution landing page at `/` and the PWA at `/pwa/`. To stop:
@@ -251,8 +251,8 @@ docker compose down
 #### Using Node.js
 
 ```bash
-npx serve pwa -l 8080
-# Open http://localhost:8080
+npx serve pwa -l 1411
+# Open http://localhost:1411
 ```
 
 #### Testing on Other Devices
@@ -261,7 +261,7 @@ The Service Worker will not register on non-localhost HTTP connections. To test 
 
 1. **ngrok** -- exposes your local server over HTTPS:
    ```bash
-   ngrok http 8080
+   ngrok http 1411
    ```
 2. **Self-signed certificate** -- set up HTTPS on your local server. The browser will show a warning, but the Service Worker will work.
 
@@ -445,7 +445,7 @@ Host the PWA as a Tor `.onion` site for anonymous access.
 #### Service Worker not registering
 
 - The Service Worker requires **HTTPS** or **localhost**. It will not register on plain HTTP served from a network IP address.
-- If testing locally, use `http://localhost:8080`, not `http://192.168.x.x:8080`.
+- If testing locally, use `http://localhost:1411`, not `http://192.168.x.x:1411`.
 - For testing on other devices, use ngrok or set up HTTPS.
 
 #### Calculator not showing on launch

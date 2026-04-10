@@ -18,7 +18,7 @@ A `Dockerfile` and `docker-compose.yml` are provided at the project root.
 # Build and run
 docker compose up -d
 
-# View at http://localhost:8080
+# View at http://localhost:1411
 # Stop
 docker compose down
 ```
@@ -27,7 +27,7 @@ docker compose down
 
 ```bash
 docker build -t parolnet .
-docker run -d -p 8080:80 parolnet
+docker run -d -p 1411:80 parolnet
 ```
 
 The Docker image uses `nginx:alpine` (~5 MB) and serves both the distribution landing page (at `/`) and the PWA (at `/pwa/`).
@@ -45,7 +45,7 @@ These are plain static HTML files with zero dependencies. Any static file server
 ## Important Notes
 
 - **WASM MIME type** — WASM files must be served with `Content-Type: application/wasm`. The included `nginx.conf` handles this. If using a different server, configure it accordingly.
-- **Service Worker requires HTTPS** — The Service Worker will only register over HTTPS or on `localhost`. For production deployments, use HTTPS. For local development, `http://localhost:8080` works fine.
+- **Service Worker requires HTTPS** — The Service Worker will only register over HTTPS or on `localhost`. For production deployments, use HTTPS. For local development, `http://localhost:1411` works fine.
 
 ## Directory Structure
 
