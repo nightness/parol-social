@@ -142,7 +142,47 @@
       margin-top: 4px;
     }
 
-    /* How to Install */
+    /* Platform-specific install instructions */
+    .install-instructions {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      margin-top: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .install-instructions h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .install-steps {
+      display: none;
+    }
+    .install-steps.active {
+      display: block;
+    }
+    .install-steps ol {
+      padding-left: 20px;
+    }
+    .install-steps li {
+      font-size: 14px;
+      color: #3a3a3c;
+      margin-bottom: 12px;
+      line-height: 1.6;
+    }
+    .install-steps li:last-child { margin-bottom: 0; }
+    .step-icon {
+      display: inline-block;
+      font-size: 18px;
+      vertical-align: middle;
+    }
+    .step-highlight {
+      background: #f0f0f5;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-weight: 600;
+      font-size: 13px;
+    }
     .how-to {
       background: #fff;
       border-radius: 16px;
@@ -306,21 +346,69 @@
       </div>
     </div>
 
-    <!-- Install -->
+    <!-- Install — platform-aware -->
     <div class="install-section">
-      <a href="/pwa/index.html?mode=calc" class="install-btn">Install App</a>
-      <p class="install-note">Works on Android, iPhone, Windows, Mac, Linux</p>
-      <p class="install-note-small">No app store required. Opens in your browser.</p>
+      <!-- Android/Desktop: install button (uses beforeinstallprompt) -->
+      <button class="install-btn" id="install-btn-prompt" style="display:none" onclick="installPWA()">Install App</button>
+      <!-- iOS: no install button, show instructions instead -->
+      <a href="/pwa/index.html?mode=calc" class="install-btn" id="install-btn-open" style="display:none">Open App</a>
+      <p class="install-note" id="install-platform-note"></p>
+      <p class="install-note-small">No app store required.</p>
     </div>
 
-    <!-- How to Install -->
+    <!-- Platform-specific install instructions -->
+    <div class="install-instructions">
+      <h3>How to Install</h3>
+
+      <!-- iOS (Safari) -->
+      <div class="install-steps" id="steps-ios">
+        <ol>
+          <li>Tap <span class="step-highlight">Open App</span> above to open the calculator in Safari.</li>
+          <li>Tap the <span class="step-icon">&#x2B06;&#xFE0E;</span> <strong>Share</strong> button at the bottom of Safari (square with an arrow pointing up).</li>
+          <li>Scroll down and tap <span class="step-highlight">Add to Home Screen</span>.</li>
+          <li>Tap <strong>Add</strong> in the top right corner.</li>
+          <li>The app now appears on your home screen as <strong>Calculator</strong>.</li>
+        </ol>
+      </div>
+
+      <!-- Android (Chrome) -->
+      <div class="install-steps" id="steps-android">
+        <ol>
+          <li>Tap <span class="step-highlight">Install App</span> above.</li>
+          <li>Chrome will show an <strong>Install</strong> banner &mdash; tap <strong>Install</strong>.</li>
+          <li>If no banner appears: tap the <span class="step-icon">&#x22EE;</span> <strong>three-dot menu</strong> in Chrome, then <span class="step-highlight">Add to Home Screen</span> or <span class="step-highlight">Install app</span>.</li>
+          <li>The app appears on your home screen as <strong>Calculator</strong>.</li>
+        </ol>
+      </div>
+
+      <!-- Desktop (Chrome/Edge) -->
+      <div class="install-steps" id="steps-desktop">
+        <ol>
+          <li>Tap <span class="step-highlight">Install App</span> above.</li>
+          <li>Your browser will show an install dialog &mdash; click <strong>Install</strong>.</li>
+          <li>If no dialog appears: look for the <span class="step-icon">&#x2B07;&#xFE0E;</span> install icon in the address bar, or go to <strong>Menu &rarr; Install Calculator</strong>.</li>
+          <li>The app opens as a standalone window and appears in your app launcher.</li>
+        </ol>
+      </div>
+
+      <!-- Fallback -->
+      <div class="install-steps" id="steps-fallback">
+        <ol>
+          <li>Tap <span class="step-highlight">Open App</span> above.</li>
+          <li>Use your browser's menu to <strong>Add to Home Screen</strong> or <strong>Install</strong>.</li>
+          <li>The app appears on your device like any other app.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Other platforms (collapsed) -->
     <details class="how-to">
-      <summary>How to install</summary>
+      <summary>Instructions for other devices</summary>
       <ol>
-        <li>Tap <strong>Install App</strong> above.</li>
-        <li>Your browser will ask to <strong>Add to Home Screen</strong> &mdash; tap Yes.</li>
-        <li>The app appears on your home screen like any other app.</li>
-        <li>Open it and start using!</li>
+        <li><strong>iPhone/iPad:</strong> Open in Safari &rarr; tap Share <span class="step-icon">&#x2B06;&#xFE0E;</span> &rarr; Add to Home Screen.</li>
+        <li><strong>Android:</strong> Open in Chrome &rarr; tap &#x22EE; menu &rarr; Install app / Add to Home Screen.</li>
+        <li><strong>Windows/Mac/Linux:</strong> Open in Chrome or Edge &rarr; click install icon in address bar.</li>
+        <li><strong>Firefox:</strong> Firefox does not support installing web apps. Use Chrome, Edge, or Safari instead.</li>
       </ol>
     </details>
 
@@ -341,6 +429,7 @@
   </div>
 
   <script>
+    // ── Privacy overlay ────────────────────────────────────
     document.getElementById('privacy-link').addEventListener('click', function(e) {
       e.preventDefault();
       document.getElementById('privacy-overlay').classList.add('visible');
@@ -351,6 +440,67 @@
     document.getElementById('privacy-overlay').addEventListener('click', function(e) {
       if (e.target === this) this.classList.remove('visible');
     });
+
+    // ── Platform detection ─────────────────────────────────
+    var ua = navigator.userAgent;
+    var isIOS = /iPhone|iPad|iPod/.test(ua) && !window.MSStream;
+    var isAndroid = /Android/.test(ua);
+    var isSafari = /Safari/.test(ua) && !/Chrome/.test(ua);
+    var platform = isIOS ? 'ios' : isAndroid ? 'android' : 'desktop';
+
+    // Show correct install steps
+    var stepsId = 'steps-' + platform;
+    var stepsEl = document.getElementById(stepsId);
+    if (stepsEl) stepsEl.classList.add('active');
+    else document.getElementById('steps-fallback').classList.add('active');
+
+    // ── Install button logic ───────────────────────────────
+    var deferredPrompt = null;
+    var btnPrompt = document.getElementById('install-btn-prompt');
+    var btnOpen = document.getElementById('install-btn-open');
+    var platformNote = document.getElementById('install-platform-note');
+
+    if (isIOS) {
+      // iOS: no install prompt available — show "Open App" + Safari instructions
+      btnOpen.style.display = 'inline-block';
+      platformNote.textContent = 'Works on iPhone, iPad, Android, Windows, Mac, Linux';
+    } else {
+      // Android/Desktop: try to capture beforeinstallprompt
+      btnOpen.style.display = 'inline-block'; // show Open as fallback initially
+      btnOpen.textContent = 'Open App';
+      platformNote.textContent = 'Works on Android, iPhone, Windows, Mac, Linux';
+
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        deferredPrompt = e;
+        // Replace "Open" with "Install"
+        btnOpen.style.display = 'none';
+        btnPrompt.style.display = 'inline-block';
+      });
+
+      window.addEventListener('appinstalled', function() {
+        btnPrompt.style.display = 'none';
+        btnOpen.style.display = 'none';
+        platformNote.textContent = 'App installed! Check your home screen.';
+        deferredPrompt = null;
+      });
+    }
+
+    function installPWA() {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then(function(result) {
+          if (result.outcome === 'accepted') {
+            platformNote.textContent = 'Installing...';
+          }
+          deferredPrompt = null;
+        });
+      } else {
+        // Fallback: just open the PWA page
+        window.location.href = '/pwa/index.html?mode=calc';
+      }
+    }
+    window.installPWA = installPWA;
   </script>
 
 </body>
