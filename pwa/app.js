@@ -608,42 +608,64 @@ function stopQRScanner() {
 
 function renderBootstrapQR() {
     const canvas = document.getElementById('qr-canvas');
-    if (!canvas) return;
+    const codeEl = document.getElementById('qr-share-code');
 
-    let data = 'parolnet:' + (window._peerId || 'no-identity');
+    // Build the shareable data — always have something to show
+    let data = '';
 
-    if (wasm && wasm.generate_qr_payload && wasm.get_public_key) {
+    // Try WASM first
+    if (wasm && wasm.get_public_key) {
         try {
-            data = wasm.generate_qr_payload(wasm.get_public_key(), null);
+            const pubKey = wasm.get_public_key();
+            if (pubKey && pubKey.length > 0) {
+                if (wasm.generate_qr_payload) {
+                    data = wasm.generate_qr_payload(pubKey, null);
+                }
+                // If generate_qr_payload returned empty, use the public key directly
+                if (!data) {
+                    data = 'parolnet:' + pubKey;
+                }
+            }
         } catch(e) {
             console.warn('QR payload generation failed:', e);
         }
     }
 
-    // Use the real QR code library (qrcode.js loaded as global)
-    if (typeof makeQR === 'function' && typeof renderQRToCanvas === 'function') {
+    // Fallback: use stored peerId
+    if (!data && window._peerId) {
+        data = 'parolnet:' + window._peerId;
+    }
+
+    // Last resort: generate a fresh identity just for display
+    if (!data) {
+        if (wasm && wasm.generate_identity) {
+            data = 'parolnet:' + wasm.generate_identity();
+        } else {
+            data = 'parolnet:app-not-loaded';
+        }
+    }
+
+    // Show the text code — always visible
+    if (codeEl) {
+        codeEl.textContent = data;
+        codeEl.style.wordBreak = 'break-all';
+    }
+
+    // Render QR code on canvas
+    if (canvas && typeof makeQR === 'function' && typeof renderQRToCanvas === 'function') {
         try {
             const qr = makeQR(data);
             renderQRToCanvas(qr, canvas, 2);
         } catch(e) {
-            console.error('QR render failed:', e);
-            // Fallback: show text
+            console.error('QR render error:', e);
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = '#fff';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#333';
-            ctx.font = '12px monospace';
+            ctx.font = '11px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText('QR generation failed', canvas.width/2, canvas.height/2);
+            ctx.fillText('QR error — use code below', canvas.width/2, canvas.height/2);
         }
-    } else {
-        console.warn('QR library not loaded');
-    }
-
-    // Show shareable text code
-    const codeEl = document.getElementById('qr-share-code');
-    if (codeEl) {
-        codeEl.textContent = data;
     }
 }
 
