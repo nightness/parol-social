@@ -9,6 +9,7 @@
 //! - Decoy mode (fake app UI for plausible deniability)
 //! - C FFI for mobile integration
 
+pub mod audio;
 pub mod bootstrap;
 pub mod call;
 pub mod client;
@@ -19,6 +20,7 @@ pub mod ffi;
 pub mod file_transfer;
 pub mod panic;
 pub mod session;
+pub mod video;
 
 pub use config::ParolNetConfig;
 pub use error::CoreError;

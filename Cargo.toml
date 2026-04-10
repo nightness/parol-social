@@ -67,6 +67,10 @@ curve25519-dalek = "4"
 futures-util = "0.3"
 hex = "0.4"
 
+# Audio codecs
+opus-rs = "0.1"
+codec2 = "0.3"
+
 # Testing
 proptest = "1"
 tokio-test = "0.4"

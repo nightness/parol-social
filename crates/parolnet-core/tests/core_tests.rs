@@ -460,6 +460,169 @@ fn test_file_transfer_progress() {
     assert!(sender.is_complete());
 }
 
+// ── Audio Codec Tests ───────────────────────────────────────────
+
+#[test]
+fn test_opus_encode_decode_roundtrip() {
+    use parolnet_core::audio::{AudioConfig, AudioDecoder, AudioEncoder};
+    use parolnet_protocol::media::AudioCodec;
+
+    let config = AudioConfig::default(); // Opus, 16kHz, mono
+    let mut encoder = AudioEncoder::new(&config).unwrap();
+    let mut decoder = AudioDecoder::new(&config).unwrap();
+
+    // Generate 20ms of silence (320 samples at 16kHz)
+    let pcm_input = vec![0i16; encoder.frame_samples()];
+
+    let encoded = encoder.encode(&pcm_input).unwrap();
+    assert!(!encoded.is_empty());
+    assert!(encoded.len() < 200); // Opus should compress silence heavily
+
+    let decoded = decoder.decode(&encoded).unwrap();
+    assert!(!decoded.is_empty());
+    // Decoded length should match input (320 samples)
+    assert_eq!(decoded.len(), pcm_input.len());
+}
+
+#[test]
+fn test_codec2_encode_decode_roundtrip() {
+    use parolnet_core::audio::{AudioConfig, AudioDecoder, AudioEncoder};
+
+    let config = AudioConfig::low_bandwidth(); // Codec2, 8kHz
+    let mut encoder = AudioEncoder::new(&config).unwrap();
+    let mut decoder = AudioDecoder::new(&config).unwrap();
+
+    // Generate one frame of silence (samples_per_frame for MODE_3200 = 160)
+    let pcm_input = vec![0i16; encoder.frame_samples()];
+
+    let encoded = encoder.encode(&pcm_input).unwrap();
+    assert!(!encoded.is_empty());
+    assert!(encoded.len() <= 16); // Codec2 3200bps: 8 bytes per frame
+
+    let decoded = decoder.decode(&encoded).unwrap();
+    assert!(!decoded.is_empty());
+    assert_eq!(decoded.len(), pcm_input.len());
+}
+
+#[test]
+fn test_audio_config_default() {
+    use parolnet_core::audio::AudioConfig;
+    use parolnet_protocol::media::AudioCodec;
+
+    let config = AudioConfig::default();
+    assert_eq!(config.codec, AudioCodec::Opus);
+    assert_eq!(config.sample_rate, 16000);
+    assert_eq!(config.channels, 1);
+}
+
+#[test]
+fn test_audio_config_low_bandwidth() {
+    use parolnet_core::audio::AudioConfig;
+    use parolnet_protocol::media::AudioCodec;
+
+    let config = AudioConfig::low_bandwidth();
+    assert_eq!(config.codec, AudioCodec::Codec2);
+    assert_eq!(config.sample_rate, 8000);
+}
+
+// ── Video Framing Tests ─────────────────────────────────────────
+
+#[test]
+fn test_video_fragment_small_frame() {
+    use parolnet_core::video::{fragment_video_frame, reassemble_video_frame, VideoFrame};
+    use parolnet_protocol::media::VideoCodec;
+
+    let frame = VideoFrame {
+        codec: VideoCodec::VP8,
+        width: 320,
+        height: 240,
+        is_keyframe: true,
+        timestamp: 1000,
+        data: vec![0xAB; 200], // fits in one fragment
+    };
+
+    let fragments = fragment_video_frame(&frame, 1);
+    assert_eq!(fragments.len(), 1);
+    assert!(fragments[0].is_keyframe);
+    assert_eq!(fragments[0].data.len(), 200);
+
+    let mut frags = fragments;
+    let reassembled = reassemble_video_frame(&mut frags, VideoCodec::VP8, 320, 240).unwrap();
+    assert_eq!(reassembled.data, frame.data);
+    assert!(reassembled.is_keyframe);
+}
+
+#[test]
+fn test_video_fragment_large_frame() {
+    use parolnet_core::video::{
+        fragment_video_frame, reassemble_video_frame, VideoFrame, MAX_FRAGMENT_SIZE,
+    };
+    use parolnet_protocol::media::VideoCodec;
+
+    // 10KB frame -- should split into ceil(10000/440) = 23 fragments
+    let frame = VideoFrame {
+        codec: VideoCodec::VP8,
+        width: 640,
+        height: 480,
+        is_keyframe: false,
+        timestamp: 2000,
+        data: vec![0xCD; 10_000],
+    };
+
+    let fragments = fragment_video_frame(&frame, 42);
+    let expected_count = (10_000 + MAX_FRAGMENT_SIZE - 1) / MAX_FRAGMENT_SIZE;
+    assert_eq!(fragments.len(), expected_count);
+
+    // Verify sequential fragment indices
+    for (i, frag) in fragments.iter().enumerate() {
+        assert_eq!(frag.fragment_index, i as u16);
+        assert_eq!(frag.total_fragments, expected_count as u16);
+        assert_eq!(frag.frame_id, 42);
+    }
+
+    let mut frags = fragments;
+    let reassembled = reassemble_video_frame(&mut frags, VideoCodec::VP8, 640, 480).unwrap();
+    assert_eq!(reassembled.data, frame.data);
+}
+
+#[test]
+fn test_video_fragment_empty_frame() {
+    use parolnet_core::video::{fragment_video_frame, VideoFrame};
+    use parolnet_protocol::media::VideoCodec;
+
+    let frame = VideoFrame {
+        codec: VideoCodec::VP9,
+        width: 320,
+        height: 240,
+        is_keyframe: false,
+        timestamp: 0,
+        data: vec![],
+    };
+
+    let fragments = fragment_video_frame(&frame, 0);
+    assert_eq!(fragments.len(), 1);
+    assert!(fragments[0].data.is_empty());
+}
+
+#[test]
+fn test_video_reassemble_missing_fragment() {
+    use parolnet_core::video::{reassemble_video_frame, VideoFragment};
+    use parolnet_protocol::media::VideoCodec;
+
+    // Only provide fragment 0 of 3
+    let mut fragments = vec![VideoFragment {
+        frame_id: 1,
+        fragment_index: 0,
+        total_fragments: 3,
+        is_keyframe: true,
+        timestamp: 100,
+        data: vec![0xAB; 100],
+    }];
+
+    let result = reassemble_video_frame(&mut fragments, VideoCodec::VP8, 320, 240);
+    assert!(result.is_err());
+}
+
 // ── Call Signaling Tests ────────────────────────────────────────
 
 #[test]

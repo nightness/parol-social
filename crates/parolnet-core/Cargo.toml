@@ -25,6 +25,8 @@ subtle.workspace = true
 rand.workspace = true
 zeroize.workspace = true
 serde_bytes.workspace = true
+opus-rs.workspace = true
+codec2.workspace = true
 
 [dev-dependencies]
 tokio-test.workspace = true
