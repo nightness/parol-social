@@ -363,3 +363,196 @@ async fn test_websocket_connect_invalid_url() {
         Ok(_) => panic!("expected error, got Ok"),
     }
 }
+
+// ── WebSocket Loopback Tests ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_websocket_loopback_send_recv() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let tcp_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = tcp_listener.local_addr().unwrap().port();
+
+    // Spawn echo server
+    let server_handle = tokio::spawn(async move {
+        let (stream, _) = tcp_listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+        if let Some(Ok(msg)) = ws.next().await {
+            if let Message::Binary(data) = msg {
+                ws.send(Message::Binary(data)).await.unwrap();
+            }
+        }
+        ws.close(None).await.ok();
+    });
+
+    let conn = WebSocketConnection::connect(&format!("ws://127.0.0.1:{port}"))
+        .await
+        .expect("connect");
+    conn.send(b"hello websocket").await.expect("send");
+    let echoed = conn.recv().await.expect("recv");
+    assert_eq!(echoed, b"hello websocket");
+    conn.close().await.expect("close");
+
+    server_handle.await.expect("server task");
+}
+
+#[tokio::test]
+async fn test_websocket_loopback_multiple_messages() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let tcp_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = tcp_listener.local_addr().unwrap().port();
+
+    let server_handle = tokio::spawn(async move {
+        let (stream, _) = tcp_listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+        while let Some(Ok(msg)) = ws.next().await {
+            match msg {
+                Message::Binary(data) => {
+                    ws.send(Message::Binary(data)).await.unwrap();
+                }
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    });
+
+    let conn = WebSocketConnection::connect(&format!("ws://127.0.0.1:{port}"))
+        .await
+        .expect("connect");
+
+    for i in 0..5u32 {
+        let msg = format!("message {i}");
+        conn.send(msg.as_bytes()).await.expect("send");
+        let echoed = conn.recv().await.expect("recv");
+        assert_eq!(echoed, msg.as_bytes(), "echo mismatch at message {i}");
+    }
+    conn.close().await.expect("close");
+
+    server_handle.await.expect("server task");
+}
+
+#[tokio::test]
+async fn test_websocket_close_then_recv_fails() {
+    use tokio::net::TcpListener;
+
+    let tcp_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = tcp_listener.local_addr().unwrap().port();
+
+    // Server accepts then immediately closes
+    let server_handle = tokio::spawn(async move {
+        let (stream, _) = tcp_listener.accept().await.unwrap();
+        let ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+        // Drop the WebSocket to close it
+        drop(ws);
+    });
+
+    let conn = WebSocketConnection::connect(&format!("ws://127.0.0.1:{port}"))
+        .await
+        .expect("connect");
+
+    // Give server time to close
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let result = conn.recv().await;
+    assert!(result.is_err(), "recv after server close should fail");
+    match result {
+        Err(TransportError::ConnectionClosed) | Err(TransportError::ReceiveFailed(_)) => {}
+        Err(other) => panic!("expected ConnectionClosed or ReceiveFailed, got: {other:?}"),
+        Ok(_) => panic!("expected error, got Ok"),
+    }
+
+    server_handle.await.expect("server task");
+}
+
+// ── TLS Error Branch Tests ───────────────────────────────────────
+
+#[tokio::test]
+async fn test_tls_server_recv_after_client_close() {
+    let transport = build_test_tls_transport();
+
+    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let listener = transport.listen(addr).await.expect("listen");
+    let bound_addr = listener.local_addr();
+
+    let server_handle = tokio::spawn(async move {
+        let conn = listener.accept().await.expect("accept");
+        // Receive one message successfully
+        let data = conn.recv().await.expect("server recv");
+        assert_eq!(data, b"ping");
+        // Client will close; second recv should fail with ConnectionClosed
+        let result = conn.recv().await;
+        assert!(result.is_err(), "server recv after client close should fail");
+        match result {
+            Err(TransportError::ConnectionClosed) => {}
+            Err(other) => panic!("expected ConnectionClosed, got: {other:?}"),
+            Ok(d) => panic!("expected error, got Ok with data: {d:?}"),
+        }
+    });
+
+    let client_conn = transport.connect(bound_addr).await.expect("connect");
+    client_conn.send(b"ping").await.expect("client send");
+    client_conn.close().await.expect("client close");
+
+    server_handle.await.expect("server task");
+}
+
+#[tokio::test]
+async fn test_tls_send_after_close_fails() {
+    let transport = build_test_tls_transport();
+
+    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let listener = transport.listen(addr).await.expect("listen");
+    let bound_addr = listener.local_addr();
+
+    let server_handle = tokio::spawn(async move {
+        let _conn = listener.accept().await.expect("accept");
+        // Keep the connection alive until client is done
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    });
+
+    let client_conn = transport.connect(bound_addr).await.expect("connect");
+    client_conn.close().await.expect("close");
+
+    let result = client_conn.send(b"should fail").await;
+    assert!(result.is_err(), "send after close should fail");
+
+    server_handle.await.expect("server task");
+}
+
+#[tokio::test]
+async fn test_tls_peer_addr_is_set() {
+    let transport = build_test_tls_transport();
+
+    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let listener = transport.listen(addr).await.expect("listen");
+    let bound_addr = listener.local_addr();
+
+    let server_handle = tokio::spawn(async move {
+        let conn = listener.accept().await.expect("accept");
+        let server_peer = conn.peer_addr();
+        assert!(
+            server_peer.is_some(),
+            "server-side peer_addr should be Some"
+        );
+        // Server sees the client's ephemeral port on 127.0.0.1
+        assert_eq!(server_peer.unwrap().ip(), std::net::Ipv4Addr::LOCALHOST);
+        conn.close().await.ok();
+    });
+
+    let client_conn = transport.connect(bound_addr).await.expect("connect");
+    let client_peer = client_conn.peer_addr();
+    assert!(
+        client_peer.is_some(),
+        "client-side peer_addr should be Some"
+    );
+    // Client's peer_addr should match the listener address
+    assert_eq!(client_peer.unwrap(), bound_addr);
+    client_conn.close().await.ok();
+
+    server_handle.await.expect("server task");
+}
