@@ -21,23 +21,13 @@
       padding: 24px 20px 40px;
     }
 
-    /* Header */
     .header {
       text-align: center;
       padding: 32px 0 8px;
     }
-    .header h1 {
-      font-size: 22px;
-      font-weight: 600;
-      color: #1d1d1f;
-    }
-    .header p {
-      font-size: 14px;
-      color: #86868b;
-      margin-top: 4px;
-    }
+    .header h1 { font-size: 22px; font-weight: 600; }
+    .header p { font-size: 14px; color: #86868b; margin-top: 4px; }
 
-    /* App Card */
     .app-card {
       background: #fff;
       border-radius: 16px;
@@ -45,45 +35,13 @@
       margin-top: 24px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
     }
-    .app-info {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-    .app-icon {
-      width: 80px;
-      height: 80px;
-      border-radius: 18px;
-      flex-shrink: 0;
-      overflow: hidden;
-    }
-    .app-icon svg {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-    .app-details h2 {
-      font-size: 20px;
-      font-weight: 600;
-    }
-    .app-meta {
-      font-size: 13px;
-      color: #86868b;
-      margin-top: 4px;
-    }
-    .app-meta span {
-      display: inline-block;
-    }
-    .app-meta span + span::before {
-      content: "\00b7";
-      margin: 0 6px;
-    }
-    .app-stars {
-      color: #ff9500;
-      font-size: 14px;
-      margin-top: 4px;
-      letter-spacing: 1px;
-    }
+    .app-info { display: flex; align-items: center; gap: 16px; }
+    .app-icon { width: 80px; height: 80px; border-radius: 18px; flex-shrink: 0; overflow: hidden; }
+    .app-icon svg { width: 100%; height: 100%; display: block; }
+    .app-details h2 { font-size: 20px; font-weight: 600; }
+    .app-meta { font-size: 13px; color: #86868b; margin-top: 4px; }
+    .app-meta span + span::before { content: "\00b7"; margin: 0 6px; }
+    .app-stars { color: #ff9500; font-size: 14px; margin-top: 4px; letter-spacing: 1px; }
 
     .app-stats {
       display: flex;
@@ -93,24 +51,12 @@
       border-top: 1px solid #f0f0f0;
       text-align: center;
     }
-    .stat-label {
-      font-size: 11px;
-      color: #86868b;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .stat-value {
-      font-size: 15px;
-      font-weight: 600;
-      margin-top: 2px;
-    }
+    .stat-label { font-size: 11px; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 15px; font-weight: 600; margin-top: 2px; }
 
-    /* Install Button */
-    .install-section {
-      text-align: center;
-      margin-top: 28px;
-    }
-    .install-btn {
+    /* Open button — always a plain link to the PWA */
+    .open-section { text-align: center; margin-top: 28px; }
+    .open-btn {
       display: inline-block;
       background: #007aff;
       color: #fff;
@@ -119,169 +65,84 @@
       padding: 14px 48px;
       border-radius: 12px;
       text-decoration: none;
-      border: none;
-      cursor: pointer;
-      transition: background 0.15s;
       width: 100%;
       max-width: 320px;
+      transition: background 0.15s;
     }
-    .install-btn:hover {
-      background: #0066d6;
-    }
-    .install-btn:active {
-      background: #0055b3;
-    }
-    .install-note {
-      font-size: 13px;
-      color: #86868b;
-      margin-top: 12px;
-    }
-    .install-note-small {
-      font-size: 12px;
-      color: #aeaeb2;
-      margin-top: 4px;
-    }
+    .open-btn:hover { background: #0066d6; }
+    .open-btn:active { background: #0055b3; }
+    .open-note { font-size: 13px; color: #86868b; margin-top: 12px; }
 
-    /* Platform-specific install instructions */
-    .install-instructions {
+    /* Install steps card */
+    .steps-card {
       background: #fff;
       border-radius: 16px;
       padding: 24px;
       margin-top: 24px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
     }
-    .install-instructions h3 {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 16px;
-    }
-    .install-steps {
-      display: none;
-    }
-    .install-steps.active {
-      display: block;
-    }
-    .install-steps ol {
-      padding-left: 20px;
-    }
-    .install-steps li {
-      font-size: 14px;
-      color: #3a3a3c;
-      margin-bottom: 12px;
-      line-height: 1.6;
-    }
-    .install-steps li:last-child { margin-bottom: 0; }
-    .step-icon {
-      display: inline-block;
-      font-size: 18px;
-      vertical-align: middle;
-    }
-    .step-highlight {
+    .steps-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+    .steps-card ol { padding-left: 22px; }
+    .steps-card li { font-size: 14px; color: #3a3a3c; margin-bottom: 12px; line-height: 1.7; }
+    .steps-card li:last-child { margin-bottom: 0; }
+    .step-key {
       background: #f0f0f5;
       border-radius: 6px;
       padding: 2px 8px;
       font-weight: 600;
       font-size: 13px;
+      white-space: nowrap;
     }
-    .how-to {
+    .platform-steps { display: none; }
+    .platform-steps.active { display: block; }
+
+    /* Other platforms (collapsed) */
+    .other-platforms {
       background: #fff;
       border-radius: 16px;
       padding: 24px;
-      margin-top: 24px;
+      margin-top: 16px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
     }
-    .how-to summary {
-      font-size: 16px;
+    .other-platforms summary {
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
+      color: #007aff;
       list-style: none;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
     }
-    .how-to summary::-webkit-details-marker { display: none; }
-    .how-to summary::after {
-      content: "\25B8";
-      font-size: 14px;
-      color: #86868b;
-      transition: transform 0.2s;
-    }
-    .how-to[open] summary::after {
-      transform: rotate(90deg);
-    }
-    .how-to ol {
-      margin-top: 16px;
-      padding-left: 20px;
-    }
-    .how-to li {
-      font-size: 14px;
-      color: #3a3a3c;
-      margin-bottom: 10px;
-      line-height: 1.6;
-    }
-    .how-to li:last-child { margin-bottom: 0; }
+    .other-platforms summary::-webkit-details-marker { display: none; }
+    .other-platforms .all-steps { margin-top: 16px; }
+    .other-platforms h4 { font-size: 14px; font-weight: 600; margin-top: 14px; margin-bottom: 6px; color: #1d1d1f; }
+    .other-platforms h4:first-child { margin-top: 0; }
+    .other-platforms p { font-size: 13px; color: #3a3a3c; line-height: 1.6; margin-bottom: 4px; }
 
-    /* Footer */
     .footer {
       text-align: center;
       margin-top: 40px;
       padding-top: 20px;
       border-top: 1px solid #e5e5ea;
     }
-    .footer p {
-      font-size: 12px;
-      color: #aeaeb2;
-    }
-    .footer a {
-      color: #86868b;
-      text-decoration: none;
-    }
-    .footer a:hover {
-      text-decoration: underline;
-    }
+    .footer p { font-size: 12px; color: #aeaeb2; }
+    .footer a { color: #86868b; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
 
-    /* Privacy overlay */
     .privacy-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.4);
-      z-index: 100;
-      justify-content: center;
-      align-items: center;
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4); z-index: 100;
+      justify-content: center; align-items: center;
     }
-    .privacy-overlay.visible {
-      display: flex;
-    }
+    .privacy-overlay.visible { display: flex; }
     .privacy-box {
-      background: #fff;
-      border-radius: 16px;
-      padding: 24px;
-      max-width: 340px;
-      margin: 20px;
-      text-align: center;
+      background: #fff; border-radius: 16px; padding: 24px;
+      max-width: 340px; margin: 20px; text-align: center;
     }
-    .privacy-box h3 {
-      font-size: 17px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-    .privacy-box p {
-      font-size: 14px;
-      color: #3a3a3c;
-      line-height: 1.6;
-    }
+    .privacy-box h3 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+    .privacy-box p { font-size: 14px; color: #3a3a3c; line-height: 1.6; }
     .privacy-close {
-      display: inline-block;
-      margin-top: 16px;
-      background: #007aff;
-      color: #fff;
-      border: none;
-      padding: 8px 24px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
+      display: inline-block; margin-top: 16px; background: #007aff;
+      color: #fff; border: none; padding: 8px 24px; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
     }
   </style>
 </head>
@@ -289,7 +150,6 @@
 
   <div class="container">
 
-    <!-- Header -->
     <div class="header">
       <h1>Calculator</h1>
       <p>Simple calculator for everyday use</p>
@@ -302,7 +162,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
             <rect width="120" height="120" rx="26" fill="#1c1b1f"/>
             <rect x="10" y="10" width="100" height="30" rx="8" fill="#2d2c31"/>
-            <text x="102" y="32" font-family="system-ui, sans-serif" font-size="18" fill="#e6e0e9" text-anchor="end">0</text>
+            <text x="102" y="32" font-family="system-ui" font-size="18" fill="#e6e0e9" text-anchor="end">0</text>
             <rect x="10" y="46" width="22" height="14" rx="7" fill="#332d41"/>
             <rect x="35" y="46" width="22" height="14" rx="7" fill="#332d41"/>
             <rect x="60" y="46" width="22" height="14" rx="7" fill="#332d41"/>
@@ -329,97 +189,83 @@
           <div class="app-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
         </div>
       </div>
-
       <div class="app-stats">
-        <div>
-          <div class="stat-label">Released</div>
-          <div class="stat-value">Apr 2026</div>
-        </div>
-        <div>
-          <div class="stat-label">Size</div>
-          <div class="stat-value">~2 MB</div>
-        </div>
-        <div>
-          <div class="stat-label">Category</div>
-          <div class="stat-value">Utilities</div>
-        </div>
+        <div><div class="stat-label">Released</div><div class="stat-value">Apr 2026</div></div>
+        <div><div class="stat-label">Size</div><div class="stat-value">~2 MB</div></div>
+        <div><div class="stat-label">Category</div><div class="stat-value">Utilities</div></div>
       </div>
     </div>
 
-    <!-- Install — platform-aware -->
-    <div class="install-section">
-      <!-- Android/Desktop: install button (uses beforeinstallprompt) -->
-      <button class="install-btn" id="install-btn-prompt" style="display:none" onclick="installPWA()">Install App</button>
-      <!-- iOS: no install button, show instructions instead -->
-      <a href="/pwa/index.html?mode=calc" class="install-btn" id="install-btn-open" style="display:none">Open App</a>
-      <p class="install-note" id="install-platform-note"></p>
-      <p class="install-note-small">No app store required.</p>
+    <!-- Open button — just navigates to the PWA page -->
+    <div class="open-section">
+      <a href="/pwa/index.html?mode=calc" class="open-btn" id="open-btn">Open App</a>
+      <p class="open-note">Then follow the steps below to add it to your home screen.</p>
     </div>
 
-    <!-- Platform-specific install instructions -->
-    <div class="install-instructions">
-      <h3>How to Install</h3>
+    <!-- Platform-specific bookmark/install instructions -->
+    <div class="steps-card">
+      <h3 id="steps-title">Add to Home Screen</h3>
 
-      <!-- iOS (Safari) -->
-      <div class="install-steps" id="steps-ios">
+      <div class="platform-steps" id="steps-ios">
         <ol>
-          <li>Tap <span class="step-highlight">Open App</span> above to open the calculator in Safari.</li>
-          <li>Tap the <span class="step-icon">&#x2B06;&#xFE0E;</span> <strong>Share</strong> button at the bottom of Safari (square with an arrow pointing up).</li>
-          <li>Scroll down and tap <span class="step-highlight">Add to Home Screen</span>.</li>
-          <li>Tap <strong>Add</strong> in the top right corner.</li>
-          <li>The app now appears on your home screen as <strong>Calculator</strong>.</li>
+          <li>Tap <span class="step-key">Open App</span> above. The calculator opens in Safari.</li>
+          <li>Tap the <strong>Share</strong> button at the bottom of Safari — it looks like a square with an arrow pointing up: &#x2B06;&#xFE0E;</li>
+          <li>Scroll down the share menu and tap <span class="step-key">Add to Home Screen</span>.</li>
+          <li>The name will show <strong>"Calculator"</strong>. Tap <strong>Add</strong>.</li>
+          <li>Done! The app is now on your home screen. You can close Safari.</li>
         </ol>
       </div>
 
-      <!-- Android (Chrome) -->
-      <div class="install-steps" id="steps-android">
+      <div class="platform-steps" id="steps-android">
         <ol>
-          <li>Tap <span class="step-highlight">Install App</span> above.</li>
-          <li>Chrome will show an <strong>Install</strong> banner &mdash; tap <strong>Install</strong>.</li>
-          <li>If no banner appears: tap the <span class="step-icon">&#x22EE;</span> <strong>three-dot menu</strong> in Chrome, then <span class="step-highlight">Add to Home Screen</span> or <span class="step-highlight">Install app</span>.</li>
-          <li>The app appears on your home screen as <strong>Calculator</strong>.</li>
+          <li>Tap <span class="step-key">Open App</span> above. The calculator opens in Chrome.</li>
+          <li>Chrome may show a banner at the bottom saying <strong>"Add Calculator to Home screen"</strong> — tap it.</li>
+          <li>If no banner appears: tap the <strong>&#x22EE; three-dot menu</strong> in the top right of Chrome.</li>
+          <li>Tap <span class="step-key">Add to Home screen</span> or <span class="step-key">Install app</span>.</li>
+          <li>Tap <strong>Add</strong>. The app is now on your home screen.</li>
         </ol>
       </div>
 
-      <!-- Desktop (Chrome/Edge) -->
-      <div class="install-steps" id="steps-desktop">
+      <div class="platform-steps" id="steps-desktop">
         <ol>
-          <li>Tap <span class="step-highlight">Install App</span> above.</li>
-          <li>Your browser will show an install dialog &mdash; click <strong>Install</strong>.</li>
-          <li>If no dialog appears: look for the <span class="step-icon">&#x2B07;&#xFE0E;</span> install icon in the address bar, or go to <strong>Menu &rarr; Install Calculator</strong>.</li>
-          <li>The app opens as a standalone window and appears in your app launcher.</li>
+          <li>Tap <span class="step-key">Open App</span> above. The calculator opens in your browser.</li>
+          <li>Look for an <strong>install icon</strong> in the address bar — it looks like a monitor with a down arrow, or a &#x2B07;&#xFE0E; symbol.</li>
+          <li>Click it and then click <strong>Install</strong>.</li>
+          <li>If you don't see the icon: go to your browser's <strong>Menu</strong> (&#x22EE; or &#x2630;) and look for <span class="step-key">Install Calculator</span> or <span class="step-key">Add to Home screen</span>.</li>
+          <li>The app now opens as its own window, separate from your browser.</li>
         </ol>
       </div>
 
-      <!-- Fallback -->
-      <div class="install-steps" id="steps-fallback">
+      <div class="platform-steps" id="steps-fallback">
         <ol>
-          <li>Tap <span class="step-highlight">Open App</span> above.</li>
-          <li>Use your browser's menu to <strong>Add to Home Screen</strong> or <strong>Install</strong>.</li>
-          <li>The app appears on your device like any other app.</li>
+          <li>Tap <span class="step-key">Open App</span> above.</li>
+          <li>Use your browser's menu to find <span class="step-key">Add to Home Screen</span> or <span class="step-key">Install</span>.</li>
+          <li>The app will appear on your device like any other app.</li>
         </ol>
       </div>
     </div>
 
-    <!-- Other platforms (collapsed) -->
-    <details class="how-to">
+    <!-- Other platforms -->
+    <details class="other-platforms">
       <summary>Instructions for other devices</summary>
-      <ol>
-        <li><strong>iPhone/iPad:</strong> Open in Safari &rarr; tap Share <span class="step-icon">&#x2B06;&#xFE0E;</span> &rarr; Add to Home Screen.</li>
-        <li><strong>Android:</strong> Open in Chrome &rarr; tap &#x22EE; menu &rarr; Install app / Add to Home Screen.</li>
-        <li><strong>Windows/Mac/Linux:</strong> Open in Chrome or Edge &rarr; click install icon in address bar.</li>
-        <li><strong>Firefox:</strong> Firefox does not support installing web apps. Use Chrome, Edge, or Safari instead.</li>
-      </ol>
+      <div class="all-steps">
+        <h4>iPhone / iPad</h4>
+        <p>Open in <strong>Safari</strong> (not Chrome). Tap the Share button &#x2B06;&#xFE0E; at the bottom, then <strong>Add to Home Screen</strong>.</p>
+        <h4>Android</h4>
+        <p>Open in <strong>Chrome</strong>. Tap the &#x22EE; menu, then <strong>Add to Home screen</strong> or <strong>Install app</strong>.</p>
+        <h4>Windows / Mac / Linux</h4>
+        <p>Open in <strong>Chrome</strong> or <strong>Edge</strong>. Click the install icon in the address bar, or go to Menu &rarr; Install.</p>
+        <h4>Firefox</h4>
+        <p>Firefox does not support installing web apps. Use Chrome, Edge, or Safari instead.</p>
+      </div>
     </details>
 
-    <!-- Footer -->
     <div class="footer">
       <p>Free &amp; open source &nbsp;&middot;&nbsp; <a href="#" id="privacy-link">Privacy</a></p>
     </div>
 
   </div>
 
-  <!-- Privacy Overlay -->
   <div class="privacy-overlay" id="privacy-overlay">
     <div class="privacy-box">
       <h3>Privacy</h3>
@@ -429,7 +275,7 @@
   </div>
 
   <script>
-    // ── Privacy overlay ────────────────────────────────────
+    // Privacy overlay
     document.getElementById('privacy-link').addEventListener('click', function(e) {
       e.preventDefault();
       document.getElementById('privacy-overlay').classList.add('visible');
@@ -441,66 +287,15 @@
       if (e.target === this) this.classList.remove('visible');
     });
 
-    // ── Platform detection ─────────────────────────────────
+    // Platform detection — show the right instructions
     var ua = navigator.userAgent;
     var isIOS = /iPhone|iPad|iPod/.test(ua) && !window.MSStream;
     var isAndroid = /Android/.test(ua);
-    var isSafari = /Safari/.test(ua) && !/Chrome/.test(ua);
     var platform = isIOS ? 'ios' : isAndroid ? 'android' : 'desktop';
 
-    // Show correct install steps
-    var stepsId = 'steps-' + platform;
-    var stepsEl = document.getElementById(stepsId);
-    if (stepsEl) stepsEl.classList.add('active');
+    var el = document.getElementById('steps-' + platform);
+    if (el) el.classList.add('active');
     else document.getElementById('steps-fallback').classList.add('active');
-
-    // ── Install button logic ───────────────────────────────
-    var deferredPrompt = null;
-    var btnPrompt = document.getElementById('install-btn-prompt');
-    var btnOpen = document.getElementById('install-btn-open');
-    var platformNote = document.getElementById('install-platform-note');
-
-    if (isIOS) {
-      // iOS: no install prompt available — show "Open App" + Safari instructions
-      btnOpen.style.display = 'inline-block';
-      platformNote.textContent = 'Works on iPhone, iPad, Android, Windows, Mac, Linux';
-    } else {
-      // Android/Desktop: try to capture beforeinstallprompt
-      btnOpen.style.display = 'inline-block'; // show Open as fallback initially
-      btnOpen.textContent = 'Open App';
-      platformNote.textContent = 'Works on Android, iPhone, Windows, Mac, Linux';
-
-      window.addEventListener('beforeinstallprompt', function(e) {
-        e.preventDefault();
-        deferredPrompt = e;
-        // Replace "Open" with "Install"
-        btnOpen.style.display = 'none';
-        btnPrompt.style.display = 'inline-block';
-      });
-
-      window.addEventListener('appinstalled', function() {
-        btnPrompt.style.display = 'none';
-        btnOpen.style.display = 'none';
-        platformNote.textContent = 'App installed! Check your home screen.';
-        deferredPrompt = null;
-      });
-    }
-
-    function installPWA() {
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.then(function(result) {
-          if (result.outcome === 'accepted') {
-            platformNote.textContent = 'Installing...';
-          }
-          deferredPrompt = null;
-        });
-      } else {
-        // Fallback: just open the PWA page
-        window.location.href = '/pwa/index.html?mode=calc';
-      }
-    }
-    window.installPWA = installPWA;
   </script>
 
 </body>
