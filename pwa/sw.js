@@ -2,7 +2,7 @@
 // Cache-first strategy: the app works entirely offline after first load.
 // If the source site goes down, the app continues to function from cache.
 
-const CACHE_NAME = 'parolnet-v5';
+const CACHE_NAME = 'parolnet-v6';
 
 // All assets that must be cached for offline operation.
 // The app is fully self-contained — zero external dependencies.
@@ -13,6 +13,7 @@ const ASSETS_TO_CACHE = [
     './calculator.css',
     './app.js',
     './qrcode.js',
+    './qrdecoder.js',
     './manifest.json',
     './manifest-calculator.json',
     './icons/icon.svg',

@@ -817,10 +817,28 @@ async function startQRScanner() {
                     // Frame not ready yet, ignore
                 }
             }, 250); // Scan 4 times per second
+        } else if (typeof decodeQRFromImageData === 'function') {
+            // Fallback: use our pure JS QR decoder (works on iOS Safari and all browsers)
+            if (statusEl) statusEl.textContent = 'Scanning for QR code...';
+            const scanCanvas = document.createElement('canvas');
+            const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+
+            scannerInterval = setInterval(() => {
+                if (!video.srcObject || video.videoWidth === 0) return;
+                scanCanvas.width = video.videoWidth;
+                scanCanvas.height = video.videoHeight;
+                scanCtx.drawImage(video, 0, 0);
+                const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+                const result = decodeQRFromImageData(imageData.data, scanCanvas.width, scanCanvas.height);
+                if (result) {
+                    stopQRScanner();
+                    handleScannedQR(result);
+                }
+            }, 250);
         } else {
-            // No BarcodeDetector — fall back to manual entry
+            // Neither BarcodeDetector nor JS decoder available — fall back to manual entry
             if (statusEl) {
-                statusEl.innerHTML = 'Your browser doesn\'t support QR scanning.<br>Ask your contact to share their code, then paste it in the <strong>Passphrase</strong> tab.';
+                statusEl.innerHTML = 'Your browser doesn\'t support QR scanning.<br>Ask your contact to share their code, then paste it in the <strong>Paste Code</strong> tab.';
             }
         }
     } catch (e) {
