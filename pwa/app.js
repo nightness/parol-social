@@ -148,23 +148,36 @@ const DB_VERSION = 2;
 
 function openDB() {
     return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains('contacts')) {
-                db.createObjectStore('contacts', { keyPath: 'peerId' });
+        let resolved = false;
+        const timeout = setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                reject(new Error('IndexedDB open timeout'));
             }
-            if (!db.objectStoreNames.contains('messages')) {
-                const store = db.createObjectStore('messages', { keyPath: 'id', autoIncrement: true });
-                store.createIndex('peerId', 'peerId', { unique: false });
-                store.createIndex('timestamp', 'timestamp', { unique: false });
-            }
-            if (!db.objectStoreNames.contains('settings')) {
-                db.createObjectStore('settings', { keyPath: 'key' });
-            }
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
+        }, 5000);
+
+        try {
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains('contacts')) {
+                    db.createObjectStore('contacts', { keyPath: 'peerId' });
+                }
+                if (!db.objectStoreNames.contains('messages')) {
+                    const store = db.createObjectStore('messages', { keyPath: 'id', autoIncrement: true });
+                    store.createIndex('peerId', 'peerId', { unique: false });
+                    store.createIndex('timestamp', 'timestamp', { unique: false });
+                }
+                if (!db.objectStoreNames.contains('settings')) {
+                    db.createObjectStore('settings', { keyPath: 'key' });
+                }
+            };
+            req.onsuccess = () => { if (!resolved) { resolved = true; clearTimeout(timeout); resolve(req.result); } };
+            req.onerror = () => { if (!resolved) { resolved = true; clearTimeout(timeout); reject(req.error); } };
+            req.onblocked = () => { if (!resolved) { resolved = true; clearTimeout(timeout); reject(new Error('IndexedDB blocked')); } };
+        } catch(e) {
+            if (!resolved) { resolved = true; clearTimeout(timeout); reject(e); }
+        }
     });
 }
 
@@ -254,32 +267,38 @@ async function loadWasm() {
 }
 
 async function onWasmReady() {
-    // Try to restore saved identity
+    // Try to restore saved identity — with timeout so iOS IndexedDB hangs don't block
     let peerId = null;
     try {
-        const saved = await dbGet('settings', 'identity_secret');
+        const saved = await Promise.race([
+            dbGet('settings', 'identity_secret'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('IndexedDB timeout')), 3000))
+        ]);
         if (saved && saved.value && wasm.initialize_from_key) {
             peerId = wasm.initialize_from_key(saved.value);
             console.log('Identity restored:', peerId.slice(0, 16) + '...');
         }
     } catch(e) {
-        console.warn('Failed to restore identity:', e);
+        console.warn('Identity restore skipped:', e.message);
     }
 
-    // If no saved identity, generate new one and save it
+    // If no saved identity, generate new one and try to save it
     if (!peerId) {
         if (wasm.initialize) {
             peerId = wasm.initialize();
             console.log('New identity generated:', peerId.slice(0, 16) + '...');
 
-            // Save the secret key for future loads
+            // Try to save — but don't block if IndexedDB is broken
             if (wasm.export_secret_key) {
                 try {
                     const secretHex = wasm.export_secret_key();
-                    await dbPut('settings', { key: 'identity_secret', value: secretHex });
-                    console.log('Identity saved to IndexedDB');
+                    await Promise.race([
+                        dbPut('settings', { key: 'identity_secret', value: secretHex }),
+                        new Promise(resolve => setTimeout(resolve, 2000))
+                    ]);
+                    console.log('Identity saved');
                 } catch(e) {
-                    console.warn('Failed to save identity:', e);
+                    console.warn('Identity save failed (non-fatal):', e.message);
                 }
             }
         }
