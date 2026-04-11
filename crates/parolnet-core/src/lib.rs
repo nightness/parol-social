@@ -66,6 +66,28 @@ impl ParolNet {
         }
     }
 
+    /// Create a ParolNet instance from an existing identity keypair.
+    /// Used to restore a previously saved identity.
+    pub fn from_identity(config: ParolNetConfig, identity: IdentityKeyPair) -> Self {
+        let peer_id = PeerId::from_public_key(&identity.public_key_bytes());
+        Self {
+            identity,
+            peer_id,
+            sessions: Arc::new(SessionManager::new()),
+            decoy_state: if config.decoy_mode {
+                decoy::DecoyState::Active
+            } else {
+                decoy::DecoyState::Normal
+            },
+            config,
+        }
+    }
+
+    /// Export the identity secret key bytes for persistence.
+    pub fn export_identity_secret(&self) -> [u8; 32] {
+        self.identity.secret_bytes()
+    }
+
     /// Get our PeerId.
     pub fn peer_id(&self) -> PeerId {
         self.peer_id

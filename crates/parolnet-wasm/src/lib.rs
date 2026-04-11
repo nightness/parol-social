@@ -92,6 +92,30 @@ struct KeypairResult {
 
 // ── Initialization ──────────────────────────────────────────
 
+/// Initialize from a saved secret key (hex-encoded 32 bytes).
+/// Returns the peer_id as hex.
+#[wasm_bindgen]
+pub fn initialize_from_key(secret_key_hex: &str) -> Result<String, JsError> {
+    let secret_bytes = decode_32(secret_key_hex)?;
+    let identity = parolnet_crypto::IdentityKeyPair::from_secret_bytes(&secret_bytes);
+    let config = parolnet_core::ParolNetConfig::default();
+    let client = parolnet_core::ParolNet::from_identity(config, identity);
+    let peer_id = hex::encode(client.peer_id().0);
+    let mut state = STATE.lock().unwrap();
+    state.client = Some(client);
+    Ok(peer_id)
+}
+
+/// Export the current identity's secret key as hex.
+/// Used to save the identity to persistent storage.
+#[wasm_bindgen]
+pub fn export_secret_key() -> Result<String, JsError> {
+    let state = STATE.lock().unwrap();
+    let client = state.client.as_ref()
+        .ok_or_else(|| JsError::new("not initialized"))?;
+    Ok(hex::encode(client.export_identity_secret()))
+}
+
 /// Create a new ParolNet instance with default config.
 /// Returns the peer_id as hex.
 #[wasm_bindgen]

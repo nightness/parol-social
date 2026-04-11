@@ -189,6 +189,18 @@ impl IdentityKeyPair {
         self.verifying_key().to_bytes()
     }
 
+    /// Restore an identity keypair from a saved 32-byte secret key.
+    pub fn from_secret_bytes(secret: &[u8; 32]) -> Self {
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(secret);
+        Self { signing_key }
+    }
+
+    /// Export the secret key bytes for persistence.
+    /// SECURITY: These bytes must be stored encrypted.
+    pub fn secret_bytes(&self) -> [u8; 32] {
+        self.signing_key.to_bytes()
+    }
+
     /// Compute the PeerId: SHA-256 of the Ed25519 public key.
     pub fn peer_id(&self) -> [u8; 32] {
         use sha2::{Sha256, Digest};

@@ -144,7 +144,7 @@ function updateCalcDisplay() {
 
 // ── IndexedDB Storage ──────────────────────────────────────
 const DB_NAME = 'parolnet';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDB() {
     return new Promise((resolve, reject) => {
@@ -158,6 +158,9 @@ function openDB() {
                 const store = db.createObjectStore('messages', { keyPath: 'id', autoIncrement: true });
                 store.createIndex('peerId', 'peerId', { unique: false });
                 store.createIndex('timestamp', 'timestamp', { unique: false });
+            }
+            if (!db.objectStoreNames.contains('settings')) {
+                db.createObjectStore('settings', { keyPath: 'key' });
             }
         };
         req.onsuccess = () => resolve(req.result);
@@ -182,6 +185,17 @@ async function dbPut(storeName, item) {
         const tx = db.transaction(storeName, 'readwrite');
         const store = tx.objectStore(storeName);
         const req = store.put(item);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function dbGet(storeName, key) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const req = store.get(key);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
     });
@@ -226,18 +240,45 @@ async function loadWasm() {
     try {
         wasm = await import('./pkg/parolnet_wasm.js');
         await wasm.default();
-        onWasmReady();
+        await onWasmReady();
     } catch (e) {
         console.warn('WASM not available:', e.message);
         onWasmUnavailable();
     }
 }
 
-function onWasmReady() {
-    if (wasm.initialize) {
-        const peerId = wasm.initialize();
-        window._peerId = peerId || null;
+async function onWasmReady() {
+    // Try to restore saved identity
+    let peerId = null;
+    try {
+        const saved = await dbGet('settings', 'identity_secret');
+        if (saved && saved.value && wasm.initialize_from_key) {
+            peerId = wasm.initialize_from_key(saved.value);
+            console.log('Identity restored:', peerId.slice(0, 16) + '...');
+        }
+    } catch(e) {
+        console.warn('Failed to restore identity:', e);
     }
+
+    // If no saved identity, generate new one and save it
+    if (!peerId) {
+        if (wasm.initialize) {
+            peerId = wasm.initialize();
+            console.log('New identity generated:', peerId.slice(0, 16) + '...');
+
+            // Save the secret key for future loads
+            if (wasm.export_secret_key) {
+                try {
+                    const secretHex = wasm.export_secret_key();
+                    await dbPut('settings', { key: 'identity_secret', value: secretHex });
+                    console.log('Identity saved to IndexedDB');
+                } catch(e) {
+                    console.warn('Failed to save identity:', e);
+                }
+            }
+        }
+    }
+    window._peerId = peerId || null;
 
     // Display peer ID in settings
     if (wasm.get_peer_id) {
