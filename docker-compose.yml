@@ -3,4 +3,6 @@ services:
     build: .
     ports:
       - "1411:80"
+    environment:
+      - PAROLNET_ANALYTICS=1
     restart: unless-stopped

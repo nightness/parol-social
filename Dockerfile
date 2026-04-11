@@ -3,7 +3,7 @@ FROM rust:1.92-alpine AS builder
 RUN apk add --no-cache musl-dev pkgconfig
 WORKDIR /build
 COPY . .
-RUN cargo build --release -p parolnet-relay-server
+RUN cargo build --release -p parolnet-relay-server --features analytics
 
 # Stage 2: Runtime with nginx + relay
 FROM nginx:alpine

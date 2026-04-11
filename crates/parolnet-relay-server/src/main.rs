@@ -13,6 +13,87 @@ use tracing::info;
 type PeerMap = Arc<Mutex<HashMap<String, mpsc::UnboundedSender<String>>>>;
 type MessageStore = Arc<Mutex<HashMap<String, Vec<String>>>>;
 
+// --- Analytics module (real implementation when feature enabled) ---
+#[cfg(feature = "analytics")]
+mod analytics {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    pub struct Stats {
+        pub start_time: Instant,
+        pub total_connections: AtomicU64,
+        pub total_messages_routed: AtomicU64,
+        pub total_messages_queued: AtomicU64,
+        pub total_disconnections: AtomicU64,
+    }
+
+    impl Stats {
+        pub fn new() -> Self {
+            Self {
+                start_time: Instant::now(),
+                total_connections: AtomicU64::new(0),
+                total_messages_routed: AtomicU64::new(0),
+                total_messages_queued: AtomicU64::new(0),
+                total_disconnections: AtomicU64::new(0),
+            }
+        }
+
+        pub fn record_connection(&self) {
+            self.total_connections.fetch_add(1, Ordering::Relaxed);
+        }
+
+        pub fn record_message_routed(&self) {
+            self.total_messages_routed.fetch_add(1, Ordering::Relaxed);
+        }
+
+        pub fn record_message_queued(&self) {
+            self.total_messages_queued.fetch_add(1, Ordering::Relaxed);
+        }
+
+        pub fn record_disconnection(&self) {
+            self.total_disconnections.fetch_add(1, Ordering::Relaxed);
+        }
+
+        pub fn to_json(&self, online_peers: usize) -> String {
+            let uptime = self.start_time.elapsed();
+            let total_routed = self.total_messages_routed.load(Ordering::Relaxed);
+            let uptime_secs = uptime.as_secs();
+            let messages_per_minute = if uptime_secs > 0 {
+                (total_routed as f64 / uptime_secs as f64) * 60.0
+            } else {
+                0.0
+            };
+            format!(
+                r#"{{"uptime_secs":{},"online_peers":{},"total_connections":{},"total_messages_routed":{},"total_messages_queued":{},"total_disconnections":{},"messages_per_minute":{:.2}}}"#,
+                uptime_secs,
+                online_peers,
+                self.total_connections.load(Ordering::Relaxed),
+                total_routed,
+                self.total_messages_queued.load(Ordering::Relaxed),
+                self.total_disconnections.load(Ordering::Relaxed),
+                messages_per_minute,
+            )
+        }
+    }
+}
+
+// --- Analytics module (no-op when feature disabled — zero cost) ---
+#[cfg(not(feature = "analytics"))]
+mod analytics {
+    pub struct Stats;
+
+    impl Stats {
+        pub fn new() -> Self {
+            Self
+        }
+
+        pub fn record_connection(&self) {}
+        pub fn record_message_routed(&self) {}
+        pub fn record_message_queued(&self) {}
+        pub fn record_disconnection(&self) {}
+    }
+}
+
 #[derive(Deserialize)]
 struct IncomingMessage {
     #[serde(rename = "type")]
@@ -62,20 +143,57 @@ async fn main() {
 
     let peers: PeerMap = Arc::new(Mutex::new(HashMap::new()));
     let store: MessageStore = Arc::new(Mutex::new(HashMap::new()));
+    let stats = Arc::new(analytics::Stats::new());
 
-    let app = Router::new()
+    // Determine whether the /stats endpoint should be active
+    #[cfg(feature = "analytics")]
+    let analytics_enabled = std::env::var("PAROLNET_ANALYTICS").unwrap_or_default() == "1";
+
+    #[cfg(feature = "analytics")]
+    if analytics_enabled {
+        info!("Analytics enabled");
+    } else {
+        info!("Analytics compiled in but disabled (set PAROLNET_ANALYTICS=1 to enable)");
+    }
+
+    #[allow(unused_mut)]
+    let mut app = Router::new()
         .route(
             "/ws",
             get({
                 let peers = peers.clone();
                 let store = store.clone();
+                let stats = stats.clone();
                 move |ws: WebSocketUpgrade| async move {
-                    ws.on_upgrade(move |socket| handle_socket(socket, peers, store))
+                    ws.on_upgrade(move |socket| handle_socket(socket, peers, store, stats))
                 }
             }),
         )
         .route("/health", get(|| async { "OK" }))
         .layer(tower_http::cors::CorsLayer::permissive());
+
+    // Add /stats endpoint only when feature is enabled AND env var is set
+    #[cfg(feature = "analytics")]
+    {
+        if analytics_enabled {
+            let stats_clone = stats.clone();
+            let peers_clone = peers.clone();
+            app = app.route(
+                "/stats",
+                get(move || {
+                    let s = stats_clone.clone();
+                    let p = peers_clone.clone();
+                    async move {
+                        let online = p.lock().await.len();
+                        (
+                            [(axum::http::header::CONTENT_TYPE, "application/json")],
+                            s.to_json(online),
+                        )
+                    }
+                }),
+            );
+        }
+    }
 
     let addr = format!("0.0.0.0:{port}");
     info!("ParolNet relay listening on {addr}");
@@ -84,7 +202,12 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn handle_socket(socket: WebSocket, peers: PeerMap, store: MessageStore) {
+async fn handle_socket(
+    socket: WebSocket,
+    peers: PeerMap,
+    store: MessageStore,
+    stats: Arc<analytics::Stats>,
+) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
@@ -126,6 +249,8 @@ async fn handle_socket(socket: WebSocket, peers: PeerMap, store: MessageStore) {
                     peers.lock().await.insert(peer_id.clone(), tx.clone());
                     my_peer_id = Some(peer_id.clone());
 
+                    stats.record_connection();
+
                     let online = peers.lock().await.len();
                     let _ = tx.send(
                         serde_json::to_string(&OutgoingMessage {
@@ -166,6 +291,7 @@ async fn handle_socket(socket: WebSocket, peers: PeerMap, store: MessageStore) {
                     if let Some(recipient_tx) = peers_lock.get(&to) {
                         // Recipient online -- forward directly
                         let _ = recipient_tx.send(outgoing);
+                        stats.record_message_routed();
                     } else {
                         // Recipient offline -- store for later (max 1000 per peer)
                         drop(peers_lock);
@@ -173,6 +299,7 @@ async fn handle_socket(socket: WebSocket, peers: PeerMap, store: MessageStore) {
                         let pending = store_lock.entry(to).or_default();
                         if pending.len() < 1000 {
                             pending.push(outgoing);
+                            stats.record_message_queued();
                         }
                         let _ = tx.send(
                             serde_json::to_string(&OutgoingMessage {
@@ -202,6 +329,7 @@ async fn handle_socket(socket: WebSocket, peers: PeerMap, store: MessageStore) {
     // Cleanup on disconnect
     if let Some(peer_id) = &my_peer_id {
         peers.lock().await.remove(peer_id);
+        stats.record_disconnection();
         info!(
             "Peer disconnected: {}...",
             &peer_id[..16.min(peer_id.len())]
