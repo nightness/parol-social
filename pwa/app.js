@@ -817,8 +817,8 @@ async function startQRScanner() {
                     // Frame not ready yet, ignore
                 }
             }, 250); // Scan 4 times per second
-        } else if (typeof decodeQRFromImageData === 'function') {
-            // Fallback: use our pure JS QR decoder (works on iOS Safari and all browsers)
+        } else if (typeof jsQR === 'function') {
+            // Fallback: jsQR pure JS decoder (works on iOS Safari and all browsers)
             if (statusEl) statusEl.textContent = 'Scanning for QR code...';
             const scanCanvas = document.createElement('canvas');
             const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
@@ -829,11 +829,11 @@ async function startQRScanner() {
                 scanCanvas.height = video.videoHeight;
                 scanCtx.drawImage(video, 0, 0);
                 const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-                const result = decodeQRFromImageData(imageData.data, scanCanvas.width, scanCanvas.height);
-                if (result && isValidQRData(result)) {
-                    console.log('[QR] Decoded:', result.slice(0, 80));
+                const code = jsQR(imageData.data, scanCanvas.width, scanCanvas.height);
+                if (code && code.data && isValidQRData(code.data)) {
+                    console.log('[QR] jsQR decoded:', code.data.slice(0, 80));
                     stopQRScanner();
-                    handleScannedQR(result);
+                    handleScannedQR(code.data);
                 }
             }, 250);
         } else {
