@@ -237,12 +237,18 @@ async function dbClear(storeName) {
 
 // ── WASM Loading ────────────────────────────────────────────
 async function loadWasm() {
+    const statusEl = document.getElementById('loading-status');
     try {
+        if (statusEl) statusEl.textContent = 'Loading crypto module...';
         wasm = await import('./pkg/parolnet_wasm.js');
+        if (statusEl) statusEl.textContent = 'Initializing...';
         await wasm.default();
+        if (statusEl) statusEl.textContent = 'Restoring identity...';
         await onWasmReady();
     } catch (e) {
         console.warn('WASM not available:', e.message);
+        showToast('WASM load failed: ' + e.message);
+        if (statusEl) statusEl.textContent = 'Running without crypto (' + e.message + ')';
         onWasmUnavailable();
     }
 }
@@ -1242,6 +1248,19 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add(`platform-${platform}`);
     registerServiceWorker();
     loadWasm();
+
+    // If stuck on loading for 15 seconds, show recovery buttons
+    setTimeout(() => {
+        const loading = document.getElementById('view-loading');
+        if (loading && !loading.classList.contains('hidden')) {
+            const errEl = document.getElementById('loading-error');
+            if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Taking too long. Try clearing cache.'; }
+            const btn = document.getElementById('loading-retry');
+            if (btn) btn.style.display = 'inline-block';
+            const btn2 = document.getElementById('loading-clear');
+            if (btn2) btn2.style.display = 'inline-block';
+        }
+    }, 15000);
     initContactSearch();
 
     // Parse bootstrap parameter from URL

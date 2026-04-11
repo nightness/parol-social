@@ -17,8 +17,30 @@
     <!-- Loading -->
     <div id="view-loading" class="view">
         <div class="spinner"></div>
-        <p>Loading...</p>
+        <p id="loading-status">Loading...</p>
+        <p id="loading-error" style="color:#e74c3c;font-size:12px;margin-top:12px;max-width:300px;word-break:break-all;display:none;"></p>
+        <button id="loading-retry" style="display:none;margin-top:12px;padding:8px 24px;border:none;border-radius:8px;background:#007aff;color:#fff;font-size:14px;" onclick="location.reload()">Retry</button>
+        <button id="loading-clear" style="display:none;margin-top:8px;padding:8px 24px;border:none;border-radius:8px;background:#e74c3c;color:#fff;font-size:12px;" onclick="clearAndReload()">Clear Cache &amp; Reload</button>
     </div>
+    <script>
+    // Global error catcher — shows errors on the loading screen
+    window.onerror = function(msg, src, line, col, err) {
+        var el = document.getElementById('loading-error');
+        if (el) { el.style.display = 'block'; el.textContent = msg + ' (line ' + line + ')'; }
+        var btn = document.getElementById('loading-retry');
+        if (btn) btn.style.display = 'inline-block';
+        var btn2 = document.getElementById('loading-clear');
+        if (btn2) btn2.style.display = 'inline-block';
+    };
+    function clearAndReload() {
+        // Nuke everything and reload
+        if ('caches' in window) caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)})});
+        if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){reg.unregister()})});
+        try { localStorage.clear(); } catch(e) {}
+        try { sessionStorage.clear(); } catch(e) {}
+        setTimeout(function(){ location.reload(); }, 500);
+    }
+    </script>
 
     <!-- Calculator (decoy) -->
     <div id="view-calculator" class="view hidden">
