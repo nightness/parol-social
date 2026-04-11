@@ -51,6 +51,11 @@ function showView(viewName) {
     if (viewName === 'add-contact') {
         renderBootstrapQR();
     }
+
+    // Refresh contact list when entering contacts view
+    if (viewName === 'contacts') {
+        loadContacts();
+    }
 }
 
 // ── Calculator ──────────────────────────────────────────────
@@ -440,6 +445,25 @@ function handleRelayMessage(msg) {
 
 function onIncomingMessage(fromPeerId, payload) {
     if (!fromPeerId || !payload) return;
+
+    // Handle system events (not displayed as chat messages)
+    if (typeof payload === 'string' && payload.startsWith('__system:')) {
+        console.log('[System]', fromPeerId.slice(0, 8), payload);
+        if (payload === '__system:contact_added') {
+            // Someone added us as a contact — add them back
+            dbPut('contacts', {
+                peerId: fromPeerId,
+                name: fromPeerId.slice(0, 8) + '...',
+                lastMessage: '',
+                lastTime: formatTime(Date.now()),
+                unread: 0
+            }).then(() => {
+                showToast('New contact: ' + fromPeerId.slice(0, 8) + '...');
+                loadContacts();
+            }).catch(() => {});
+        }
+        return;
+    }
 
     // Store the message
     const msg = {
@@ -954,6 +978,7 @@ function handleScannedQR(data) {
         unread: 0
     }).then(() => {
         loadContacts();
+        sendToRelay(peerId, '__system:contact_added');
         openChat(peerId);
     }).catch(e => console.warn('Failed to save contact:', e));
     return;
@@ -1123,6 +1148,8 @@ function connectViaPassphrase() {
         input.value = '';
         showToast('Contact added!');
         loadContacts();
+        // Notify the other peer that we added them
+        sendToRelay(peerId, '__system:contact_added');
         openChat(peerId);
     }).catch(e => {
         showToast('Failed: ' + e.message);
