@@ -830,7 +830,8 @@ async function startQRScanner() {
                 scanCtx.drawImage(video, 0, 0);
                 const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
                 const result = decodeQRFromImageData(imageData.data, scanCanvas.width, scanCanvas.height);
-                if (result) {
+                if (result && isValidQRData(result)) {
+                    console.log('[QR] Decoded:', result.slice(0, 80));
                     stopQRScanner();
                     handleScannedQR(result);
                 }
@@ -862,37 +863,73 @@ function stopQRScanner() {
     if (statusEl) statusEl.textContent = 'Scanner stopped';
 }
 
-function handleScannedQR(data) {
-    showToast('QR code detected!');
+// Validate decoded QR data before acting on it
+function isValidQRData(data) {
+    if (!data || typeof data !== 'string') return false;
+    if (data.length < 10) return false;
+    // Must be printable ASCII or start with parolnet:
+    if (data.startsWith('parolnet:')) return true;
+    // Must be hex (our QR payloads are hex-encoded)
+    if (/^[0-9a-fA-F]+$/.test(data) && data.length >= 64) return true;
+    // Reject anything with non-ASCII (the "Chinese characters" = garbage decode)
+    for (let i = 0; i < data.length; i++) {
+        const c = data.charCodeAt(i);
+        if (c > 127 || c < 32) return false;
+    }
+    return data.length >= 20;
+}
 
-    // Try to parse as ParolNet bootstrap payload
-    if (wasm && wasm.parse_qr_payload) {
-        try {
-            // If it's hex-encoded CBOR from our QR generator
-            const result = wasm.parse_qr_payload(data);
-            showToast('Contact found! Establishing secure connection...');
-            // Switch to contacts view
-            setTimeout(() => showView('contacts'), 1500);
-            return;
-        } catch (e) {
-            // Not a valid ParolNet payload — try parsing as parolnet: URI
+function handleScannedQR(data) {
+    console.log('[QR] handleScannedQR:', data.slice(0, 80));
+
+    // Extract PeerId from the scanned data
+    let peerId = null;
+
+    // Format: parolnet:<64-char-hex>
+    if (data.startsWith('parolnet:')) {
+        peerId = data.slice(9).trim();
+    }
+    // Raw 64-char hex
+    else if (/^[0-9a-fA-F]{64}$/.test(data)) {
+        peerId = data.toLowerCase();
+    }
+    // Longer hex — might be a QR payload, try WASM parse
+    else if (/^[0-9a-fA-F]+$/.test(data) && data.length > 64) {
+        if (wasm && wasm.parse_qr_payload) {
+            try {
+                wasm.parse_qr_payload(data);
+                peerId = data.slice(0, 64).toLowerCase();
+            } catch(e) {
+                console.warn('[QR] WASM parse failed:', e);
+            }
+        }
+        if (!peerId) {
+            peerId = data.slice(0, 64).toLowerCase();
         }
     }
 
-    // Handle parolnet: URI format
-    if (data.startsWith('parolnet:')) {
-        const peerId = data.slice('parolnet:'.length);
-        showToast('Peer found: ' + peerId.slice(0, 16) + '...');
-        // Store as contact
-        dbPut('contacts', {
-            peerId: peerId,
-            name: peerId.slice(0, 8) + '...',
-            lastMessage: 'Connected via QR',
-            lastTime: formatTime(Date.now()),
-            unread: 0
-        }).then(() => {
-            loadContacts();
-            showView('contacts');
+    if (!peerId || peerId.length !== 64) {
+        showToast('Unrecognized QR code');
+        console.warn('[QR] Invalid peerId from scan:', data.slice(0, 40));
+        return;
+    }
+
+    if (peerId === window._peerId) {
+        showToast("That's your own QR code!");
+        return;
+    }
+
+    // Valid peer — add as contact and open chat
+    showToast('Contact added!');
+    dbPut('contacts', {
+        peerId: peerId,
+        name: peerId.slice(0, 8) + '...',
+        lastMessage: 'Connected via QR',
+        lastTime: formatTime(Date.now()),
+        unread: 0
+    }).then(() => {
+        loadContacts();
+        openChat(peerId);
         }).catch(e => console.warn('Failed to save contact:', e));
         return;
     }
