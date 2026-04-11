@@ -1188,13 +1188,28 @@ function showLocalNotification(title, body, peerId) {
 // ── Service Worker Registration ─────────────────────────────
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js')
-            .then(reg => {
-                console.log('SW registered:', reg.scope);
-            })
-            .catch(err => {
-                console.error('SW registration failed:', err);
+        // First: unregister any old service workers that might be serving stale content
+        navigator.serviceWorker.getRegistrations().then(regs => {
+            regs.forEach(reg => {
+                reg.unregister();
+                console.log('Unregistered old SW:', reg.scope);
             });
+        });
+        // Clear all caches left by old SWs
+        if ('caches' in window) {
+            caches.keys().then(names => {
+                names.forEach(name => {
+                    caches.delete(name);
+                    console.log('Cleared cache:', name);
+                });
+            });
+        }
+        // NOTE: Service Worker registration disabled during development.
+        // The SW was caching aggressively and causing stale content on iOS.
+        // Re-enable for production by uncommenting:
+        // navigator.serviceWorker.register('sw.js').then(reg => {
+        //     console.log('SW registered:', reg.scope);
+        // });
     }
 }
 
