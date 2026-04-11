@@ -49,7 +49,7 @@ serde_bytes = "0.11"
 # Async / Networking
 tokio = { version = "1", features = ["full"] }
 rustls = "0.23"
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 tokio-tungstenite = "0.26"
 tokio-rustls = "0.26"
 
