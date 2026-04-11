@@ -1059,33 +1059,33 @@ function connectViaPassphrase() {
         return;
     }
 
+    // Clean up the input — strip whitespace, newlines, quotes
+    let clean = raw.replace(/[\s\n\r"']/g, '');
+    console.log('[AddContact] Input cleaned:', clean.slice(0, 80), 'length:', clean.length);
+
     // Extract PeerId from whatever format they pasted
     let peerId = null;
 
-    if (raw.startsWith('parolnet:')) {
+    if (clean.startsWith('parolnet:')) {
         // Format: parolnet:<64-char-hex>
-        peerId = raw.slice(9).trim();
-    } else if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+        peerId = clean.slice(9).trim();
+    } else if (/^[0-9a-fA-F]{64}$/.test(clean)) {
         // Raw 64-char hex PeerId
-        peerId = raw.toLowerCase();
-    } else if (/^[0-9a-fA-F]+$/.test(raw) && raw.length > 64) {
-        // Full QR payload hex — try WASM parse
-        if (wasm && wasm.parse_qr_payload) {
-            try {
-                wasm.parse_qr_payload(raw);
-                // If parse succeeds, the payload contains an identity key
-                // Use the raw hex as an identifier for now
-                peerId = raw.slice(0, 64).toLowerCase();
-            } catch(e) { /* not a valid payload */ }
-        }
-        if (!peerId) {
-            // Take first 64 hex chars as PeerId
-            peerId = raw.slice(0, 64).toLowerCase();
-        }
+        peerId = clean.toLowerCase();
+    } else if (/^[0-9a-fA-F]+$/.test(clean) && clean.length >= 64) {
+        // Longer hex — take first 64 chars as PeerId
+        peerId = clean.slice(0, 64).toLowerCase();
+    }
+
+    // Last resort: maybe they pasted the whole "parolnet:..." with extra stuff
+    if (!peerId) {
+        const match = clean.match(/parolnet:([0-9a-fA-F]{64})/);
+        if (match) peerId = match[1].toLowerCase();
     }
 
     if (!peerId || peerId.length !== 64) {
-        showToast('Invalid code. Copy the full code from your contact.');
+        showToast('Invalid code (length ' + (peerId?.length || clean.length) + '). Copy the FULL code.');
+        console.warn('[AddContact] Invalid peerId:', clean.slice(0, 40), 'extracted:', peerId?.slice(0, 20));
         return;
     }
 
