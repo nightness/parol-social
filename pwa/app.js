@@ -338,8 +338,8 @@ async function onWasmReady() {
 }
 
 function onWasmUnavailable() {
-    // Show calculator by default in dev mode (simulates decoy)
-    showView('calculator');
+    // Show contacts view — calculator only shown when decoy mode is explicitly enabled
+    showView('contacts');
     const el = document.getElementById('settings-version');
     if (el) el.textContent = 'dev (no WASM)';
 
