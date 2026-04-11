@@ -955,9 +955,8 @@ function handleScannedQR(data) {
     }).then(() => {
         loadContacts();
         openChat(peerId);
-        }).catch(e => console.warn('Failed to save contact:', e));
-        return;
-    }
+    }).catch(e => console.warn('Failed to save contact:', e));
+    return;
 
     // Unknown QR format
     showToast('Scanned: ' + data.slice(0, 50) + (data.length > 50 ? '...' : ''));
