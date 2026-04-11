@@ -12,6 +12,17 @@ export function answer_call(call_id_hex: string): void;
 export function assemble_file(file_id_hex: string): Uint8Array;
 
 /**
+ * Complete the bootstrap as the QR **presenter** (responder side).
+ *
+ * Called when the presenter receives a bootstrap handshake from the scanner,
+ * containing the scanner's identity key. Uses the stored ratchet secret from
+ * QR generation to establish the responder session.
+ *
+ * `their_identity_key_hex` — the scanner's Ed25519 identity public key.
+ */
+export function complete_bootstrap_as_presenter(their_identity_key_hex: string): any;
+
+/**
  * Compute a 6-digit SAS verification string.
  */
 export function compute_sas(bootstrap_secret_hex: string, ik_alice_hex: string, ik_bob_hex: string, ek_alice_hex: string, ek_bob_hex: string): string;
@@ -71,6 +82,9 @@ export function generate_keypair(): any;
 
 /**
  * Generate a QR bootstrap payload (CBOR bytes, hex-encoded).
+ *
+ * Also stores the ratchet secret and seed in WASM state so the presenter
+ * can later establish a responder session when the scanner connects.
  */
 export function generate_qr_payload(identity_key_hex: string, relay_hint?: string | null): string;
 
@@ -145,6 +159,14 @@ export function panic_wipe(): void;
 export function parse_qr_payload(hex_data: string): any;
 
 /**
+ * Process a scanned QR payload: parse, derive bootstrap secret, establish initiator session.
+ *
+ * This is the **scanner** side of the bootstrap. Returns `{ peer_id }` on success.
+ * The scanner can immediately start sending encrypted messages after this call.
+ */
+export function process_scanned_qr(hex_data: string): any;
+
+/**
  * Receive a chunk for an incoming file transfer. Returns true if this was the last chunk.
  */
 export function receive_chunk(file_id_hex: string, chunk_index: number, data: Uint8Array, is_last: boolean): boolean;
@@ -197,6 +219,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly answer_call: (a: number, b: number, c: number) => void;
     readonly assemble_file: (a: number, b: number, c: number) => void;
+    readonly complete_bootstrap_as_presenter: (a: number, b: number, c: number) => void;
     readonly compute_sas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
     readonly create_file_transfer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly create_session: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
@@ -219,6 +242,7 @@ export interface InitOutput {
     readonly is_decoy_enabled: () => number;
     readonly panic_wipe: () => void;
     readonly parse_qr_payload: (a: number, b: number, c: number) => void;
+    readonly process_scanned_qr: (a: number, b: number, c: number) => void;
     readonly receive_chunk: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly receive_file_offer: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number) => void;
     readonly reject_call: (a: number, b: number, c: number) => void;

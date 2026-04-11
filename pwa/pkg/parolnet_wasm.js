@@ -47,6 +47,35 @@ export function assemble_file(file_id_hex) {
 }
 
 /**
+ * Complete the bootstrap as the QR **presenter** (responder side).
+ *
+ * Called when the presenter receives a bootstrap handshake from the scanner,
+ * containing the scanner's identity key. Uses the stored ratchet secret from
+ * QR generation to establish the responder session.
+ *
+ * `their_identity_key_hex` — the scanner's Ed25519 identity public key.
+ * @param {string} their_identity_key_hex
+ * @returns {any}
+ */
+export function complete_bootstrap_as_presenter(their_identity_key_hex) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(their_identity_key_hex, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.complete_bootstrap_as_presenter(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * Compute a 6-digit SAS verification string.
  * @param {string} bootstrap_secret_hex
  * @param {string} ik_alice_hex
@@ -293,6 +322,9 @@ export function generate_keypair() {
 
 /**
  * Generate a QR bootstrap payload (CBOR bytes, hex-encoded).
+ *
+ * Also stores the ratchet secret and seed in WASM state so the presenter
+ * can later establish a responder session when the scanner connects.
  * @param {string} identity_key_hex
  * @param {string | null} [relay_hint]
  * @returns {string}
@@ -570,6 +602,32 @@ export function parse_qr_payload(hex_data) {
         const ptr0 = passStringToWasm0(hex_data, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
         wasm.parse_qr_payload(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * Process a scanned QR payload: parse, derive bootstrap secret, establish initiator session.
+ *
+ * This is the **scanner** side of the bootstrap. Returns `{ peer_id }` on success.
+ * The scanner can immediately start sending encrypted messages after this call.
+ * @param {string} hex_data
+ * @returns {any}
+ */
+export function process_scanned_qr(hex_data) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(hex_data, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.process_scanned_qr(retptr, ptr0, len0);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);

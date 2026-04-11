@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const answer_call: (a: number, b: number, c: number) => void;
 export const assemble_file: (a: number, b: number, c: number) => void;
+export const complete_bootstrap_as_presenter: (a: number, b: number, c: number) => void;
 export const compute_sas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
 export const create_file_transfer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const create_session: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
@@ -25,6 +26,7 @@ export const initialize_from_key: (a: number, b: number, c: number) => void;
 export const is_decoy_enabled: () => number;
 export const panic_wipe: () => void;
 export const parse_qr_payload: (a: number, b: number, c: number) => void;
+export const process_scanned_qr: (a: number, b: number, c: number) => void;
 export const receive_chunk: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const receive_file_offer: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number) => void;
 export const reject_call: (a: number, b: number, c: number) => void;
