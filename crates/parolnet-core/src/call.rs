@@ -7,7 +7,7 @@ use parolnet_protocol::address::PeerId;
 use parolnet_protocol::media::{AudioCodec, CallSignalMessage, CallState, VideoConfig};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 /// Call timeout for unanswered calls.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);

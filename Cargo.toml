@@ -70,6 +70,9 @@ axum = "0.8"
 serde_json = "1"
 tower-http = { version = "0.6", features = ["cors"] }
 
+# Time (WASM-compatible)
+web-time = "1"
+
 # Utilities
 curve25519-dalek = "4"
 futures-util = "0.3"

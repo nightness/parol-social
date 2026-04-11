@@ -29,6 +29,7 @@ subtle.workspace = true
 rand.workspace = true
 zeroize.workspace = true
 serde_bytes.workspace = true
+web-time.workspace = true
 opus-rs = { workspace = true, optional = true }
 codec2 = { workspace = true, optional = true }
 
