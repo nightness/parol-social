@@ -50,7 +50,7 @@ serde_bytes = "0.11"
 tokio = { version = "1", features = ["full"] }
 rustls = "0.23"
 webpki-roots = "0.26"
-tokio-tungstenite = "0.26"
+tokio-tungstenite = "0.29"
 tokio-rustls = "0.26"
 
 # Error handling / logging
