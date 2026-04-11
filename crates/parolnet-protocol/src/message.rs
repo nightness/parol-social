@@ -43,13 +43,29 @@ impl MessageType {
 pub struct MessageFlags(pub u8);
 
 impl MessageFlags {
-    pub fn is_decoy(self) -> bool { self.0 & 0x01 != 0 }
-    pub fn requires_ack(self) -> bool { self.0 & 0x02 != 0 }
-    pub fn is_fragment(self) -> bool { self.0 & 0x04 != 0 }
-    pub fn is_final_fragment(self) -> bool { self.0 & 0x08 != 0 }
+    pub fn is_decoy(self) -> bool {
+        self.0 & 0x01 != 0
+    }
+    pub fn requires_ack(self) -> bool {
+        self.0 & 0x02 != 0
+    }
+    pub fn is_fragment(self) -> bool {
+        self.0 & 0x04 != 0
+    }
+    pub fn is_final_fragment(self) -> bool {
+        self.0 & 0x08 != 0
+    }
 
-    pub fn set_decoy(&mut self) { self.0 |= 0x01; }
-    pub fn set_requires_ack(&mut self) { self.0 |= 0x02; }
-    pub fn set_fragment(&mut self) { self.0 |= 0x04; }
-    pub fn set_final_fragment(&mut self) { self.0 |= 0x08; }
+    pub fn set_decoy(&mut self) {
+        self.0 |= 0x01;
+    }
+    pub fn set_requires_ack(&mut self) {
+        self.0 |= 0x02;
+    }
+    pub fn set_fragment(&mut self) {
+        self.0 |= 0x04;
+    }
+    pub fn set_final_fragment(&mut self) {
+        self.0 |= 0x08;
+    }
 }

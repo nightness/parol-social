@@ -44,8 +44,7 @@ fn secure_delete_directory(dir: &Path) -> Result<(), CoreError> {
         }
     }
 
-    std::fs::remove_dir(dir)
-        .map_err(|e| CoreError::WipeFailed(format!("remove dir: {e}")))?;
+    std::fs::remove_dir(dir).map_err(|e| CoreError::WipeFailed(format!("remove dir: {e}")))?;
 
     Ok(())
 }
@@ -82,8 +81,7 @@ fn secure_delete_file(path: &Path) -> Result<(), CoreError> {
             .map_err(|e| CoreError::WipeFailed(format!("sync: {e}")))?;
     }
 
-    std::fs::remove_file(path)
-        .map_err(|e| CoreError::WipeFailed(format!("remove file: {e}")))?;
+    std::fs::remove_file(path).map_err(|e| CoreError::WipeFailed(format!("remove file: {e}")))?;
 
     Ok(())
 }

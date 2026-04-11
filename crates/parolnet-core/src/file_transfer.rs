@@ -3,8 +3,8 @@
 //! Chunked file transfer with SHA-256 integrity verification,
 //! per-chunk encryption via Double Ratchet, and resume support.
 
-use parolnet_protocol::file::{FileOffer, FileChunkHeader, DEFAULT_CHUNK_SIZE};
-use sha2::{Sha256, Digest};
+use parolnet_protocol::file::{DEFAULT_CHUNK_SIZE, FileChunkHeader, FileOffer};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 /// Tracks an outgoing file transfer.
@@ -104,7 +104,11 @@ impl FileTransferReceiver {
     }
 
     /// Receive a chunk. Returns true if this was the last chunk.
-    pub fn receive_chunk(&mut self, header: &FileChunkHeader, data: Vec<u8>) -> Result<bool, crate::CoreError> {
+    pub fn receive_chunk(
+        &mut self,
+        header: &FileChunkHeader,
+        data: Vec<u8>,
+    ) -> Result<bool, crate::CoreError> {
         if header.file_id != self.offer.file_id {
             return Err(crate::CoreError::SessionError("file_id mismatch".into()));
         }
@@ -138,9 +142,10 @@ impl FileTransferReceiver {
         let mut data = Vec::with_capacity(self.offer.file_size as usize);
 
         for i in 0..total {
-            let chunk = self.chunks.get(&i).ok_or_else(|| {
-                crate::CoreError::SessionError(format!("missing chunk {i}"))
-            })?;
+            let chunk = self
+                .chunks
+                .get(&i)
+                .ok_or_else(|| crate::CoreError::SessionError(format!("missing chunk {i}")))?;
             data.extend_from_slice(chunk);
         }
 

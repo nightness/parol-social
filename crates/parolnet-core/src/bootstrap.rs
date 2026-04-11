@@ -17,6 +17,9 @@ pub struct QrPayload {
     /// 256-bit cryptographically random shared secret seed.
     #[serde(with = "serde_bytes")]
     pub seed: Vec<u8>,
+    /// X25519 ratchet public key for Double Ratchet initialization.
+    #[serde(with = "serde_bytes", default, skip_serializing_if = "Vec::is_empty")]
+    pub rk: Vec<u8>,
     /// Optional relay hint (hostname:port).
     pub relay: Option<String>,
     /// Coarsened timestamp (5-minute bucket).
@@ -25,18 +28,33 @@ pub struct QrPayload {
     pub net: u8,
 }
 
+/// Result of QR payload generation, including the ratchet secret for session setup.
+pub struct QrGenerationResult {
+    /// CBOR-encoded QR payload bytes.
+    pub payload_bytes: Vec<u8>,
+    /// X25519 ratchet secret key (caller must store for responder session init).
+    pub ratchet_secret: [u8; 32],
+    /// The random seed used (caller must store to derive bootstrap secret later).
+    pub seed: [u8; 32],
+}
+
 /// Generate a QR code payload for peer introduction.
 ///
-/// Returns CBOR-encoded bytes (base45 encoding for actual QR rendering
-/// would be applied by the UI layer).
-pub fn generate_qr_payload(
+/// Returns CBOR-encoded bytes plus the ratchet secret key that the presenter
+/// must store to later initialize the responder side of the Double Ratchet.
+pub fn generate_qr_payload_with_ratchet(
     identity_key: &[u8; 32],
     relay_hint: Option<&str>,
-) -> Result<Vec<u8>, CoreError> {
+) -> Result<QrGenerationResult, CoreError> {
     use rand::RngCore;
+    use x25519_dalek::{PublicKey, StaticSecret};
 
     let mut seed = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut seed);
+
+    // Generate X25519 ratchet keypair for Double Ratchet initialization
+    let ratchet_secret = StaticSecret::random_from_rng(&mut rand::thread_rng());
+    let ratchet_public = PublicKey::from(&ratchet_secret);
 
     let now_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -48,6 +66,7 @@ pub fn generate_qr_payload(
         v: 1,
         ik: identity_key.to_vec(),
         seed: seed.to_vec(),
+        rk: ratchet_public.as_bytes().to_vec(),
         relay: relay_hint.map(|s| s.to_string()),
         ts: coarsened,
         net: if relay_hint.is_some() { 1 } else { 2 },
@@ -56,7 +75,23 @@ pub fn generate_qr_payload(
     let mut buf = Vec::new();
     ciborium::into_writer(&payload, &mut buf)
         .map_err(|e| CoreError::BootstrapFailed(format!("CBOR encode: {e}")))?;
-    Ok(buf)
+
+    Ok(QrGenerationResult {
+        payload_bytes: buf,
+        ratchet_secret: ratchet_secret.to_bytes(),
+        seed,
+    })
+}
+
+/// Generate a QR code payload for peer introduction (legacy, without ratchet key).
+///
+/// Returns CBOR-encoded bytes (base45 encoding for actual QR rendering
+/// would be applied by the UI layer).
+pub fn generate_qr_payload(
+    identity_key: &[u8; 32],
+    relay_hint: Option<&str>,
+) -> Result<Vec<u8>, CoreError> {
+    Ok(generate_qr_payload_with_ratchet(identity_key, relay_hint)?.payload_bytes)
 }
 
 /// Parse a scanned QR code payload from CBOR bytes.
@@ -71,10 +106,17 @@ pub fn parse_qr_payload(data: &[u8]) -> Result<QrPayload, CoreError> {
         )));
     }
     if payload.ik.len() != 32 {
-        return Err(CoreError::BootstrapFailed("identity key must be 32 bytes".into()));
+        return Err(CoreError::BootstrapFailed(
+            "identity key must be 32 bytes".into(),
+        ));
     }
     if payload.seed.len() != 32 {
         return Err(CoreError::BootstrapFailed("seed must be 32 bytes".into()));
+    }
+    if !payload.rk.is_empty() && payload.rk.len() != 32 {
+        return Err(CoreError::BootstrapFailed(
+            "ratchet key must be 32 bytes".into(),
+        ));
     }
 
     Ok(payload)

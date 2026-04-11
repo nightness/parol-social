@@ -5,9 +5,9 @@
 //! - Each relay peels one layer by decrypting with its forward key
 //! - Reverse direction: each relay adds one layer by encrypting with backward key
 
-use crate::{RelayError, AEAD_TAG_SIZE};
-use parolnet_crypto::aead::ChaCha20Poly1305Cipher;
+use crate::{AEAD_TAG_SIZE, RelayError};
 use parolnet_crypto::Aead;
+use parolnet_crypto::aead::ChaCha20Poly1305Cipher;
 
 /// A single hop's encryption keys and nonce state.
 #[derive(Clone)]
@@ -167,11 +167,13 @@ mod tests {
         let keys = test_hop_keys(1);
         let plaintext = b"hello from the originator";
 
-        let encrypted = onion_wrap(plaintext, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
+        let encrypted =
+            onion_wrap(plaintext, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
         assert_ne!(encrypted, plaintext);
         assert_eq!(encrypted.len(), plaintext.len() + AEAD_TAG_SIZE);
 
-        let decrypted = onion_peel(&encrypted, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
+        let decrypted =
+            onion_peel(&encrypted, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
@@ -189,9 +191,12 @@ mod tests {
         let encrypted = onion_encrypt(plaintext, &hops, &counters).unwrap();
 
         // Each relay peels one layer
-        let after_hop1 = onion_peel(&encrypted, &hop1.forward_key, &hop1.forward_nonce_seed, 0).unwrap();
-        let after_hop2 = onion_peel(&after_hop1, &hop2.forward_key, &hop2.forward_nonce_seed, 0).unwrap();
-        let after_hop3 = onion_peel(&after_hop2, &hop3.forward_key, &hop3.forward_nonce_seed, 0).unwrap();
+        let after_hop1 =
+            onion_peel(&encrypted, &hop1.forward_key, &hop1.forward_nonce_seed, 0).unwrap();
+        let after_hop2 =
+            onion_peel(&after_hop1, &hop2.forward_key, &hop2.forward_nonce_seed, 0).unwrap();
+        let after_hop3 =
+            onion_peel(&after_hop2, &hop3.forward_key, &hop3.forward_nonce_seed, 0).unwrap();
 
         assert_eq!(after_hop3, plaintext);
     }
@@ -205,11 +210,14 @@ mod tests {
         let plaintext = b"response from exit relay";
 
         // Exit relay (hop3) encrypts with backward key
-        let from_hop3 = onion_wrap(plaintext, &hop3.backward_key, &hop3.backward_nonce_seed, 0).unwrap();
+        let from_hop3 =
+            onion_wrap(plaintext, &hop3.backward_key, &hop3.backward_nonce_seed, 0).unwrap();
         // Hop2 adds a layer
-        let from_hop2 = onion_wrap(&from_hop3, &hop2.backward_key, &hop2.backward_nonce_seed, 0).unwrap();
+        let from_hop2 =
+            onion_wrap(&from_hop3, &hop2.backward_key, &hop2.backward_nonce_seed, 0).unwrap();
         // Hop1 adds a layer
-        let from_hop1 = onion_wrap(&from_hop2, &hop1.backward_key, &hop1.backward_nonce_seed, 0).unwrap();
+        let from_hop1 =
+            onion_wrap(&from_hop2, &hop1.backward_key, &hop1.backward_nonce_seed, 0).unwrap();
 
         // OP decrypts all layers
         let hops = [hop1, hop2, hop3];
@@ -229,8 +237,14 @@ mod tests {
         assert_ne!(ct0, ct1);
 
         // Decrypt with correct counter
-        assert_eq!(onion_peel(&ct0, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap(), b"msg0");
-        assert_eq!(onion_peel(&ct1, &keys.forward_key, &keys.forward_nonce_seed, 1).unwrap(), b"msg0");
+        assert_eq!(
+            onion_peel(&ct0, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap(),
+            b"msg0"
+        );
+        assert_eq!(
+            onion_peel(&ct1, &keys.forward_key, &keys.forward_nonce_seed, 1).unwrap(),
+            b"msg0"
+        );
 
         // Wrong counter fails
         assert!(onion_peel(&ct0, &keys.forward_key, &keys.forward_nonce_seed, 1).is_err());
@@ -239,7 +253,8 @@ mod tests {
     #[test]
     fn test_tampered_onion_layer_fails() {
         let keys = test_hop_keys(1);
-        let mut encrypted = onion_wrap(b"secret", &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
+        let mut encrypted =
+            onion_wrap(b"secret", &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
         encrypted[0] ^= 0xFF;
         assert!(onion_peel(&encrypted, &keys.forward_key, &keys.forward_nonce_seed, 0).is_err());
     }

@@ -9,9 +9,11 @@
 //! - Set reconciliation for reconnection sync
 //! - Peer scoring and anti-spam
 
+pub mod connection_pool;
 pub mod discovery;
 pub mod error;
 pub mod gossip;
+pub mod peer_manager;
 pub mod peer_table;
 pub mod store_forward;
 pub mod sync;

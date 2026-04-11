@@ -12,8 +12,10 @@
 pub mod circuit;
 pub mod directory;
 pub mod error;
+pub mod handshake;
 pub mod onion;
 pub mod padding;
+pub mod pool;
 pub mod relay_node;
 
 pub use error::RelayError;
@@ -100,8 +102,7 @@ impl RelayCell {
     /// Deserialize a cell from exactly 512 bytes.
     pub fn from_bytes(buf: &[u8; CELL_SIZE]) -> Result<Self, RelayError> {
         let circuit_id = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
-        let cell_type = CellType::from_u8(buf[4])
-            .ok_or(RelayError::InvalidCellType(buf[4]))?;
+        let cell_type = CellType::from_u8(buf[4]).ok_or(RelayError::InvalidCellType(buf[4]))?;
         let payload_len = u16::from_be_bytes([buf[5], buf[6]]);
         let mut payload = [0u8; CELL_PAYLOAD_SIZE];
         payload.copy_from_slice(&buf[7..]);
@@ -162,7 +163,14 @@ pub trait RelayNode: Send + Sync {
 
 /// Action a relay takes after processing a cell.
 pub enum RelayAction {
-    Forward { next_hop: SocketAddr, cell: RelayCell },
-    Deliver { payload: Vec<u8> },
+    Forward {
+        next_hop: SocketAddr,
+        cell: RelayCell,
+    },
+    Deliver {
+        payload: Vec<u8>,
+    },
+    /// Send this cell back to the sender (e.g., CREATED in response to CREATE).
+    Respond(RelayCell),
     Discard,
 }

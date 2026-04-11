@@ -164,11 +164,9 @@ impl AudioDecoder {
     pub fn new(config: &AudioConfig) -> Result<Self, AudioError> {
         match config.codec {
             AudioCodec::Opus => {
-                let decoder = opus_rs::OpusDecoder::new(
-                    config.sample_rate as i32,
-                    config.channels as usize,
-                )
-                .map_err(|e| AudioError::CodecInit(format!("Opus decoder: {e}")))?;
+                let decoder =
+                    opus_rs::OpusDecoder::new(config.sample_rate as i32, config.channels as usize)
+                        .map_err(|e| AudioError::CodecInit(format!("Opus decoder: {e}")))?;
 
                 let frame_size = (config.sample_rate as usize * 20) / 1000;
 

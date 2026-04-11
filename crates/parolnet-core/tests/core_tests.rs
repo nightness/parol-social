@@ -1,7 +1,7 @@
+use parolnet_core::ParolNet;
 use parolnet_core::bootstrap;
 use parolnet_core::config::ParolNetConfig;
 use parolnet_core::decoy::DecoyState;
-use parolnet_core::ParolNet;
 use parolnet_crypto::SharedSecret;
 use parolnet_protocol::address::PeerId;
 
@@ -334,7 +334,7 @@ fn test_panic_wipe_nested_storage() {
 
 #[test]
 fn test_file_transfer_small_file() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = b"hello world, this is a test file!".to_vec();
     let mut sender = FileTransferSender::new(data.clone(), "test.txt".into(), None);
@@ -353,11 +353,15 @@ fn test_file_transfer_small_file() {
 
 #[test]
 fn test_file_transfer_large_file() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     // 100KB file — should produce 25 chunks at 4096 bytes each
     let data = vec![0xABu8; 100_000];
-    let mut sender = FileTransferSender::new(data.clone(), "large.bin".into(), Some("application/octet-stream".into()));
+    let mut sender = FileTransferSender::new(
+        data.clone(),
+        "large.bin".into(),
+        Some("application/octet-stream".into()),
+    );
     let mut receiver = FileTransferReceiver::new(sender.offer.clone());
 
     assert_eq!(sender.total_chunks(), 25); // ceil(100000/4096) = 25
@@ -375,7 +379,7 @@ fn test_file_transfer_large_file() {
 
 #[test]
 fn test_file_transfer_empty_file() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = vec![];
     let mut sender = FileTransferSender::new(data.clone(), "empty.txt".into(), None);
@@ -396,7 +400,7 @@ fn test_file_transfer_empty_file() {
 
 #[test]
 fn test_file_transfer_resume() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = vec![0xCDu8; 20_000]; // 5 chunks
     let mut sender = FileTransferSender::new(data.clone(), "resume.bin".into(), None);
@@ -428,7 +432,7 @@ fn test_file_transfer_resume() {
 
 #[test]
 fn test_file_transfer_integrity_failure() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = b"original data".to_vec();
     let mut sender = FileTransferSender::new(data, "test.txt".into(), None);
@@ -447,7 +451,7 @@ fn test_file_transfer_integrity_failure() {
 
 #[test]
 fn test_file_transfer_progress() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = vec![0u8; 8192]; // exactly 2 chunks
     let mut sender = FileTransferSender::new(data, "progress.bin".into(), None);
@@ -529,7 +533,7 @@ fn test_audio_config_low_bandwidth() {
 
 #[test]
 fn test_video_fragment_small_frame() {
-    use parolnet_core::video::{fragment_video_frame, reassemble_video_frame, VideoFrame};
+    use parolnet_core::video::{VideoFrame, fragment_video_frame, reassemble_video_frame};
     use parolnet_protocol::media::VideoCodec;
 
     let frame = VideoFrame {
@@ -555,7 +559,7 @@ fn test_video_fragment_small_frame() {
 #[test]
 fn test_video_fragment_large_frame() {
     use parolnet_core::video::{
-        fragment_video_frame, reassemble_video_frame, VideoFrame, MAX_FRAGMENT_SIZE,
+        MAX_FRAGMENT_SIZE, VideoFrame, fragment_video_frame, reassemble_video_frame,
     };
     use parolnet_protocol::media::VideoCodec;
 
@@ -587,7 +591,7 @@ fn test_video_fragment_large_frame() {
 
 #[test]
 fn test_video_fragment_empty_frame() {
-    use parolnet_core::video::{fragment_video_frame, VideoFrame};
+    use parolnet_core::video::{VideoFrame, fragment_video_frame};
     use parolnet_protocol::media::VideoCodec;
 
     let frame = VideoFrame {
@@ -606,7 +610,7 @@ fn test_video_fragment_empty_frame() {
 
 #[test]
 fn test_video_reassemble_missing_fragment() {
-    use parolnet_core::video::{reassemble_video_frame, VideoFragment};
+    use parolnet_core::video::{VideoFragment, reassemble_video_frame};
     use parolnet_protocol::media::VideoCodec;
 
     // Only provide fragment 0 of 3
@@ -783,7 +787,7 @@ fn test_pnp007_default_chunk_size_is_4096() {
 
 #[test]
 fn test_pnp007_opus_frame_samples_320() {
-    use parolnet_core::audio::{AudioEncoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioEncoder};
     let config = AudioConfig::default();
     let encoder = AudioEncoder::new(&config).unwrap();
     assert_eq!(encoder.frame_samples(), 320); // 16kHz * 20ms
@@ -791,7 +795,7 @@ fn test_pnp007_opus_frame_samples_320() {
 
 #[test]
 fn test_pnp007_codec2_frame_samples_160() {
-    use parolnet_core::audio::{AudioEncoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioEncoder};
     let config = AudioConfig::low_bandwidth();
     let encoder = AudioEncoder::new(&config).unwrap();
     assert_eq!(encoder.frame_samples(), 160); // 8kHz * 20ms
@@ -806,13 +810,19 @@ fn test_pnp007_codec2_threshold_16kbps() {
 #[test]
 fn test_pnp007_media_call_padding_20ms() {
     use parolnet_transport::noise::BandwidthMode;
-    assert_eq!(BandwidthMode::MediaCall.padding_interval(), std::time::Duration::from_millis(20));
+    assert_eq!(
+        BandwidthMode::MediaCall.padding_interval(),
+        std::time::Duration::from_millis(20)
+    );
 }
 
 #[test]
 fn test_pnp007_media_call_jitter_5ms() {
     use parolnet_transport::noise::BandwidthMode;
-    assert_eq!(BandwidthMode::MediaCall.jitter_max(), std::time::Duration::from_millis(5));
+    assert_eq!(
+        BandwidthMode::MediaCall.jitter_max(),
+        std::time::Duration::from_millis(5)
+    );
 }
 
 #[test]
@@ -867,7 +877,7 @@ fn test_pnp007_required_hops_3() {
 
 #[test]
 fn test_pnp007_media_data_cell_roundtrip() {
-    use parolnet_relay::{CellType, RelayCell, CELL_SIZE, CELL_PAYLOAD_SIZE};
+    use parolnet_relay::{CELL_PAYLOAD_SIZE, CELL_SIZE, CellType, RelayCell};
 
     let cell = RelayCell {
         circuit_id: 42,
@@ -946,7 +956,11 @@ fn test_pnp007_call_state_machine_offering_to_active() {
     let mut call = Call::new_outgoing(call_id, PeerId([1; 32]));
     assert_eq!(call.state, CallState::Offering);
 
-    call.handle_signal(&CallSignalMessage::Answer { call_id, sdp: "v=0".into() }).unwrap();
+    call.handle_signal(&CallSignalMessage::Answer {
+        call_id,
+        sdp: "v=0".into(),
+    })
+    .unwrap();
     assert_eq!(call.state, CallState::Active);
 }
 
@@ -957,7 +971,8 @@ fn test_pnp007_call_state_machine_offering_to_rejected() {
 
     let call_id = [0x42; 16];
     let mut call = Call::new_outgoing(call_id, PeerId([1; 32]));
-    call.handle_signal(&CallSignalMessage::Reject { call_id }).unwrap();
+    call.handle_signal(&CallSignalMessage::Reject { call_id })
+        .unwrap();
     assert_eq!(call.state, CallState::Rejected);
 }
 
@@ -970,7 +985,8 @@ fn test_pnp007_call_state_machine_ringing_to_rejected() {
     let mut call = Call::new_incoming(call_id, PeerId([1; 32]));
     assert_eq!(call.state, CallState::Ringing);
 
-    call.handle_signal(&CallSignalMessage::Reject { call_id }).unwrap();
+    call.handle_signal(&CallSignalMessage::Reject { call_id })
+        .unwrap();
     assert_eq!(call.state, CallState::Rejected);
 }
 
@@ -1013,7 +1029,7 @@ fn test_pnp007_file_offer_total_chunks() {
 
 #[test]
 fn test_opus_encode_sine_wave() {
-    use parolnet_core::audio::{AudioEncoder, AudioDecoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioDecoder, AudioEncoder};
     let config = AudioConfig::default();
     let mut encoder = AudioEncoder::new(&config).unwrap();
     let mut decoder = AudioDecoder::new(&config).unwrap();
@@ -1037,7 +1053,7 @@ fn test_opus_encode_sine_wave() {
 
 #[test]
 fn test_codec2_encode_sine_wave() {
-    use parolnet_core::audio::{AudioEncoder, AudioDecoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioDecoder, AudioEncoder};
     let config = AudioConfig::low_bandwidth();
     let mut encoder = AudioEncoder::new(&config).unwrap();
     let mut decoder = AudioDecoder::new(&config).unwrap();
@@ -1057,7 +1073,7 @@ fn test_codec2_encode_sine_wave() {
 
 #[test]
 fn test_opus_multiple_frames() {
-    use parolnet_core::audio::{AudioEncoder, AudioDecoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioDecoder, AudioEncoder};
     let config = AudioConfig::default();
     let mut encoder = AudioEncoder::new(&config).unwrap();
     let mut decoder = AudioDecoder::new(&config).unwrap();
@@ -1073,7 +1089,7 @@ fn test_opus_multiple_frames() {
 
 #[test]
 fn test_codec2_multiple_frames() {
-    use parolnet_core::audio::{AudioEncoder, AudioDecoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioDecoder, AudioEncoder};
     let config = AudioConfig::low_bandwidth();
     let mut encoder = AudioEncoder::new(&config).unwrap();
     let mut decoder = AudioDecoder::new(&config).unwrap();
@@ -1088,7 +1104,7 @@ fn test_codec2_multiple_frames() {
 
 #[test]
 fn test_opus_compressed_size_reasonable() {
-    use parolnet_core::audio::{AudioEncoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioEncoder};
     let config = AudioConfig::default();
     let mut encoder = AudioEncoder::new(&config).unwrap();
 
@@ -1097,14 +1113,18 @@ fn test_opus_compressed_size_reasonable() {
 
     // Opus at 24kbps for 20ms should produce ~60 bytes
     // Silence should compress even smaller
-    assert!(encoded.len() < 200, "Opus frame too large: {} bytes", encoded.len());
+    assert!(
+        encoded.len() < 200,
+        "Opus frame too large: {} bytes",
+        encoded.len()
+    );
     // Should fit in relay cell payload (457 bytes)
     assert!(encoded.len() < 457);
 }
 
 #[test]
 fn test_codec2_compressed_size_tiny() {
-    use parolnet_core::audio::{AudioEncoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioEncoder};
     let config = AudioConfig::low_bandwidth();
     let mut encoder = AudioEncoder::new(&config).unwrap();
 
@@ -1112,12 +1132,16 @@ fn test_codec2_compressed_size_tiny() {
     let encoded = encoder.encode(&pcm).unwrap();
 
     // Codec2 at 3200bps for 20ms = 64 bits = 8 bytes
-    assert!(encoded.len() <= 16, "Codec2 frame too large: {} bytes", encoded.len());
+    assert!(
+        encoded.len() <= 16,
+        "Codec2 frame too large: {} bytes",
+        encoded.len()
+    );
 }
 
 #[test]
 fn test_audio_encoder_codec_type_field() {
-    use parolnet_core::audio::{AudioEncoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioEncoder};
     use parolnet_protocol::media::AudioCodec;
 
     let opus_enc = AudioEncoder::new(&AudioConfig::default()).unwrap();
@@ -1129,7 +1153,7 @@ fn test_audio_encoder_codec_type_field() {
 
 #[test]
 fn test_audio_decoder_codec_type_field() {
-    use parolnet_core::audio::{AudioDecoder, AudioConfig};
+    use parolnet_core::audio::{AudioConfig, AudioDecoder};
     use parolnet_protocol::media::AudioCodec;
 
     let opus_dec = AudioDecoder::new(&AudioConfig::default()).unwrap();
@@ -1163,13 +1187,18 @@ fn test_audio_frame_struct() {
 
 #[test]
 fn test_video_fragment_exact_boundary() {
-    use parolnet_core::video::{VideoFrame, fragment_video_frame, reassemble_video_frame, MAX_FRAGMENT_SIZE};
+    use parolnet_core::video::{
+        MAX_FRAGMENT_SIZE, VideoFrame, fragment_video_frame, reassemble_video_frame,
+    };
     use parolnet_protocol::media::VideoCodec;
 
     // Data exactly MAX_FRAGMENT_SIZE -- should be 1 fragment
     let frame = VideoFrame {
-        codec: VideoCodec::VP8, width: 320, height: 240,
-        is_keyframe: false, timestamp: 0,
+        codec: VideoCodec::VP8,
+        width: 320,
+        height: 240,
+        is_keyframe: false,
+        timestamp: 0,
         data: vec![0xAB; MAX_FRAGMENT_SIZE],
     };
     let frags = fragment_video_frame(&frame, 1);
@@ -1177,8 +1206,11 @@ fn test_video_fragment_exact_boundary() {
 
     // Data = MAX_FRAGMENT_SIZE + 1 -- should be 2 fragments
     let frame2 = VideoFrame {
-        codec: VideoCodec::VP8, width: 320, height: 240,
-        is_keyframe: false, timestamp: 0,
+        codec: VideoCodec::VP8,
+        width: 320,
+        height: 240,
+        is_keyframe: false,
+        timestamp: 0,
         data: vec![0xAB; MAX_FRAGMENT_SIZE + 1],
     };
     let frags2 = fragment_video_frame(&frame2, 2);
@@ -1193,8 +1225,11 @@ fn test_video_fragment_keyframe_only_on_first() {
     use parolnet_protocol::media::VideoCodec;
 
     let frame = VideoFrame {
-        codec: VideoCodec::VP9, width: 640, height: 480,
-        is_keyframe: true, timestamp: 100,
+        codec: VideoCodec::VP9,
+        width: 640,
+        height: 480,
+        is_keyframe: true,
+        timestamp: 100,
         data: vec![0; 1000], // multiple fragments
     };
     let frags = fragment_video_frame(&frame, 1);
@@ -1211,8 +1246,22 @@ fn test_video_reassemble_wrong_frame_id() {
     use parolnet_protocol::media::VideoCodec;
 
     let mut fragments = vec![
-        VideoFragment { frame_id: 1, fragment_index: 0, total_fragments: 2, is_keyframe: false, timestamp: 0, data: vec![1] },
-        VideoFragment { frame_id: 2, fragment_index: 1, total_fragments: 2, is_keyframe: false, timestamp: 0, data: vec![2] },
+        VideoFragment {
+            frame_id: 1,
+            fragment_index: 0,
+            total_fragments: 2,
+            is_keyframe: false,
+            timestamp: 0,
+            data: vec![1],
+        },
+        VideoFragment {
+            frame_id: 2,
+            fragment_index: 1,
+            total_fragments: 2,
+            is_keyframe: false,
+            timestamp: 0,
+            data: vec![2],
+        },
     ];
     let result = reassemble_video_frame(&mut fragments, VideoCodec::VP8, 320, 240);
     assert!(result.is_err());
@@ -1220,12 +1269,17 @@ fn test_video_reassemble_wrong_frame_id() {
 
 #[test]
 fn test_video_reassemble_out_of_order() {
-    use parolnet_core::video::{VideoFrame, VideoFragment, fragment_video_frame, reassemble_video_frame};
+    use parolnet_core::video::{
+        VideoFragment, VideoFrame, fragment_video_frame, reassemble_video_frame,
+    };
     use parolnet_protocol::media::VideoCodec;
 
     let frame = VideoFrame {
-        codec: VideoCodec::VP8, width: 320, height: 240,
-        is_keyframe: true, timestamp: 500,
+        codec: VideoCodec::VP8,
+        width: 320,
+        height: 240,
+        is_keyframe: true,
+        timestamp: 500,
         data: vec![0xCD; 1000],
     };
     let mut frags = fragment_video_frame(&frame, 7);
@@ -1243,8 +1297,11 @@ fn test_video_fragment_preserves_timestamp() {
     use parolnet_protocol::media::VideoCodec;
 
     let frame = VideoFrame {
-        codec: VideoCodec::VP8, width: 320, height: 240,
-        is_keyframe: false, timestamp: 12345,
+        codec: VideoCodec::VP8,
+        width: 320,
+        height: 240,
+        is_keyframe: false,
+        timestamp: 12345,
         data: vec![0; 1000],
     };
     let frags = fragment_video_frame(&frame, 99);
@@ -1270,8 +1327,11 @@ fn test_video_fragment_non_keyframe() {
     use parolnet_protocol::media::VideoCodec;
 
     let frame = VideoFrame {
-        codec: VideoCodec::VP8, width: 320, height: 240,
-        is_keyframe: false, timestamp: 0,
+        codec: VideoCodec::VP8,
+        width: 320,
+        height: 240,
+        is_keyframe: false,
+        timestamp: 0,
         data: vec![0; 1000],
     };
     let frags = fragment_video_frame(&frame, 1);
@@ -1283,7 +1343,7 @@ fn test_video_fragment_non_keyframe() {
 
 #[test]
 fn test_video_config_vp9() {
-    use parolnet_protocol::media::{VideoConfig, VideoCodec};
+    use parolnet_protocol::media::{VideoCodec, VideoConfig};
 
     let config = VideoConfig {
         width: 640,
@@ -1305,7 +1365,8 @@ fn test_call_hangup_from_offering() {
 
     let call_id = [1; 16];
     let mut call = Call::new_outgoing(call_id, PeerId([1; 32]));
-    call.handle_signal(&CallSignalMessage::Hangup { call_id }).unwrap();
+    call.handle_signal(&CallSignalMessage::Hangup { call_id })
+        .unwrap();
     assert_eq!(call.state, CallState::Ended);
 }
 
@@ -1316,7 +1377,8 @@ fn test_call_hangup_from_ringing() {
 
     let call_id = [2; 16];
     let mut call = Call::new_incoming(call_id, PeerId([2; 32]));
-    call.handle_signal(&CallSignalMessage::Hangup { call_id }).unwrap();
+    call.handle_signal(&CallSignalMessage::Hangup { call_id })
+        .unwrap();
     assert_eq!(call.state, CallState::Ended);
 }
 
@@ -1343,7 +1405,11 @@ fn test_call_duration_tracking() {
     let mut call = Call::new_outgoing(call_id, PeerId([1; 32]));
     assert!(call.duration().is_none()); // Not active yet
 
-    call.handle_signal(&CallSignalMessage::Answer { call_id, sdp: "".into() }).unwrap();
+    call.handle_signal(&CallSignalMessage::Answer {
+        call_id,
+        sdp: "".into(),
+    })
+    .unwrap();
     assert!(call.duration().is_some()); // Now active
 
     let dur = call.duration().unwrap();
@@ -1364,7 +1430,10 @@ fn test_call_mute_not_active_fails() {
 
     let call_id = [1; 16];
     let mut call = Call::new_outgoing(call_id, PeerId([1; 32]));
-    let mute = CallSignalMessage::Mute { call_id, muted: true };
+    let mute = CallSignalMessage::Mute {
+        call_id,
+        muted: true,
+    };
     assert!(call.handle_signal(&mute).is_err()); // Can't mute while Offering
 }
 
@@ -1375,7 +1444,10 @@ fn test_call_offer_signal_on_existing_call_fails() {
 
     let call_id = [1; 16];
     let mut call = Call::new_outgoing(call_id, PeerId([1; 32]));
-    let offer = CallSignalMessage::Offer { call_id, sdp: "v=0".into() };
+    let offer = CallSignalMessage::Offer {
+        call_id,
+        sdp: "v=0".into(),
+    };
     assert!(call.handle_signal(&offer).is_err());
 }
 
@@ -1387,10 +1459,20 @@ fn test_call_answer_wrong_state_fails() {
     // Can't answer a call that is already Active
     let call_id = [1; 16];
     let mut call = Call::new_outgoing(call_id, PeerId([1; 32]));
-    call.handle_signal(&CallSignalMessage::Answer { call_id, sdp: "".into() }).unwrap();
+    call.handle_signal(&CallSignalMessage::Answer {
+        call_id,
+        sdp: "".into(),
+    })
+    .unwrap();
     assert_eq!(call.state, CallState::Active);
     // Second answer should fail
-    assert!(call.handle_signal(&CallSignalMessage::Answer { call_id, sdp: "".into() }).is_err());
+    assert!(
+        call.handle_signal(&CallSignalMessage::Answer {
+            call_id,
+            sdp: "".into()
+        })
+        .is_err()
+    );
 }
 
 #[test]
@@ -1401,9 +1483,16 @@ fn test_call_reject_from_wrong_state_fails() {
     let call_id = [1; 16];
     let mut call = Call::new_outgoing(call_id, PeerId([1; 32]));
     // Move to Active
-    call.handle_signal(&CallSignalMessage::Answer { call_id, sdp: "".into() }).unwrap();
+    call.handle_signal(&CallSignalMessage::Answer {
+        call_id,
+        sdp: "".into(),
+    })
+    .unwrap();
     // Can't reject an active call
-    assert!(call.handle_signal(&CallSignalMessage::Reject { call_id }).is_err());
+    assert!(
+        call.handle_signal(&CallSignalMessage::Reject { call_id })
+            .is_err()
+    );
 }
 
 #[test]
@@ -1482,7 +1571,7 @@ fn test_call_manager_multiple_active_calls() {
 
 #[test]
 fn test_file_transfer_exact_chunk_boundary() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     // Exactly 2 chunks: 8192 bytes at 4096 chunk size
     let data = vec![0xAB; 8192];
@@ -1508,7 +1597,7 @@ fn test_file_transfer_exact_chunk_boundary() {
 
 #[test]
 fn test_file_transfer_single_byte() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = vec![0x42];
     let mut sender = FileTransferSender::new(data.clone(), "one.bin".into(), None);
@@ -1525,7 +1614,7 @@ fn test_file_transfer_single_byte() {
 
 #[test]
 fn test_file_transfer_receiver_wrong_file_id() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
     use parolnet_protocol::file::FileChunkHeader;
 
     let data = vec![0; 100];
@@ -1543,7 +1632,7 @@ fn test_file_transfer_receiver_wrong_file_id() {
 
 #[test]
 fn test_file_transfer_last_chunk_index() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = vec![0; 10000]; // 3 chunks
     let mut sender = FileTransferSender::new(data, "test.bin".into(), None);
@@ -1564,11 +1653,8 @@ fn test_file_transfer_last_chunk_index() {
 fn test_file_transfer_mime_type_preserved() {
     use parolnet_core::file_transfer::FileTransferSender;
 
-    let sender = FileTransferSender::new(
-        vec![0; 100],
-        "photo.png".into(),
-        Some("image/png".into()),
-    );
+    let sender =
+        FileTransferSender::new(vec![0; 100], "photo.png".into(), Some("image/png".into()));
     assert_eq!(sender.offer.mime_type, Some("image/png".into()));
     assert_eq!(sender.offer.file_name, "photo.png");
 }
@@ -1581,17 +1667,16 @@ fn test_file_transfer_sha256_computed() {
     let sender = FileTransferSender::new(data, "test.txt".into(), None);
     // SHA-256 of "hello world" is well-known
     let expected: [u8; 32] = [
-        0xb9, 0x4d, 0x27, 0xb9, 0x93, 0x4d, 0x3e, 0x08,
-        0xa5, 0x2e, 0x52, 0xd7, 0xda, 0x7d, 0xab, 0xfa,
-        0xc4, 0x84, 0xef, 0xe3, 0x7a, 0x53, 0x80, 0xee,
-        0x90, 0x88, 0xf7, 0xac, 0xe2, 0xef, 0xcd, 0xe9,
+        0xb9, 0x4d, 0x27, 0xb9, 0x93, 0x4d, 0x3e, 0x08, 0xa5, 0x2e, 0x52, 0xd7, 0xda, 0x7d, 0xab,
+        0xfa, 0xc4, 0x84, 0xef, 0xe3, 0x7a, 0x53, 0x80, 0xee, 0x90, 0x88, 0xf7, 0xac, 0xe2, 0xef,
+        0xcd, 0xe9,
     ];
     assert_eq!(sender.offer.sha256, expected);
 }
 
 #[test]
 fn test_file_transfer_receiver_progress() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = vec![0; 12288]; // 3 chunks
     let mut sender = FileTransferSender::new(data, "prog.bin".into(), None);
@@ -1615,7 +1700,7 @@ fn test_file_transfer_receiver_progress() {
 
 #[test]
 fn test_file_transfer_receiver_not_complete_without_last() {
-    use parolnet_core::file_transfer::{FileTransferSender, FileTransferReceiver};
+    use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
 
     let data = vec![0; 10000]; // 3 chunks
     let mut sender = FileTransferSender::new(data, "test.bin".into(), None);
@@ -1651,7 +1736,7 @@ fn test_file_transfer_sender_resume_from() {
 
 #[test]
 fn test_relay_padding_cell() {
-    use parolnet_relay::{RelayCell, CellType, CELL_SIZE};
+    use parolnet_relay::{CELL_SIZE, CellType, RelayCell};
 
     let cell = RelayCell::padding(123);
     assert_eq!(cell.cell_type, CellType::Padding);
@@ -1666,7 +1751,7 @@ fn test_relay_padding_cell() {
 
 #[test]
 fn test_relay_destroy_cell() {
-    use parolnet_relay::{RelayCell, CellType, CELL_SIZE};
+    use parolnet_relay::{CELL_SIZE, CellType, RelayCell};
 
     let cell = RelayCell::destroy(456, 0x01);
     assert_eq!(cell.cell_type, CellType::Destroy);
@@ -1681,7 +1766,7 @@ fn test_relay_destroy_cell() {
 
 #[test]
 fn test_relay_cell_invalid_type() {
-    use parolnet_relay::{RelayCell, CELL_SIZE};
+    use parolnet_relay::{CELL_SIZE, RelayCell};
 
     let mut bytes = [0u8; CELL_SIZE];
     bytes[4] = 0xFF; // invalid cell type
@@ -1696,7 +1781,9 @@ fn test_standard_shaper_media_call() {
     use parolnet_transport::noise::{BandwidthMode, StandardShaper};
     use parolnet_transport::traits::TrafficShaper;
 
-    let shaper = StandardShaper { mode: BandwidthMode::MediaCall };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::MediaCall,
+    };
 
     // delay_before_send should be in [20ms, 25ms] range
     let delay = shaper.delay_before_send();
@@ -1713,7 +1800,9 @@ fn test_standard_shaper_shape_messages() {
     use parolnet_transport::noise::{BandwidthMode, StandardShaper};
     use parolnet_transport::traits::TrafficShaper;
 
-    let shaper = StandardShaper { mode: BandwidthMode::MediaCall };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::MediaCall,
+    };
 
     let messages: Vec<Vec<u8>> = (0..5).map(|i| vec![i; 80]).collect();
     let shaped = shaper.shape(messages);
@@ -1816,7 +1905,9 @@ fn test_call_signal_message_serialization() {
 fn test_call_signal_hangup_serialization() {
     use parolnet_protocol::media::CallSignalMessage;
 
-    let hangup = CallSignalMessage::Hangup { call_id: [0xFF; 16] };
+    let hangup = CallSignalMessage::Hangup {
+        call_id: [0xFF; 16],
+    };
     let mut buf = Vec::new();
     ciborium::into_writer(&hangup, &mut buf).unwrap();
     let decoded: CallSignalMessage = ciborium::from_reader(&buf[..]).unwrap();
@@ -1830,7 +1921,10 @@ fn test_call_signal_hangup_serialization() {
 fn test_call_signal_mute_serialization() {
     use parolnet_protocol::media::CallSignalMessage;
 
-    let mute = CallSignalMessage::Mute { call_id: [0xAB; 16], muted: true };
+    let mute = CallSignalMessage::Mute {
+        call_id: [0xAB; 16],
+        muted: true,
+    };
     let mut buf = Vec::new();
     ciborium::into_writer(&mute, &mut buf).unwrap();
     let decoded: CallSignalMessage = ciborium::from_reader(&buf[..]).unwrap();

@@ -434,6 +434,16 @@ function handleRelayMessage(msg) {
             showToast('Peer offline — message will be delivered when they connect');
             break;
 
+        case 'rtc_offer':
+            handleRTCOffer(msg.from, msg.payload).catch(e => console.warn('[WebRTC] offer error:', e));
+            break;
+        case 'rtc_answer':
+            handleRTCAnswer(msg.from, msg.payload).catch(e => console.warn('[WebRTC] answer error:', e));
+            break;
+        case 'rtc_ice':
+            handleRTCIce(msg.from, msg.payload).catch(e => console.warn('[WebRTC] ICE error:', e));
+            break;
+
         case 'error':
             console.warn('Relay error:', msg.message);
             if (msg.message === 'peer not connected') {
@@ -461,15 +471,56 @@ function onIncomingMessage(fromPeerId, payload) {
                 showToast('New contact: ' + fromPeerId.slice(0, 8) + '...');
                 loadContacts();
             }).catch(() => {});
+        } else if (payload.startsWith('__system:bootstrap:')) {
+            // Bootstrap handshake from a scanner — contains their identity key
+            const theirIkHex = payload.slice('__system:bootstrap:'.length);
+            if (wasm && wasm.complete_bootstrap_as_presenter && theirIkHex.length === 64) {
+                try {
+                    const result = wasm.complete_bootstrap_as_presenter(theirIkHex);
+                    console.log('[Bootstrap] Responder session established for:', result.peer_id);
+                    // Add scanner as contact (using their PeerId from the result)
+                    dbPut('contacts', {
+                        peerId: result.peer_id,
+                        name: result.peer_id.slice(0, 8) + '...',
+                        lastMessage: 'Encrypted session established',
+                        lastTime: formatTime(Date.now()),
+                        unread: 0
+                    }).then(() => {
+                        showToast('Secure contact: ' + result.peer_id.slice(0, 8) + '...');
+                        loadContacts();
+                    }).catch(() => {});
+                } catch(e) {
+                    console.warn('[Bootstrap] Failed to complete presenter bootstrap:', e);
+                }
+            }
         }
         return;
+    }
+
+    // Attempt decryption if payload is encrypted
+    let messageText = payload;
+    if (typeof payload === 'string' && payload.startsWith('enc:')) {
+        if (wasm && wasm.decrypt_message) {
+            try {
+                const hexCiphertext = payload.slice(4);
+                const cipherBytes = new Uint8Array(hexCiphertext.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+                const plainBytes = wasm.decrypt_message(fromPeerId, cipherBytes);
+                const decoder = new TextDecoder();
+                messageText = decoder.decode(plainBytes);
+            } catch (e) {
+                console.error('[Decrypt] Failed to decrypt from', fromPeerId.slice(0, 8), e);
+                messageText = '[Encrypted message — decryption failed]';
+            }
+        } else {
+            messageText = '[Encrypted message — WASM not available]';
+        }
     }
 
     // Store the message
     const msg = {
         peerId: fromPeerId,
         direction: 'received',
-        content: payload,
+        content: messageText,
         timestamp: Date.now()
     };
 
@@ -479,7 +530,7 @@ function onIncomingMessage(fromPeerId, payload) {
     dbPut('contacts', {
         peerId: fromPeerId,
         name: fromPeerId.slice(0, 8) + '...',
-        lastMessage: payload.slice(0, 50),
+        lastMessage: messageText.slice(0, 50),
         lastTime: formatTime(Date.now()),
         unread: 1
     }).catch(() => {});
@@ -489,7 +540,7 @@ function onIncomingMessage(fromPeerId, payload) {
         appendMessage(msg);
     } else {
         // Show notification
-        showLocalNotification('New Message', payload.slice(0, 100), fromPeerId);
+        showLocalNotification('New Message', messageText.slice(0, 100), fromPeerId);
         showToast('Message from ' + fromPeerId.slice(0, 8) + '...');
         // Refresh contact list if visible
         if (currentView === 'contacts') {
@@ -509,6 +560,162 @@ function sendToRelay(toPeerId, payload) {
         payload: payload
     }));
     return true;
+}
+
+// ── WebRTC Peer Connections ────────────────────────────────
+const rtcConnections = {}; // peerId -> { pc: RTCPeerConnection, dc: RTCDataChannel, status: 'connecting'|'open'|'closed' }
+
+const RTC_CONFIG = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+};
+
+async function initWebRTC(peerId, isInitiator) {
+    if (rtcConnections[peerId] && rtcConnections[peerId].status === 'open') return;
+
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    rtcConnections[peerId] = { pc, dc: null, status: 'connecting' };
+
+    // ICE candidate handling
+    pc.onicecandidate = (event) => {
+        if (event.candidate) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'rtc_ice',
+                    to: peerId,
+                    payload: JSON.stringify(event.candidate)
+                }));
+            }
+        }
+    };
+
+    pc.onconnectionstatechange = () => {
+        console.log('[WebRTC]', peerId.slice(0,8), 'state:', pc.connectionState);
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+            cleanupRTC(peerId);
+        }
+    };
+
+    if (isInitiator) {
+        // Create data channel
+        const dc = pc.createDataChannel('parolnet', { ordered: true });
+        setupDataChannel(peerId, dc);
+
+        // Create and send offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'rtc_offer',
+                to: peerId,
+                payload: JSON.stringify(offer)
+            }));
+        }
+    } else {
+        // Wait for data channel from remote
+        pc.ondatachannel = (event) => {
+            setupDataChannel(peerId, event.channel);
+        };
+    }
+}
+
+function setupDataChannel(peerId, dc) {
+    rtcConnections[peerId].dc = dc;
+
+    dc.onopen = () => {
+        console.log('[WebRTC] Data channel open with', peerId.slice(0,8));
+        rtcConnections[peerId].status = 'open';
+        updatePeerConnectionUI(peerId, 'direct');
+    };
+
+    dc.onclose = () => {
+        console.log('[WebRTC] Data channel closed with', peerId.slice(0,8));
+        cleanupRTC(peerId);
+        updatePeerConnectionUI(peerId, 'relay');
+    };
+
+    dc.onmessage = (event) => {
+        // Received message via WebRTC data channel
+        try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'chat') {
+                onIncomingMessage(peerId, msg.payload);
+            }
+        } catch(e) {
+            // Raw string message
+            onIncomingMessage(peerId, event.data);
+        }
+    };
+}
+
+async function handleRTCOffer(fromPeerId, offerJson) {
+    await initWebRTC(fromPeerId, false);
+    const pc = rtcConnections[fromPeerId]?.pc;
+    if (!pc) return;
+
+    const offer = JSON.parse(offerJson);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'rtc_answer',
+            to: fromPeerId,
+            payload: JSON.stringify(answer)
+        }));
+    }
+}
+
+async function handleRTCAnswer(fromPeerId, answerJson) {
+    const pc = rtcConnections[fromPeerId]?.pc;
+    if (!pc) return;
+    const answer = JSON.parse(answerJson);
+    await pc.setRemoteDescription(new RTCSessionDescription(answer));
+}
+
+async function handleRTCIce(fromPeerId, candidateJson) {
+    const pc = rtcConnections[fromPeerId]?.pc;
+    if (!pc) return;
+    const candidate = JSON.parse(candidateJson);
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+}
+
+function sendViaWebRTC(peerId, payload) {
+    const conn = rtcConnections[peerId];
+    if (conn && conn.dc && conn.dc.readyState === 'open') {
+        conn.dc.send(JSON.stringify({ type: 'chat', payload: payload }));
+        return true;
+    }
+    return false;
+}
+
+function cleanupRTC(peerId) {
+    const conn = rtcConnections[peerId];
+    if (conn) {
+        if (conn.dc) try { conn.dc.close(); } catch(e) {}
+        if (conn.pc) try { conn.pc.close(); } catch(e) {}
+        conn.status = 'closed';
+    }
+    delete rtcConnections[peerId];
+}
+
+function updatePeerConnectionUI(peerId, type) {
+    // Update UI to show connection type — find the connection dot if in chat with this peer
+    if (currentView === 'chat' && currentPeerId === peerId) {
+        const dot = document.getElementById('connection-dot');
+        if (dot) {
+            dot.className = 'connection-dot online';
+            dot.title = type === 'direct' ? 'Direct (WebRTC)' : 'Relay';
+        }
+    }
+}
+
+function hasDirectConnection(peerId) {
+    const conn = rtcConnections[peerId];
+    return conn && conn.dc && conn.dc.readyState === 'open';
 }
 
 // ── Contact List ────────────────────────────────────────────
@@ -556,6 +763,11 @@ function openChat(peerId) {
         nameEl.textContent = peerId.length > 20 ? peerId.slice(0, 16) + '...' : peerId;
     }
     loadMessages(peerId);
+
+    // Try to establish direct WebRTC connection
+    if (typeof RTCPeerConnection !== 'undefined') {
+        initWebRTC(peerId, true).catch(e => console.log('[WebRTC] Init failed:', e));
+    }
 }
 
 async function loadMessages(peerId) {
@@ -598,19 +810,39 @@ async function sendMessage() {
     // Store locally
     try { await dbPut('messages', msg); } catch(e) { console.warn(e); }
 
-    // Encrypt and send via WASM
-    if (wasm && wasm.send_message) {
-        try {
-            wasm.send_message(currentPeerId, text);
-        } catch (e) {
-            console.error('Send failed:', e);
-        }
-    }
-
     appendMessage(msg);
 
-    // Send through relay
-    sendToRelay(currentPeerId, text);
+    // Encrypt and send — try WebRTC first, fall back to relay
+    let sent = false;
+    if (wasm && wasm.encrypt_message && wasm.has_session && wasm.has_session(currentPeerId)) {
+        try {
+            const encoder = new TextEncoder();
+            const plainBytes = encoder.encode(text);
+            const encrypted = wasm.encrypt_message(currentPeerId, plainBytes);
+            // Convert Uint8Array to hex for JSON transport
+            const hexPayload = Array.from(encrypted).map(b => b.toString(16).padStart(2, '0')).join('');
+            const encPayload = 'enc:' + hexPayload;
+            // Try WebRTC first, fall back to relay
+            if (hasDirectConnection(currentPeerId)) {
+                sent = sendViaWebRTC(currentPeerId, encPayload);
+            }
+            if (!sent) {
+                sent = sendToRelay(currentPeerId, encPayload);
+            }
+        } catch (e) {
+            console.error('Encryption failed, sending plaintext:', e);
+        }
+    }
+    if (!sent) {
+        // No session or encryption failed — send plaintext (legacy/fallback)
+        // Try WebRTC first, fall back to relay
+        if (hasDirectConnection(currentPeerId)) {
+            sent = sendViaWebRTC(currentPeerId, text);
+        }
+        if (!sent) {
+            sendToRelay(currentPeerId, text);
+        }
+    }
 
     input.value = '';
     input.focus();
@@ -931,30 +1163,29 @@ function isValidQRData(data) {
 function handleScannedQR(data) {
     console.log('[QR] handleScannedQR:', data.slice(0, 80));
 
-    // Extract PeerId from the scanned data
     let peerId = null;
+    let sessionEstablished = false;
 
-    // Format: parolnet:<64-char-hex>
-    if (data.startsWith('parolnet:')) {
+    // Try full QR payload first (hex-encoded CBOR with ratchet key)
+    if (/^[0-9a-fA-F]+$/.test(data) && data.length > 64 && wasm && wasm.process_scanned_qr) {
+        try {
+            const result = wasm.process_scanned_qr(data);
+            peerId = result.peer_id;
+            sessionEstablished = true;
+            console.log('[QR] Session established with:', peerId.slice(0, 8));
+        } catch(e) {
+            console.warn('[QR] process_scanned_qr failed:', e);
+            // Fall through to legacy parsing
+        }
+    }
+
+    // Legacy format: parolnet:<64-char-hex>
+    if (!peerId && data.startsWith('parolnet:')) {
         peerId = data.slice(9).trim();
     }
-    // Raw 64-char hex
-    else if (/^[0-9a-fA-F]{64}$/.test(data)) {
+    // Raw 64-char hex (peer_id directly)
+    else if (!peerId && /^[0-9a-fA-F]{64}$/.test(data)) {
         peerId = data.toLowerCase();
-    }
-    // Longer hex — might be a QR payload, try WASM parse
-    else if (/^[0-9a-fA-F]+$/.test(data) && data.length > 64) {
-        if (wasm && wasm.parse_qr_payload) {
-            try {
-                wasm.parse_qr_payload(data);
-                peerId = data.slice(0, 64).toLowerCase();
-            } catch(e) {
-                console.warn('[QR] WASM parse failed:', e);
-            }
-        }
-        if (!peerId) {
-            peerId = data.slice(0, 64).toLowerCase();
-        }
     }
 
     if (!peerId || peerId.length !== 64) {
@@ -968,23 +1199,25 @@ function handleScannedQR(data) {
         return;
     }
 
-    // Valid peer — add as contact and open chat
-    showToast('Contact added!');
+    // Add as contact and open chat
+    showToast(sessionEstablished ? 'Secure contact added!' : 'Contact added (no encryption)');
     dbPut('contacts', {
         peerId: peerId,
         name: peerId.slice(0, 8) + '...',
-        lastMessage: 'Connected via QR',
+        lastMessage: sessionEstablished ? 'Encrypted session established' : 'Connected via QR',
         lastTime: formatTime(Date.now()),
         unread: 0
     }).then(() => {
         loadContacts();
-        sendToRelay(peerId, '__system:contact_added');
+        if (sessionEstablished && wasm && wasm.get_public_key) {
+            // Send bootstrap handshake so the presenter can establish their responder session
+            const ourIk = wasm.get_public_key();
+            sendToRelay(peerId, '__system:bootstrap:' + ourIk);
+        } else {
+            sendToRelay(peerId, '__system:contact_added');
+        }
         openChat(peerId);
     }).catch(e => console.warn('Failed to save contact:', e));
-    return;
-
-    // Unknown QR format
-    showToast('Scanned: ' + data.slice(0, 50) + (data.length > 50 ? '...' : ''));
 }
 
 function renderBootstrapQR() {

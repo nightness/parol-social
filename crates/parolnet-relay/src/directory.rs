@@ -68,9 +68,8 @@ impl RelayDirectory {
 
     /// Remove stale descriptors older than `max_age_secs`.
     pub fn prune_stale(&mut self, now: u64) {
-        self.descriptors.retain(|_, d| {
-            now.saturating_sub(d.timestamp) < MAX_DESCRIPTOR_AGE_SECS
-        });
+        self.descriptors
+            .retain(|_, d| now.saturating_sub(d.timestamp) < MAX_DESCRIPTOR_AGE_SECS);
     }
 
     /// Select guard nodes (PNP-004 Section 5.7).
@@ -100,11 +99,7 @@ impl RelayDirectory {
         // Sort by uptime (most stable first)
         candidates.sort_by(|a, b| b.uptime_secs.cmp(&a.uptime_secs));
 
-        self.guards = candidates
-            .iter()
-            .take(count)
-            .map(|d| d.peer_id)
-            .collect();
+        self.guards = candidates.iter().take(count).map(|d| d.peer_id).collect();
 
         self.guards
             .iter()
@@ -128,6 +123,54 @@ impl RelayDirectory {
         candidates
             .choose(&mut rand::thread_rng())
             .map(|d| d.to_relay_info())
+    }
+
+    /// Create a signed relay descriptor for this node.
+    ///
+    /// The signature field is zeroed — Ed25519 signing is deferred to
+    /// `parolnet-crypto` integration (TODO).
+    pub fn create_descriptor(
+        peer_id: PeerId,
+        identity_key: [u8; 32],
+        x25519_key: [u8; 32],
+        addr: std::net::SocketAddr,
+        bandwidth_class: u8,
+        uptime_secs: u64,
+        now: u64,
+    ) -> RelayDescriptor {
+        RelayDescriptor {
+            peer_id,
+            identity_key,
+            x25519_key,
+            addr,
+            bandwidth_class,
+            uptime_secs,
+            timestamp: now,
+            signature: [0u8; 64], // TODO: Ed25519 signing
+        }
+    }
+
+    /// Process a received relay descriptor from gossip.
+    ///
+    /// Validates the timestamp is not stale (within 24 hours of `now`),
+    /// inserts it if valid, and returns `true` if the descriptor was new
+    /// or updated an existing entry.
+    pub fn handle_gossip_descriptor(&mut self, desc: RelayDescriptor, now: u64) -> bool {
+        // Reject stale descriptors
+        if now.saturating_sub(desc.timestamp) >= MAX_DESCRIPTOR_AGE_SECS {
+            return false;
+        }
+        // TODO: verify Ed25519 signature once signing is implemented.
+
+        // Only accept if newer than what we have
+        if let Some(existing) = self.descriptors.get(&desc.peer_id) {
+            if existing.timestamp >= desc.timestamp {
+                return false;
+            }
+        }
+
+        self.insert(desc);
+        true
     }
 
     /// Select a relay path: 1 guard + 2 random relays, with subnet diversity.

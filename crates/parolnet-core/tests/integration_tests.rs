@@ -8,7 +8,7 @@ use parolnet_crypto::aead::ChaCha20Poly1305Cipher;
 use parolnet_crypto::double_ratchet::DoubleRatchetSession;
 use parolnet_crypto::{Aead, IdentityKeyPair, RatchetSession};
 use parolnet_protocol::padding::BucketPadding;
-use parolnet_protocol::{PaddingStrategy, BUCKET_SIZES};
+use parolnet_protocol::{BUCKET_SIZES, PaddingStrategy};
 use parolnet_relay::circuit::EstablishedCircuit;
 use parolnet_relay::onion::{self, HopKeys};
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -25,21 +25,23 @@ fn test_end_to_end_message_exchange() {
     let bob_ratchet_secret = StaticSecret::random_from_rng(&mut rand::rngs::OsRng);
     let bob_ratchet_pub = *PublicKey::from(&bob_ratchet_secret).as_bytes();
 
-    let mut alice =
-        DoubleRatchetSession::initialize_initiator(shared_secret, &bob_ratchet_pub)
-            .expect("Alice init failed");
-    let mut bob =
-        DoubleRatchetSession::initialize_responder(shared_secret, bob_ratchet_secret)
-            .expect("Bob init failed");
+    let mut alice = DoubleRatchetSession::initialize_initiator(shared_secret, &bob_ratchet_pub)
+        .expect("Alice init failed");
+    let mut bob = DoubleRatchetSession::initialize_responder(shared_secret, bob_ratchet_secret)
+        .expect("Bob init failed");
 
     // Alice -> Bob
     let (header, ciphertext) = alice.encrypt(b"hello bob").expect("Alice encrypt failed");
-    let plaintext = bob.decrypt(&header, &ciphertext).expect("Bob decrypt failed");
+    let plaintext = bob
+        .decrypt(&header, &ciphertext)
+        .expect("Bob decrypt failed");
     assert_eq!(plaintext, b"hello bob");
 
     // Bob -> Alice
     let (header2, ciphertext2) = bob.encrypt(b"hi alice").expect("Bob encrypt failed");
-    let plaintext2 = alice.decrypt(&header2, &ciphertext2).expect("Alice decrypt failed");
+    let plaintext2 = alice
+        .decrypt(&header2, &ciphertext2)
+        .expect("Alice decrypt failed");
     assert_eq!(plaintext2, b"hi alice");
 }
 
@@ -58,12 +60,9 @@ fn test_bootstrap_to_session() {
     // Alice derives the same bootstrap secret from the seed and both public keys.
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&payload.seed);
-    let alice_bs = bootstrap::derive_bootstrap_secret(
-        &seed,
-        &alice.public_key(),
-        &bob.public_key(),
-    )
-    .expect("derive_bootstrap_secret failed");
+    let alice_bs =
+        bootstrap::derive_bootstrap_secret(&seed, &alice.public_key(), &bob.public_key())
+            .expect("derive_bootstrap_secret failed");
 
     assert_eq!(
         alice_bs, bob_bs,
@@ -114,10 +113,8 @@ fn test_onion_circuit_data_flow() {
     let hop2 = HopKeys::from_shared_secret(&[2u8; 32]).expect("hop2 key derivation failed");
     let hop3 = HopKeys::from_shared_secret(&[3u8; 32]).expect("hop3 key derivation failed");
 
-    let circuit = EstablishedCircuit::from_hop_keys(
-        vec![hop1.clone(), hop2.clone(), hop3.clone()],
-        42,
-    );
+    let circuit =
+        EstablishedCircuit::from_hop_keys(vec![hop1.clone(), hop2.clone(), hop3.clone()], 42);
 
     // Wrap the payload (encrypts 3 layers: hop3 first, then hop2, then hop1 outermost).
     let wrapped = circuit
@@ -125,33 +122,17 @@ fn test_onion_circuit_data_flow() {
         .expect("wrap_data failed");
 
     // Manually peel 3 layers in order (hop1 outermost, then hop2, then hop3).
-    let after_hop1 = onion::onion_peel(
-        &wrapped,
-        &hop1.forward_key,
-        &hop1.forward_nonce_seed,
-        0,
-    )
-    .expect("peel hop1 failed");
+    let after_hop1 = onion::onion_peel(&wrapped, &hop1.forward_key, &hop1.forward_nonce_seed, 0)
+        .expect("peel hop1 failed");
 
-    let after_hop2 = onion::onion_peel(
-        &after_hop1,
-        &hop2.forward_key,
-        &hop2.forward_nonce_seed,
-        0,
-    )
-    .expect("peel hop2 failed");
+    let after_hop2 = onion::onion_peel(&after_hop1, &hop2.forward_key, &hop2.forward_nonce_seed, 0)
+        .expect("peel hop2 failed");
 
-    let after_hop3 = onion::onion_peel(
-        &after_hop2,
-        &hop3.forward_key,
-        &hop3.forward_nonce_seed,
-        0,
-    )
-    .expect("peel hop3 failed");
+    let after_hop3 = onion::onion_peel(&after_hop2, &hop3.forward_key, &hop3.forward_nonce_seed, 0)
+        .expect("peel hop3 failed");
 
     assert_eq!(
-        after_hop3,
-        b"circuit payload",
+        after_hop3, b"circuit payload",
         "final peeled payload must match original"
     );
 }

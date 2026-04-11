@@ -6,7 +6,7 @@
 //! Padding format: the plaintext is prefixed with a 4-byte big-endian length,
 //! followed by the original data, then random padding bytes to fill the bucket.
 
-use crate::{PaddingStrategy, ProtocolError, BUCKET_SIZES};
+use crate::{BUCKET_SIZES, PaddingStrategy, ProtocolError};
 use rand::RngCore;
 
 /// Standard bucket-based padding strategy.
@@ -46,7 +46,9 @@ impl PaddingStrategy for BucketPadding {
 
     fn unpad(&self, padded: &[u8]) -> Result<Vec<u8>, ProtocolError> {
         if padded.len() < LENGTH_PREFIX_SIZE {
-            return Err(ProtocolError::PaddingError("data too short for length prefix".into()));
+            return Err(ProtocolError::PaddingError(
+                "data too short for length prefix".into(),
+            ));
         }
 
         if !BUCKET_SIZES.contains(&padded.len()) {
@@ -56,9 +58,11 @@ impl PaddingStrategy for BucketPadding {
         let len = u32::from_be_bytes([padded[0], padded[1], padded[2], padded[3]]) as usize;
 
         if LENGTH_PREFIX_SIZE + len > padded.len() {
-            return Err(ProtocolError::PaddingError(
-                format!("length prefix {} exceeds padded data size {}", len, padded.len()),
-            ));
+            return Err(ProtocolError::PaddingError(format!(
+                "length prefix {} exceeds padded data size {}",
+                len,
+                padded.len()
+            )));
         }
 
         Ok(padded[LENGTH_PREFIX_SIZE..LENGTH_PREFIX_SIZE + len].to_vec())

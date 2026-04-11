@@ -105,7 +105,9 @@ impl DoubleRatchetSession {
 
     /// Get our current ratchet public key.
     pub fn our_ratchet_public_key(&self) -> Option<[u8; 32]> {
-        self.dh_self.as_ref().map(|s| *PublicKey::from(s).as_bytes())
+        self.dh_self
+            .as_ref()
+            .map(|s| *PublicKey::from(s).as_bytes())
     }
 
     /// Perform a DH ratchet step when receiving a new ratchet public key.
@@ -165,11 +167,7 @@ impl DoubleRatchetSession {
     }
 
     /// Skip message keys for out-of-order delivery.
-    fn skip_message_keys(
-        &mut self,
-        remote_key: &[u8; 32],
-        until: u32,
-    ) -> Result<(), CryptoError> {
+    fn skip_message_keys(&mut self, remote_key: &[u8; 32], until: u32) -> Result<(), CryptoError> {
         if let Some(ref mut ck) = self.recv_chain_key {
             while self.recv_n < until {
                 if self.skipped_keys.len() >= MAX_SKIP as usize {
@@ -187,19 +185,21 @@ impl DoubleRatchetSession {
 }
 
 impl RatchetSession for DoubleRatchetSession {
-    fn encrypt(
-        &mut self,
-        plaintext: &[u8],
-    ) -> Result<(RatchetHeader, Vec<u8>), CryptoError> {
-        let send_ck = self.send_chain_key.as_mut().ok_or(CryptoError::RatchetError {
-            reason: "no sending chain key established".into(),
-        })?;
+    fn encrypt(&mut self, plaintext: &[u8]) -> Result<(RatchetHeader, Vec<u8>), CryptoError> {
+        let send_ck = self
+            .send_chain_key
+            .as_mut()
+            .ok_or(CryptoError::RatchetError {
+                reason: "no sending chain key established".into(),
+            })?;
 
         let message_key = Self::chain_ratchet(send_ck)?;
 
-        let ratchet_pub = self.our_ratchet_public_key().ok_or(CryptoError::RatchetError {
-            reason: "no DH ratchet key".into(),
-        })?;
+        let ratchet_pub = self
+            .our_ratchet_public_key()
+            .ok_or(CryptoError::RatchetError {
+                reason: "no DH ratchet key".into(),
+            })?;
 
         let header = RatchetHeader {
             ratchet_key: ratchet_pub,
@@ -225,7 +225,10 @@ impl RatchetSession for DoubleRatchetSession {
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
         // Check for skipped message key
-        if let Some(mk) = self.skipped_keys.remove(&(header.ratchet_key, header.message_number)) {
+        if let Some(mk) = self
+            .skipped_keys
+            .remove(&(header.ratchet_key, header.message_number))
+        {
             let cipher = ChaCha20Poly1305Cipher::new(&mk)?;
             let mut nonce = [0u8; 12];
             nonce[8..12].copy_from_slice(&header.message_number.to_be_bytes());
@@ -252,9 +255,12 @@ impl RatchetSession for DoubleRatchetSession {
         self.skip_message_keys(&header.ratchet_key, header.message_number)?;
 
         // Derive the message key
-        let recv_ck = self.recv_chain_key.as_mut().ok_or(CryptoError::RatchetError {
-            reason: "no receiving chain key".into(),
-        })?;
+        let recv_ck = self
+            .recv_chain_key
+            .as_mut()
+            .ok_or(CryptoError::RatchetError {
+                reason: "no receiving chain key".into(),
+            })?;
         let message_key = Self::chain_ratchet(recv_ck)?;
         self.recv_n += 1;
 
@@ -277,10 +283,9 @@ mod tests {
         let bob_ratchet = StaticSecret::random_from_rng(&mut OsRng);
         let bob_ratchet_pub = *PublicKey::from(&bob_ratchet).as_bytes();
 
-        let alice = DoubleRatchetSession::initialize_initiator(shared_secret, &bob_ratchet_pub)
-            .unwrap();
-        let bob = DoubleRatchetSession::initialize_responder(shared_secret, bob_ratchet)
-            .unwrap();
+        let alice =
+            DoubleRatchetSession::initialize_initiator(shared_secret, &bob_ratchet_pub).unwrap();
+        let bob = DoubleRatchetSession::initialize_responder(shared_secret, bob_ratchet).unwrap();
 
         (alice, bob)
     }

@@ -1,7 +1,7 @@
+use parolnet_mesh::MessageStore;
 use parolnet_mesh::gossip::{DedupFilter, ProofOfWork, SeenBloomFilter};
 use parolnet_mesh::peer_table::PeerScore;
 use parolnet_mesh::store_forward::InMemoryStore;
-use parolnet_mesh::MessageStore;
 use parolnet_protocol::address::PeerId;
 use parolnet_protocol::envelope::{CleartextHeader, Envelope};
 use std::time::Duration;
@@ -114,7 +114,9 @@ fn test_pow_compute_and_verify() {
     let difficulty = 8; // low difficulty for fast test
 
     let nonce = ProofOfWork::compute(&msg_id, &sender, timestamp, difficulty);
-    assert!(ProofOfWork::verify(&msg_id, &sender, timestamp, &nonce, difficulty));
+    assert!(ProofOfWork::verify(
+        &msg_id, &sender, timestamp, &nonce, difficulty
+    ));
 }
 
 #[test]
@@ -132,13 +134,21 @@ fn test_pow_wrong_nonce_fails() {
     let nonce16 = ProofOfWork::compute(&msg_id, &sender, timestamp, 16);
     let mut bad16 = nonce16;
     bad16[0] ^= 0xFF;
-    assert!(!ProofOfWork::verify(&msg_id, &sender, timestamp, &bad16, 16));
+    assert!(!ProofOfWork::verify(
+        &msg_id, &sender, timestamp, &bad16, 16
+    ));
 }
 
 #[test]
 fn test_pow_difficulty_zero() {
     // Difficulty 0 should accept any nonce
-    assert!(ProofOfWork::verify(&[0; 32], &PeerId([0; 32]), 0, &[0; 8], 0));
+    assert!(ProofOfWork::verify(
+        &[0; 32],
+        &PeerId([0; 32]),
+        0,
+        &[0; 8],
+        0
+    ));
 }
 
 // ── Store-and-Forward Tests ─────────────────────────────────────
@@ -165,7 +175,10 @@ async fn test_store_and_retrieve() {
     let peer = PeerId([1; 32]);
     let envelope = make_test_envelope(peer);
 
-    store.store(&envelope, Duration::from_secs(3600)).await.unwrap();
+    store
+        .store(&envelope, Duration::from_secs(3600))
+        .await
+        .unwrap();
     assert_eq!(store.count_for_peer(&peer), 1);
 
     let messages = store.retrieve(&peer).await.unwrap();
@@ -197,7 +210,10 @@ async fn test_store_expire() {
     let envelope = make_test_envelope(peer);
 
     // Store with 0 TTL (expires immediately)
-    store.store(&envelope, Duration::from_secs(0)).await.unwrap();
+    store
+        .store(&envelope, Duration::from_secs(0))
+        .await
+        .unwrap();
 
     // Small delay to ensure expiry
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -350,7 +366,9 @@ fn test_pow_difficulty_16() {
     let difficulty = 16;
 
     let nonce = ProofOfWork::compute(&msg_id, &sender, timestamp, difficulty);
-    assert!(ProofOfWork::verify(&msg_id, &sender, timestamp, &nonce, difficulty));
+    assert!(ProofOfWork::verify(
+        &msg_id, &sender, timestamp, &nonce, difficulty
+    ));
 }
 
 #[test]
@@ -365,8 +383,12 @@ fn test_pow_different_inputs_different_nonces() {
     let nonce_2 = ProofOfWork::compute(&msg_id_2, &sender, timestamp, difficulty);
 
     // Both should verify correctly
-    assert!(ProofOfWork::verify(&msg_id_1, &sender, timestamp, &nonce_1, difficulty));
-    assert!(ProofOfWork::verify(&msg_id_2, &sender, timestamp, &nonce_2, difficulty));
+    assert!(ProofOfWork::verify(
+        &msg_id_1, &sender, timestamp, &nonce_1, difficulty
+    ));
+    assert!(ProofOfWork::verify(
+        &msg_id_2, &sender, timestamp, &nonce_2, difficulty
+    ));
 
     // Nonces should differ for different inputs
     assert_ne!(nonce_1, nonce_2);

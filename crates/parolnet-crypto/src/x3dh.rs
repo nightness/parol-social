@@ -24,7 +24,7 @@ pub struct X3dhKeyAgreement {
 /// Uses the clamped scalar from the Ed25519 secret key as the X25519 private key.
 /// This is the standard birational map (RFC 8032 Section 5.1.5).
 fn ed25519_signing_to_x25519(signing_key: &ed25519_dalek::SigningKey) -> StaticSecret {
-    use sha2::{Sha512, Digest};
+    use sha2::{Digest, Sha512};
     let mut h = Sha512::digest(signing_key.as_bytes());
     // Clamp per X25519 spec
     h[0] &= 248;
@@ -77,11 +77,11 @@ impl KeyAgreement for X3dhKeyAgreement {
         sign_data.extend_from_slice(&recipient_bundle.signed_prekey_id.to_be_bytes());
 
         use ed25519_dalek::Verifier;
-        bob_ik.verify(&sign_data, &sig).map_err(|_| {
-            CryptoError::InvalidPreKeyBundle {
+        bob_ik
+            .verify(&sign_data, &sig)
+            .map_err(|_| CryptoError::InvalidPreKeyBundle {
                 reason: "SPK signature verification failed".into(),
-            }
-        })?;
+            })?;
 
         // Convert identity keys to X25519
         let ik_a_x25519 = ed25519_signing_to_x25519(&self.identity.signing_key);
@@ -114,11 +114,7 @@ impl KeyAgreement for X3dhKeyAgreement {
         }
 
         // Derive shared secret via HKDF
-        let sk = hkdf_sha256_fixed::<32>(
-            &[0u8; 32],
-            &ikm,
-            b"ParolNet_X3DH_v1",
-        )?;
+        let sk = hkdf_sha256_fixed::<32>(&[0u8; 32], &ikm, b"ParolNet_X3DH_v1")?;
         ikm.zeroize();
 
         let header = X3dhHeader {
@@ -145,11 +141,17 @@ impl KeyAgreement for X3dhKeyAgreement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{IdentityKeyPair, OneTimePreKey, PreKeyBundle};
     use crate::identity::SignedPreKey;
+    use crate::{IdentityKeyPair, OneTimePreKey, PreKeyBundle};
 
     /// Helper to build Bob's pre-key bundle for testing.
-    fn make_bob_bundle(bob: &IdentityKeyPair) -> (PreKeyBundle, SignedPreKey, crate::identity::OneTimePreKeyPair) {
+    fn make_bob_bundle(
+        bob: &IdentityKeyPair,
+    ) -> (
+        PreKeyBundle,
+        SignedPreKey,
+        crate::identity::OneTimePreKeyPair,
+    ) {
         let spk = SignedPreKey::generate(1, bob).unwrap();
         let opk = crate::identity::OneTimePreKeyPair::generate(100);
 

@@ -19,6 +19,7 @@ pub mod envelope;
 pub mod ephemeral;
 pub mod error;
 pub mod file;
+pub mod gossip;
 pub mod handshake;
 pub mod media;
 pub mod message;

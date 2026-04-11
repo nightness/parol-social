@@ -1,9 +1,9 @@
-use parolnet_relay::*;
+use parolnet_protocol::address::PeerId;
 use parolnet_relay::circuit::{EstablishedCircuit, StandardCircuitBuilder};
 use parolnet_relay::directory::{RelayDescriptor, RelayDirectory};
 use parolnet_relay::onion::{self, HopKeys};
 use parolnet_relay::relay_node::StandardRelayNode;
-use parolnet_protocol::address::PeerId;
+use parolnet_relay::*;
 use rand::rngs::OsRng;
 use std::net::SocketAddr;
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -74,10 +74,7 @@ fn test_circuit_wrap_unwrap_roundtrip() {
     let hop2 = HopKeys::from_shared_secret(&[2u8; 32]).unwrap();
     let hop3 = HopKeys::from_shared_secret(&[3u8; 32]).unwrap();
 
-    let circuit = EstablishedCircuit::from_hop_keys(
-        vec![hop1, hop2, hop3],
-        42,
-    );
+    let circuit = EstablishedCircuit::from_hop_keys(vec![hop1, hop2, hop3], 42);
 
     let plaintext = b"hello through circuit";
     let encrypted = circuit.wrap_data(plaintext).unwrap();
@@ -135,7 +132,14 @@ async fn test_relay_node_rejects_unknown_circuit() {
 async fn test_relay_node_circuit_limit() {
     let node = StandardRelayNode::new();
     for i in 0..relay_node::MAX_CIRCUITS {
-        let keys = HopKeys::from_shared_secret(&(i as u32).to_be_bytes().repeat(8).try_into().unwrap_or([0u8; 32])).unwrap();
+        let keys = HopKeys::from_shared_secret(
+            &(i as u32)
+                .to_be_bytes()
+                .repeat(8)
+                .try_into()
+                .unwrap_or([0u8; 32]),
+        )
+        .unwrap();
         node.register_circuit(i as u32 + 1, keys, None).unwrap();
     }
     // One more should fail
@@ -173,9 +177,9 @@ fn test_directory_insert_and_len() {
 fn test_directory_guard_selection() {
     let mut dir = RelayDirectory::new();
     // Add relays with varying uptime
-    dir.insert(make_descriptor(1, 1));   // 1 day - too short
-    dir.insert(make_descriptor(2, 10));  // 10 days - qualifies
-    dir.insert(make_descriptor(3, 30));  // 30 days - qualifies
+    dir.insert(make_descriptor(1, 1)); // 1 day - too short
+    dir.insert(make_descriptor(2, 10)); // 10 days - qualifies
+    dir.insert(make_descriptor(3, 30)); // 30 days - qualifies
 
     let guards = dir.select_guards(2);
     assert_eq!(guards.len(), 2);
@@ -231,7 +235,7 @@ fn test_directory_select_path() {
 
 #[tokio::test]
 async fn test_circuit_build_wrong_hop_count() {
-    let builder = StandardCircuitBuilder;
+    let builder = StandardCircuitBuilder::new();
 
     // Build two RelayInfo structs (need 3)
     let hops: Vec<RelayInfo> = (1u8..=2)
@@ -259,7 +263,7 @@ async fn test_circuit_build_wrong_hop_count() {
 
 #[tokio::test]
 async fn test_circuit_build_with_3_relays() {
-    let builder = StandardCircuitBuilder;
+    let builder = StandardCircuitBuilder::new();
 
     let hops: Vec<RelayInfo> = (1u8..=3)
         .map(|id| {
@@ -285,36 +289,19 @@ fn test_circuit_wrap_then_manual_peel() {
     let hop2 = HopKeys::from_shared_secret(&[20u8; 32]).unwrap();
     let hop3 = HopKeys::from_shared_secret(&[30u8; 32]).unwrap();
 
-    let circuit = EstablishedCircuit::from_hop_keys(
-        vec![hop1.clone(), hop2.clone(), hop3.clone()],
-        100,
-    );
+    let circuit =
+        EstablishedCircuit::from_hop_keys(vec![hop1.clone(), hop2.clone(), hop3.clone()], 100);
 
     let plaintext = b"hello";
     let encrypted = circuit.wrap_data(plaintext).unwrap();
 
     // Manually peel three layers in order: hop1, hop2, hop3
-    let after1 = onion::onion_peel(
-        &encrypted,
-        &hop1.forward_key,
-        &hop1.forward_nonce_seed,
-        0,
-    )
-    .unwrap();
-    let after2 = onion::onion_peel(
-        &after1,
-        &hop2.forward_key,
-        &hop2.forward_nonce_seed,
-        0,
-    )
-    .unwrap();
-    let after3 = onion::onion_peel(
-        &after2,
-        &hop3.forward_key,
-        &hop3.forward_nonce_seed,
-        0,
-    )
-    .unwrap();
+    let after1 =
+        onion::onion_peel(&encrypted, &hop1.forward_key, &hop1.forward_nonce_seed, 0).unwrap();
+    let after2 =
+        onion::onion_peel(&after1, &hop2.forward_key, &hop2.forward_nonce_seed, 0).unwrap();
+    let after3 =
+        onion::onion_peel(&after2, &hop3.forward_key, &hop3.forward_nonce_seed, 0).unwrap();
 
     assert_eq!(after3, plaintext);
 }
@@ -328,17 +315,13 @@ async fn test_relay_node_data_exit_delivers() {
     let circuit_id = 77;
 
     // Register as exit relay (no next_hop)
-    node.register_circuit(circuit_id, keys.clone(), None).unwrap();
+    node.register_circuit(circuit_id, keys.clone(), None)
+        .unwrap();
 
     // Encrypt one onion layer with the hop's forward key
     let plaintext = b"exit-delivery-test";
-    let encrypted = onion::onion_wrap(
-        plaintext,
-        &keys.forward_key,
-        &keys.forward_nonce_seed,
-        0,
-    )
-    .unwrap();
+    let encrypted =
+        onion::onion_wrap(plaintext, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
 
     // Build DATA cell with encrypted payload
     let mut payload = [0u8; CELL_PAYLOAD_SIZE];
@@ -356,7 +339,10 @@ async fn test_relay_node_data_exit_delivers() {
         RelayAction::Deliver { payload: delivered } => {
             assert_eq!(delivered, plaintext);
         }
-        other => panic!("expected Deliver, got: {:?}", std::mem::discriminant(&other)),
+        other => panic!(
+            "expected Deliver, got: {:?}",
+            std::mem::discriminant(&other)
+        ),
     }
 }
 
@@ -373,13 +359,8 @@ async fn test_relay_node_data_with_next_hop_forwards() {
         .unwrap();
 
     let plaintext = b"forward-test-payload";
-    let encrypted = onion::onion_wrap(
-        plaintext,
-        &keys.forward_key,
-        &keys.forward_nonce_seed,
-        0,
-    )
-    .unwrap();
+    let encrypted =
+        onion::onion_wrap(plaintext, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
 
     let mut payload = [0u8; CELL_PAYLOAD_SIZE];
     payload[..encrypted.len()].copy_from_slice(&encrypted);
@@ -393,11 +374,17 @@ async fn test_relay_node_data_with_next_hop_forwards() {
 
     let action = node.handle_cell(cell).await.unwrap();
     match action {
-        RelayAction::Forward { next_hop, cell: forwarded } => {
+        RelayAction::Forward {
+            next_hop,
+            cell: forwarded,
+        } => {
             assert_eq!(next_hop, next_addr);
             assert_eq!(forwarded.circuit_id, next_cid);
         }
-        other => panic!("expected Forward, got: {:?}", std::mem::discriminant(&other)),
+        other => panic!(
+            "expected Forward, got: {:?}",
+            std::mem::discriminant(&other)
+        ),
     }
 }
 
@@ -414,9 +401,12 @@ fn test_onion_encrypt_empty() {
     let encrypted = onion::onion_encrypt(b"", &hops, &counters).unwrap();
 
     // Peel 3 layers
-    let after1 = onion::onion_peel(&encrypted, &hop1.forward_key, &hop1.forward_nonce_seed, 0).unwrap();
-    let after2 = onion::onion_peel(&after1, &hop2.forward_key, &hop2.forward_nonce_seed, 0).unwrap();
-    let after3 = onion::onion_peel(&after2, &hop3.forward_key, &hop3.forward_nonce_seed, 0).unwrap();
+    let after1 =
+        onion::onion_peel(&encrypted, &hop1.forward_key, &hop1.forward_nonce_seed, 0).unwrap();
+    let after2 =
+        onion::onion_peel(&after1, &hop2.forward_key, &hop2.forward_nonce_seed, 0).unwrap();
+    let after3 =
+        onion::onion_peel(&after2, &hop3.forward_key, &hop3.forward_nonce_seed, 0).unwrap();
 
     assert_eq!(after3, b"");
 }
@@ -447,12 +437,7 @@ fn test_onion_wrong_key_peel_fails() {
     .unwrap();
 
     // Try to peel with hop2's key — should fail with AeadFailed
-    let result = onion::onion_peel(
-        &encrypted,
-        &hop2.forward_key,
-        &hop2.forward_nonce_seed,
-        0,
-    );
+    let result = onion::onion_peel(&encrypted, &hop2.forward_key, &hop2.forward_nonce_seed, 0);
     assert!(result.is_err());
     assert!(
         matches!(result.unwrap_err(), RelayError::AeadFailed),
@@ -490,5 +475,8 @@ fn test_directory_select_path_insufficient_relays() {
     dir.insert(make_descriptor(2, 20));
 
     let path = dir.select_path();
-    assert!(path.is_none(), "select_path should return None with only 2 relays");
+    assert!(
+        path.is_none(),
+        "select_path should return None with only 2 relays"
+    );
 }

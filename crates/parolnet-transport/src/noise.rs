@@ -85,9 +85,7 @@ impl TrafficShaper for StandardShaper {
 
             // Add jitter
             let jitter_max = self.mode.jitter_max();
-            let jitter = Duration::from_millis(
-                rng.gen_range(0..=jitter_max.as_millis() as u64),
-            );
+            let jitter = Duration::from_millis(rng.gen_range(0..=jitter_max.as_millis() as u64));
 
             result.push((interval + jitter, msg));
         }

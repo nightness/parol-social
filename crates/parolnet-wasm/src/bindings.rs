@@ -58,10 +58,8 @@ pub fn decrypt_message(peer_id_hex: &str, ciphertext: &[u8]) -> Result<Vec<u8>, 
     // Parse header from the first 40 bytes.
     let mut ratchet_key = [0u8; 32];
     ratchet_key.copy_from_slice(&ciphertext[..32]);
-    let previous_chain_length =
-        u32::from_be_bytes(ciphertext[32..36].try_into().unwrap());
-    let message_number =
-        u32::from_be_bytes(ciphertext[36..40].try_into().unwrap());
+    let previous_chain_length = u32::from_be_bytes(ciphertext[32..36].try_into().unwrap());
+    let message_number = u32::from_be_bytes(ciphertext[36..40].try_into().unwrap());
 
     let header = parolnet_crypto::RatchetHeader {
         ratchet_key,

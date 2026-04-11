@@ -22,8 +22,7 @@ pub fn deniable_auth_tag(
     shared_secret: &[u8; 32],
     message: &[u8],
 ) -> Result<[u8; 32], CryptoError> {
-    let mut mac = HmacSha256::new_from_slice(shared_secret)
-        .map_err(|_| CryptoError::KdfFailed)?;
+    let mut mac = HmacSha256::new_from_slice(shared_secret).map_err(|_| CryptoError::KdfFailed)?;
     mac.update(message);
     let result = mac.finalize();
     Ok(result.into_bytes().into())

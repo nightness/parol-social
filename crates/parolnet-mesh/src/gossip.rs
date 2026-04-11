@@ -1,12 +1,16 @@
 //! Gossip protocol implementation (PNP-005).
 
+use crate::connection_pool::ConnectionPool;
 use crate::{GossipAction, GossipProtocol, MeshError};
 use async_trait::async_trait;
 use parolnet_protocol::address::PeerId;
 use parolnet_protocol::envelope::Envelope;
+use parolnet_protocol::gossip::{GossipEnvelope, GossipPayloadType};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::warn;
 
 /// Default gossip fanout (number of peers to forward to).
 pub const DEFAULT_FANOUT: usize = 3;
@@ -19,6 +23,12 @@ pub const DEFAULT_EXPIRY_SECS: u64 = 86400;
 #[derive(Clone)]
 pub struct SeenBloomFilter {
     bits: [u8; 128], // 1024 bits
+}
+
+impl Default for SeenBloomFilter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SeenBloomFilter {
@@ -64,6 +74,12 @@ pub struct DedupFilter {
     previous: Mutex<HashSet<[u8; 32]>>,
 }
 
+impl Default for DedupFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DedupFilter {
     pub fn new() -> Self {
         Self {
@@ -93,6 +109,11 @@ impl DedupFilter {
     pub fn len(&self) -> usize {
         self.current.lock().unwrap().len() + self.previous.lock().unwrap().len()
     }
+
+    /// Whether both buffers are empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Proof-of-Work computation (PNP-005 Section 3.4).
@@ -112,14 +133,14 @@ impl ProofOfWork {
         challenge_hasher.update(b"pgmp-pow-v1");
         challenge_hasher.update(message_id);
         challenge_hasher.update(sender.as_bytes());
-        challenge_hasher.update(&timestamp.to_be_bytes());
+        challenge_hasher.update(timestamp.to_be_bytes());
         let challenge = challenge_hasher.finalize();
 
         let mut nonce = [0u8; 8];
         loop {
             let mut h = Sha256::new();
-            h.update(&challenge);
-            h.update(&nonce);
+            h.update(challenge);
+            h.update(nonce);
             let result = h.finalize();
 
             if Self::has_leading_zeros(&result, difficulty) {
@@ -148,11 +169,11 @@ impl ProofOfWork {
         challenge_hasher.update(b"pgmp-pow-v1");
         challenge_hasher.update(message_id);
         challenge_hasher.update(sender.as_bytes());
-        challenge_hasher.update(&timestamp.to_be_bytes());
+        challenge_hasher.update(timestamp.to_be_bytes());
         let challenge = challenge_hasher.finalize();
 
         let mut h = Sha256::new();
-        h.update(&challenge);
+        h.update(challenge);
         h.update(nonce);
         let result = h.finalize();
 
@@ -185,29 +206,261 @@ pub struct StandardGossip {
     pub our_peer_id: PeerId,
     pub dedup: DedupFilter,
     pub default_difficulty: u8,
+    pub pool: Arc<ConnectionPool>,
 }
 
 impl StandardGossip {
-    pub fn new(our_peer_id: PeerId) -> Self {
+    pub fn new(our_peer_id: PeerId, pool: Arc<ConnectionPool>) -> Self {
         Self {
             our_peer_id,
             dedup: DedupFilter::new(),
             default_difficulty: 16,
+            pool,
+        }
+    }
+
+    /// Get the current unix timestamp in seconds.
+    fn now_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
+    /// Build a GossipEnvelope from an Envelope for broadcasting.
+    fn build_gossip_envelope(&self, envelope: &Envelope) -> Result<GossipEnvelope, MeshError> {
+        // Serialize the inner Envelope header + payload as the gossip payload.
+        // Since Envelope doesn't implement Serialize, we pack header CBOR + encrypted_payload + mac.
+        let mut payload_buf = Vec::new();
+        ciborium::into_writer(&envelope.header, &mut payload_buf)
+            .map_err(|e| MeshError::ValidationFailed(format!("CBOR encode header: {e}")))?;
+        payload_buf.extend_from_slice(&envelope.encrypted_payload);
+        payload_buf.extend_from_slice(&envelope.mac);
+
+        // Generate message_id = SHA-256(encrypted_payload || our_peer_id || random_nonce)
+        let random_nonce: [u8; 16] = rand::random();
+        let mut id_hasher = Sha256::new();
+        id_hasher.update(&envelope.encrypted_payload);
+        id_hasher.update(self.our_peer_id.as_bytes());
+        id_hasher.update(random_nonce);
+        let message_id: [u8; 32] = id_hasher.finalize().into();
+
+        let ts = Self::now_secs();
+        let exp = ts + DEFAULT_EXPIRY_SECS;
+
+        // Initialize bloom filter with our peer ID
+        let mut bloom = SeenBloomFilter::new();
+        bloom.insert(&self.our_peer_id);
+
+        // Compute PoW
+        let pow_nonce =
+            ProofOfWork::compute(&message_id, &self.our_peer_id, ts, self.default_difficulty);
+
+        Ok(GossipEnvelope {
+            v: 1,
+            id: message_id.to_vec(),
+            src: self.our_peer_id,
+            ts,
+            exp,
+            ttl: DEFAULT_TTL,
+            hops: 0,
+            seen: bloom.bits.to_vec(),
+            pow: pow_nonce.to_vec(),
+            // TODO: Sign with Ed25519 key once key material is available here
+            sig: vec![0u8; 64],
+            payload_type: GossipPayloadType::UserMessage as u8,
+            payload: payload_buf,
+        })
+    }
+
+    /// Extract peer IDs from a bloom filter for exclusion during fanout.
+    fn bloom_excluded_peers(seen: &[u8], all_peers: &[PeerId]) -> Vec<PeerId> {
+        if seen.len() != 128 {
+            return Vec::new();
+        }
+        let bloom = SeenBloomFilter {
+            bits: {
+                let mut bits = [0u8; 128];
+                bits.copy_from_slice(seen);
+                bits
+            },
+        };
+        all_peers
+            .iter()
+            .filter(|pid| bloom.probably_contains(pid))
+            .copied()
+            .collect()
+    }
+
+    /// Process a received gossip envelope (the primary entry point for gossip messages).
+    pub async fn process_gossip(&self, data: &[u8]) -> Result<GossipAction, MeshError> {
+        // 1. Deserialize GossipEnvelope from CBOR
+        let mut gossip_env = GossipEnvelope::from_cbor(data)
+            .map_err(|e| MeshError::ValidationFailed(format!("gossip CBOR decode: {e}")))?;
+
+        // 2. Check structural validity
+        if !gossip_env.is_valid_structure() {
+            return Err(MeshError::ValidationFailed(
+                "invalid gossip envelope structure".into(),
+            ));
+        }
+
+        let message_id = gossip_env
+            .message_id()
+            .ok_or_else(|| MeshError::ValidationFailed("invalid message_id length".into()))?;
+
+        // 3. Check expiry
+        let now = Self::now_secs();
+        if gossip_env.is_expired(now) {
+            // Penalize sender for expired message
+            self.pool
+                .update_score(&gossip_env.src, |s| s.penalize_expired())
+                .await;
+            return Err(MeshError::MessageExpired);
+        }
+
+        // 4. Check dedup
+        if self.dedup.is_seen(&message_id) {
+            self.pool
+                .update_score(&gossip_env.src, |s| s.penalize_duplicate())
+                .await;
+            return Ok(GossipAction::Drop);
+        }
+
+        // 5. Verify PoW
+        let pow_nonce = gossip_env
+            .pow_nonce()
+            .ok_or_else(|| MeshError::ValidationFailed("invalid pow nonce length".into()))?;
+
+        let required_difficulty = GossipPayloadType::from_u8(gossip_env.payload_type)
+            .map(|pt| pt.pow_difficulty())
+            .unwrap_or(self.default_difficulty);
+
+        if !ProofOfWork::verify(
+            &message_id,
+            &gossip_env.src,
+            gossip_env.ts,
+            &pow_nonce,
+            required_difficulty,
+        ) {
+            self.pool
+                .update_score(&gossip_env.src, |s| s.penalize_invalid())
+                .await;
+            return Err(MeshError::InsufficientPoW);
+        }
+
+        // 6. TODO: Verify Ed25519 signature once crypto integration is available
+
+        // 7. Mark as seen in dedup
+        self.dedup.mark_seen(message_id);
+
+        // Reward the sender for a valid message
+        self.pool
+            .update_score(&gossip_env.src, |s| s.reward())
+            .await;
+
+        // 8. If ttl == 0, deliver without forwarding
+        if gossip_env.ttl == 0 {
+            return Ok(GossipAction::Deliver);
+        }
+
+        // 9. Decrement ttl, increment hops, insert our_peer_id in bloom
+        gossip_env.ttl -= 1;
+        gossip_env.hops = gossip_env.hops.saturating_add(1);
+        if gossip_env.seen.len() == 128 {
+            let mut bloom = SeenBloomFilter {
+                bits: {
+                    let mut bits = [0u8; 128];
+                    bits.copy_from_slice(&gossip_env.seen);
+                    bits
+                },
+            };
+            bloom.insert(&self.our_peer_id);
+            gossip_env.seen = bloom.bits.to_vec();
+        }
+
+        // 10. Select fanout peers (exclude bloom filter matches)
+        let all_peers = self.pool.connected_peers().await;
+        let excluded = Self::bloom_excluded_peers(&gossip_env.seen, &all_peers);
+        let fanout = self
+            .pool
+            .select_fanout_peers(&excluded, DEFAULT_FANOUT)
+            .await;
+
+        // 11. Send modified envelope to fanout peers
+        let serialized = gossip_env
+            .to_cbor()
+            .map_err(|e| MeshError::ValidationFailed(format!("gossip CBOR encode: {e}")))?;
+
+        let mut forwarded_to = Vec::new();
+        for (pid, conn) in &fanout {
+            if let Err(e) = conn.send(&serialized).await {
+                warn!(peer = %pid, error = %e, "failed to forward gossip");
+            } else {
+                forwarded_to.push(*pid);
+            }
+        }
+
+        // 12. Determine if message is for us
+        // Check if dest_peer_id in the envelope header matches our peer_id
+        // The payload contains the inner envelope header + encrypted payload + mac
+        // We try to decode the header to check the destination
+        if self.is_payload_for_us(&gossip_env.payload) {
+            Ok(GossipAction::Deliver)
+        } else if forwarded_to.is_empty() {
+            // No peers to forward to, but message is not for us
+            Ok(GossipAction::Drop)
+        } else {
+            Ok(GossipAction::Forward(forwarded_to))
+        }
+    }
+
+    /// Check if the gossip payload's inner envelope is addressed to us.
+    fn is_payload_for_us(&self, payload: &[u8]) -> bool {
+        // Try to decode the CleartextHeader from the start of the payload.
+        // The payload is: CBOR(header) || encrypted_payload || mac
+        use parolnet_protocol::envelope::CleartextHeader;
+        if let Ok(header) = ciborium::from_reader::<CleartextHeader, _>(payload) {
+            header.dest_peer_id == self.our_peer_id
+        } else {
+            false
         }
     }
 }
 
 #[async_trait]
 impl GossipProtocol for StandardGossip {
-    async fn broadcast(&self, _envelope: Envelope) -> Result<(), MeshError> {
-        // In production: sign, compute PoW, insert self in bloom, forward to fanout peers
-        // This requires transport integration
+    async fn broadcast(&self, envelope: Envelope) -> Result<(), MeshError> {
+        let gossip_env = self.build_gossip_envelope(&envelope)?;
+        let message_id = gossip_env.message_id().unwrap();
+
+        // Mark as seen in dedup
+        self.dedup.mark_seen(message_id);
+
+        // Serialize
+        let serialized = gossip_env
+            .to_cbor()
+            .map_err(|e| MeshError::ValidationFailed(format!("CBOR encode: {e}")))?;
+
+        // Select fanout peers (exclude ourselves via bloom)
+        let excluded = vec![self.our_peer_id];
+        let fanout = self
+            .pool
+            .select_fanout_peers(&excluded, DEFAULT_FANOUT)
+            .await;
+
+        // Send to each peer
+        for (pid, conn) in &fanout {
+            if let Err(e) = conn.send(&serialized).await {
+                warn!(peer = %pid, error = %e, "failed to send gossip broadcast");
+            }
+        }
+
         Ok(())
     }
 
-    async fn on_receive(&self, _envelope: Envelope) -> Result<GossipAction, MeshError> {
-        // In production: validate signature, PoW, TTL, expiry, check dedup
-        // Return Forward/Deliver/Drop
-        Ok(GossipAction::Drop)
+    async fn on_receive(&self, envelope: Envelope) -> Result<GossipAction, MeshError> {
+        // The envelope's encrypted_payload carries the CBOR-encoded GossipEnvelope
+        self.process_gossip(&envelope.encrypted_payload).await
     }
 }

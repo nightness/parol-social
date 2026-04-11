@@ -24,10 +24,7 @@ pub struct SignedPreKey {
 
 impl SignedPreKey {
     /// Generate a new signed pre-key and sign it with the identity key.
-    pub fn generate(
-        id: u32,
-        identity_key: &crate::IdentityKeyPair,
-    ) -> Result<Self, CryptoError> {
+    pub fn generate(id: u32, identity_key: &crate::IdentityKeyPair) -> Result<Self, CryptoError> {
         let private_key = x25519_dalek::StaticSecret::random_from_rng(&mut OsRng);
         let public_key = x25519_dalek::PublicKey::from(&private_key);
 

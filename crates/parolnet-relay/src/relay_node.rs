@@ -1,11 +1,13 @@
 //! Relay node behavior (PNP-004 Section 5.5).
 
+use crate::handshake::CircuitHandshake;
 use crate::onion::{self, HopKeys};
-use crate::{CellType, RelayAction, RelayCell, RelayError, RelayNode, CELL_PAYLOAD_SIZE};
+use crate::{CELL_PAYLOAD_SIZE, CellType, RelayAction, RelayCell, RelayError, RelayNode};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Mutex;
+use x25519_dalek::StaticSecret;
 
 /// Maximum simultaneous circuits per relay node.
 pub const MAX_CIRCUITS: usize = 8192;
@@ -48,12 +50,15 @@ impl StandardRelayNode {
         if circuits.len() >= MAX_CIRCUITS {
             return Err(RelayError::CircuitLimitExceeded);
         }
-        circuits.insert(circuit_id, CircuitEntry {
-            keys,
-            forward_counter: 0,
-            backward_counter: 0,
-            next_hop,
-        });
+        circuits.insert(
+            circuit_id,
+            CircuitEntry {
+                keys,
+                forward_counter: 0,
+                backward_counter: 0,
+                next_hop,
+            },
+        );
         Ok(())
     }
 
@@ -131,9 +136,29 @@ impl RelayNode for StandardRelayNode {
                 }
             }
 
+            CellType::Create => {
+                // Generate a per-circuit ephemeral X25519 keypair and perform DH
+                let secret = StaticSecret::random_from_rng(&mut rand::thread_rng());
+                let (created, keys) = CircuitHandshake::handle_create(&cell, &secret)?;
+                // Register circuit with no next_hop (we are the entry point)
+                self.register_circuit(cell.circuit_id, keys, None)?;
+                Ok(RelayAction::Respond(created))
+            }
+
+            CellType::Extend => {
+                // Parse EXTEND to get target address and client's ephemeral key.
+                // The current relay must connect to target_addr, send a CREATE
+                // on behalf of the client, and relay the CREATED back as EXTENDED.
+                // For now, forward the cell so the caller can handle transport.
+                let (target_addr, _client_pub) = CircuitHandshake::parse_extend(&cell)?;
+                Ok(RelayAction::Forward {
+                    next_hop: target_addr,
+                    cell: cell.clone(),
+                })
+            }
+
             _ => {
-                // CREATE, CREATED, EXTEND, EXTENDED handled at a higher level
-                // (circuit construction protocol, not per-cell processing)
+                // CREATED, EXTENDED are handled by the circuit originator, not relays.
                 Ok(RelayAction::Discard)
             }
         }

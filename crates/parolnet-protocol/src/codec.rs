@@ -48,10 +48,14 @@ impl TryFrom<WireHeader> for CleartextHeader {
 
     fn try_from(w: WireHeader) -> Result<Self, ProtocolError> {
         if w.dest_peer_id.len() != 32 {
-            return Err(ProtocolError::CborDecode("dest_peer_id must be 32 bytes".into()));
+            return Err(ProtocolError::CborDecode(
+                "dest_peer_id must be 32 bytes".into(),
+            ));
         }
         if w.message_id.len() != 16 {
-            return Err(ProtocolError::CborDecode("message_id must be 16 bytes".into()));
+            return Err(ProtocolError::CborDecode(
+                "message_id must be 16 bytes".into(),
+            ));
         }
         let mut dest = [0u8; 32];
         dest.copy_from_slice(&w.dest_peer_id);
@@ -64,7 +68,11 @@ impl TryFrom<WireHeader> for CleartextHeader {
                 s.copy_from_slice(bytes);
                 Some(PeerId(s))
             }
-            Some(_) => return Err(ProtocolError::CborDecode("source_hint must be 32 bytes".into())),
+            Some(_) => {
+                return Err(ProtocolError::CborDecode(
+                    "source_hint must be 32 bytes".into(),
+                ));
+            }
             None => None,
         };
 
@@ -84,15 +92,14 @@ impl TryFrom<WireHeader> for CleartextHeader {
 pub fn encode_header(header: &CleartextHeader) -> Result<Vec<u8>, ProtocolError> {
     let wire: WireHeader = header.into();
     let mut buf = Vec::new();
-    ciborium::into_writer(&wire, &mut buf)
-        .map_err(|e| ProtocolError::CborEncode(e.to_string()))?;
+    ciborium::into_writer(&wire, &mut buf).map_err(|e| ProtocolError::CborEncode(e.to_string()))?;
     Ok(buf)
 }
 
 /// Deserialize a cleartext header from CBOR bytes.
 pub fn decode_header(bytes: &[u8]) -> Result<CleartextHeader, ProtocolError> {
-    let wire: WireHeader = ciborium::from_reader(bytes)
-        .map_err(|e| ProtocolError::CborDecode(e.to_string()))?;
+    let wire: WireHeader =
+        ciborium::from_reader(bytes).map_err(|e| ProtocolError::CborDecode(e.to_string()))?;
 
     if wire.version != 1 {
         return Err(ProtocolError::InvalidVersion {
@@ -123,14 +130,18 @@ impl ProtocolCodec for CborCodec {
 
     fn decode(&self, bytes: &[u8]) -> Result<Envelope, ProtocolError> {
         if bytes.len() < 4 {
-            return Err(ProtocolError::CborDecode("too short for header length".into()));
+            return Err(ProtocolError::CborDecode(
+                "too short for header length".into(),
+            ));
         }
 
         let header_len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
         let header_end = 4 + header_len;
 
         if bytes.len() < header_end + 16 {
-            return Err(ProtocolError::CborDecode("too short for header + MAC".into()));
+            return Err(ProtocolError::CborDecode(
+                "too short for header + MAC".into(),
+            ));
         }
 
         let header = decode_header(&bytes[4..header_end])?;

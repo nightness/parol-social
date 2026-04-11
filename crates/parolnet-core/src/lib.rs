@@ -104,7 +104,10 @@ impl ParolNet {
     }
 
     /// Process a scanned QR payload and derive the bootstrap secret.
-    pub fn process_qr(&self, qr_data: &[u8]) -> Result<(bootstrap::QrPayload, [u8; 32]), CoreError> {
+    pub fn process_qr(
+        &self,
+        qr_data: &[u8],
+    ) -> Result<(bootstrap::QrPayload, [u8; 32]), CoreError> {
         let payload = bootstrap::parse_qr_payload(qr_data)?;
 
         let mut their_ik = [0u8; 32];
@@ -122,9 +125,10 @@ impl ParolNet {
         Ok((payload, bs))
     }
 
-    /// Establish a Double Ratchet session with a peer using a shared secret.
+    /// Establish a Double Ratchet session as the **initiator** (scanner side).
     ///
-    /// The shared secret comes from X3DH key agreement or bootstrap.
+    /// The initiator knows the remote peer's ratchet public key (from QR payload)
+    /// and uses it to perform the initial DH ratchet step.
     pub fn establish_session(
         &self,
         peer_id: PeerId,
@@ -135,9 +139,10 @@ impl ParolNet {
         let ratchet = if is_initiator {
             DoubleRatchetSession::initialize_initiator(shared_secret.0, remote_ratchet_key)
         } else {
-            // For responder, we'd use initialize_responder with our ratchet secret
-            // Simplified: use initiator path for now (both sides need proper handshake)
-            DoubleRatchetSession::initialize_initiator(shared_secret.0, remote_ratchet_key)
+            // Responder path — should use establish_responder_session instead
+            return Err(CoreError::BootstrapFailed(
+                "use establish_responder_session for responder side".into(),
+            ));
         };
 
         let ratchet = ratchet.map_err(CoreError::Crypto)?;
@@ -145,8 +150,30 @@ impl ParolNet {
         Ok(())
     }
 
+    /// Establish a Double Ratchet session as the **responder** (QR presenter side).
+    ///
+    /// The responder provides their own ratchet secret key (generated during QR creation)
+    /// and waits for the first message from the initiator to complete the ratchet.
+    pub fn establish_responder_session(
+        &self,
+        peer_id: PeerId,
+        shared_secret: SharedSecret,
+        our_ratchet_secret: [u8; 32],
+    ) -> Result<(), CoreError> {
+        use x25519_dalek::StaticSecret;
+        let secret = StaticSecret::from(our_ratchet_secret);
+        let ratchet = DoubleRatchetSession::initialize_responder(shared_secret.0, secret)
+            .map_err(CoreError::Crypto)?;
+        self.sessions.add_session(peer_id, ratchet);
+        Ok(())
+    }
+
     /// Send a message within an established session.
-    pub fn send(&self, peer_id: &PeerId, message: &[u8]) -> Result<(RatchetHeader, Vec<u8>), CoreError> {
+    pub fn send(
+        &self,
+        peer_id: &PeerId,
+        message: &[u8],
+    ) -> Result<(RatchetHeader, Vec<u8>), CoreError> {
         self.sessions.encrypt(peer_id, message)
     }
 

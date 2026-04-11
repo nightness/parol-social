@@ -1,9 +1,13 @@
 use axum::{
-    Router,
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    Json, Router,
+    extract::{
+        Query,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     routing::get,
 };
 use futures_util::{SinkExt, StreamExt};
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,6 +16,10 @@ use tracing::info;
 
 type PeerMap = Arc<Mutex<HashMap<String, mpsc::UnboundedSender<String>>>>;
 type MessageStore = Arc<Mutex<HashMap<String, Vec<String>>>>;
+// TODO: Replace MessageStore with parolnet_mesh::store_forward::InMemoryStore once
+// the relay server's message handling is refactored to use protocol Envelope types
+// instead of raw JSON strings. The InMemoryStore operates on Envelope + PeerId,
+// which requires deeper integration than a drop-in replacement.
 
 // --- Analytics module (real implementation when feature enabled) ---
 #[cfg(feature = "analytics")]
@@ -101,9 +109,12 @@ struct IncomingMessage {
     peer_id: Option<String>,
     to: Option<String>,
     payload: Option<String>,
+    /// Peer IDs to exclude from gossip forwarding.
+    #[serde(default)]
+    exclude: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 struct OutgoingMessage {
     #[serde(rename = "type")]
     msg_type: String,
@@ -119,17 +130,28 @@ struct OutgoingMessage {
     online_peers: Option<usize>,
 }
 
-impl Default for OutgoingMessage {
-    fn default() -> Self {
-        Self {
-            msg_type: String::new(),
-            peer_id: None,
-            from: None,
-            payload: None,
-            message: None,
-            online_peers: None,
-        }
-    }
+/// GET /peers — returns JSON list of currently connected peer IDs.
+async fn handle_peers(peers: PeerMap) -> Json<Vec<String>> {
+    let peer_list = peers.lock().await;
+    let peer_ids: Vec<String> = peer_list.keys().cloned().collect();
+    Json(peer_ids)
+}
+
+/// GET /bootstrap?exclude=<peer_id> — returns up to 20 known peer IDs,
+/// excluding the optionally specified peer.
+async fn handle_bootstrap(
+    Query(params): Query<HashMap<String, String>>,
+    peers: PeerMap,
+) -> Json<Vec<String>> {
+    let peer_list = peers.lock().await;
+    let exclude = params.get("exclude").cloned().unwrap_or_default();
+    let known: Vec<String> = peer_list
+        .keys()
+        .filter(|p| **p != exclude)
+        .take(20)
+        .cloned()
+        .collect();
+    Json(known)
 }
 
 #[tokio::main]
@@ -170,6 +192,26 @@ async fn main() {
             }),
         )
         .route("/health", get(|| async { "OK" }))
+        .route(
+            "/peers",
+            get({
+                let peers = peers.clone();
+                move || {
+                    let peers = peers.clone();
+                    async move { handle_peers(peers).await }
+                }
+            }),
+        )
+        .route(
+            "/bootstrap",
+            get({
+                let peers = peers.clone();
+                move |query: Query<HashMap<String, String>>| {
+                    let peers = peers.clone();
+                    async move { handle_bootstrap(query, peers).await }
+                }
+            }),
+        )
         .layer(tower_http::cors::CorsLayer::permissive());
 
     // Add /stats endpoint only when feature is enabled AND env var is set
@@ -200,6 +242,47 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Forward a gossip message to up to `fanout` random connected peers,
+/// excluding the sender and any peers in the exclude list.
+async fn forward_gossip(
+    peers: &PeerMap,
+    sender: &str,
+    exclude: &[String],
+    payload: &str,
+    fanout: usize,
+) {
+    let peers_lock = peers.lock().await;
+
+    // Collect eligible peers (not sender, not in exclude list)
+    let eligible: Vec<(&String, &mpsc::UnboundedSender<String>)> = peers_lock
+        .iter()
+        .filter(|(id, _)| *id != sender && !exclude.contains(id))
+        .collect();
+
+    // Pick up to `fanout` random peers
+    let mut rng = rand::thread_rng();
+    let selected: Vec<_> = if eligible.len() <= fanout {
+        eligible
+    } else {
+        eligible
+            .choose_multiple(&mut rng, fanout)
+            .cloned()
+            .collect()
+    };
+
+    let gossip_msg = serde_json::to_string(&OutgoingMessage {
+        msg_type: "gossip".into(),
+        from: Some(sender.to_string()),
+        payload: Some(payload.to_string()),
+        ..Default::default()
+    })
+    .unwrap();
+
+    for (_id, tx) in selected {
+        let _ = tx.send(gossip_msg.clone());
+    }
 }
 
 async fn handle_socket(
@@ -309,6 +392,34 @@ async fn handle_socket(
                             })
                             .unwrap(),
                         );
+                    }
+                }
+            }
+
+            "gossip" => {
+                // Forward gossip payload to up to 3 random peers (excluding sender + exclude list)
+                let from = my_peer_id.clone().unwrap_or_default();
+                if let Some(payload) = incoming.payload {
+                    forward_gossip(&peers, &from, &incoming.exclude, &payload, 3).await;
+                    stats.record_message_routed();
+                }
+            }
+
+            "rtc_offer" | "rtc_answer" | "rtc_ice" => {
+                // WebRTC signaling — forward directly to target peer
+                let peer_id_clone = my_peer_id.clone().unwrap_or_default();
+                if let (Some(to), Some(payload)) = (&incoming.to, &incoming.payload) {
+                    let outgoing = OutgoingMessage {
+                        msg_type: incoming.msg_type.clone(),
+                        from: Some(peer_id_clone),
+                        payload: Some(payload.clone()),
+                        ..Default::default()
+                    };
+                    let json = serde_json::to_string(&outgoing).unwrap_or_default();
+                    let peers_lock = peers.lock().await;
+                    if let Some(recipient_tx) = peers_lock.get(to) {
+                        let _ = recipient_tx.send(json);
+                        stats.record_message_routed();
                     }
                 }
             }

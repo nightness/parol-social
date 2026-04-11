@@ -1,10 +1,10 @@
-use parolnet_protocol::*;
 use parolnet_protocol::address::PeerId;
 use parolnet_protocol::codec::CborCodec;
 use parolnet_protocol::envelope::{CleartextHeader, Envelope};
 use parolnet_protocol::handshake::{HandshakeState, HandshakeType};
 use parolnet_protocol::message::{MessageFlags, MessageType};
 use parolnet_protocol::padding::{self, BucketPadding};
+use parolnet_protocol::*;
 
 // ── PeerId Tests ────────────────────────────────────────────────
 
@@ -76,7 +76,11 @@ fn test_padding_roundtrip() {
 
     for msg in [b"hello".as_slice(), b"", &[0xAB; 100], &[0xFF; 1000]] {
         let padded = padder.pad(msg);
-        assert!(BUCKET_SIZES.contains(&padded.len()), "padded len {} not a bucket size", padded.len());
+        assert!(
+            BUCKET_SIZES.contains(&padded.len()),
+            "padded len {} not a bucket size",
+            padded.len()
+        );
         let unpadded = padder.unpad(&padded).unwrap();
         assert_eq!(unpadded, msg);
     }
@@ -139,7 +143,7 @@ fn make_test_envelope() -> Envelope {
 
 #[test]
 fn test_codec_header_roundtrip() {
-    use parolnet_protocol::codec::{encode_header, decode_header};
+    use parolnet_protocol::codec::{decode_header, encode_header};
 
     let header = make_test_header();
     let bytes = encode_header(&header).unwrap();
@@ -156,7 +160,7 @@ fn test_codec_header_roundtrip() {
 
 #[test]
 fn test_codec_header_with_source_hint() {
-    use parolnet_protocol::codec::{encode_header, decode_header};
+    use parolnet_protocol::codec::{decode_header, encode_header};
 
     let mut header = make_test_header();
     header.source_hint = Some(PeerId([0x12; 32]));
@@ -182,7 +186,7 @@ fn test_codec_envelope_roundtrip() {
 
 #[test]
 fn test_codec_rejects_invalid_version() {
-    use parolnet_protocol::codec::{encode_header, decode_header};
+    use parolnet_protocol::codec::{decode_header, encode_header};
 
     let mut header = make_test_header();
     header.version = 99;
@@ -342,7 +346,9 @@ fn test_envelope_is_valid_size_true() {
     };
 
     // Compute header CBOR size to figure out how large encrypted_payload must be
-    let header_cbor_len = parolnet_protocol::codec::encode_header(&header).unwrap().len();
+    let header_cbor_len = parolnet_protocol::codec::encode_header(&header)
+        .unwrap()
+        .len();
     // total_size = 4 + header_cbor_len + encrypted_payload.len() + 16
     // We want total_size == 1024
     let payload_len = 1024 - 4 - header_cbor_len - 16;
@@ -420,7 +426,7 @@ fn test_file_offer_total_chunks() {
 
 #[test]
 fn test_file_action_serialization() {
-    use parolnet_protocol::file::{FileOffer, FileControl, FileAction};
+    use parolnet_protocol::file::{FileAction, FileControl, FileOffer};
 
     let offer = FileOffer {
         file_id: [0xAB; 16],
@@ -470,14 +476,18 @@ fn test_call_state_distinct() {
     ];
     for i in 0..states.len() {
         for j in (i + 1)..states.len() {
-            assert_ne!(states[i], states[j], "{:?} should differ from {:?}", states[i], states[j]);
+            assert_ne!(
+                states[i], states[j],
+                "{:?} should differ from {:?}",
+                states[i], states[j]
+            );
         }
     }
 }
 
 #[test]
 fn test_video_config_default() {
-    use parolnet_protocol::media::{VideoConfig, VideoCodec};
+    use parolnet_protocol::media::{VideoCodec, VideoConfig};
 
     let config = VideoConfig::default();
     assert_eq!(config.width, 320);

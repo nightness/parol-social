@@ -35,19 +35,9 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// vs AES-256-GCM (transport disguise, matches TLS cipher) without changing
 /// protocol code.
 pub trait Aead: Send + Sync {
-    fn encrypt(
-        &self,
-        nonce: &[u8],
-        plaintext: &[u8],
-        aad: &[u8],
-    ) -> Result<Vec<u8>, CryptoError>;
+    fn encrypt(&self, nonce: &[u8], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError>;
 
-    fn decrypt(
-        &self,
-        nonce: &[u8],
-        ciphertext: &[u8],
-        aad: &[u8],
-    ) -> Result<Vec<u8>, CryptoError>;
+    fn decrypt(&self, nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError>;
 
     fn key_len(&self) -> usize;
     fn nonce_len(&self) -> usize;
@@ -70,10 +60,7 @@ pub trait KdfChain: Zeroize + Send {
 /// Provides forward secrecy and future secrecy: compromise of current
 /// keys does not reveal past or future message content.
 pub trait RatchetSession: Send {
-    fn encrypt(
-        &mut self,
-        plaintext: &[u8],
-    ) -> Result<(RatchetHeader, Vec<u8>), CryptoError>;
+    fn encrypt(&mut self, plaintext: &[u8]) -> Result<(RatchetHeader, Vec<u8>), CryptoError>;
 
     fn decrypt(
         &mut self,
@@ -94,10 +81,7 @@ pub trait KeyAgreement {
         recipient_bundle: &PreKeyBundle,
     ) -> Result<(SharedSecret, X3dhHeader), CryptoError>;
 
-    fn respond(
-        &self,
-        header: &X3dhHeader,
-    ) -> Result<SharedSecret, CryptoError>;
+    fn respond(&self, header: &X3dhHeader) -> Result<SharedSecret, CryptoError>;
 }
 
 // ── Key material types ─────────────────────────────────────────────
@@ -203,7 +187,7 @@ impl IdentityKeyPair {
 
     /// Compute the PeerId: SHA-256 of the Ed25519 public key.
     pub fn peer_id(&self) -> [u8; 32] {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(self.public_key_bytes());
         hasher.finalize().into()

@@ -24,14 +24,22 @@ pub mod websocket;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use wasm_bindgen::prelude::*;
 
+use parolnet_core::ParolNet;
 use parolnet_core::call::CallManager;
 use parolnet_core::file_transfer::{FileTransferReceiver, FileTransferSender};
-use parolnet_core::ParolNet;
 use parolnet_protocol::file::FileOffer;
+
+/// Pending bootstrap state from QR generation (presenter side).
+struct PendingBootstrap {
+    /// The random seed used in the QR payload.
+    seed: [u8; 32],
+    /// Our X25519 ratchet secret key.
+    ratchet_secret: [u8; 32],
+}
 
 /// Global state accessible from stateless wasm-bindgen functions.
 struct WasmState {
@@ -43,6 +51,8 @@ struct WasmState {
     unlock_code_hash: Option<[u8; 32]>,
     /// Whether decoy mode is currently active.
     decoy_active: bool,
+    /// Pending bootstrap from our QR generation (we are the presenter/responder).
+    pending_bootstrap: Option<PendingBootstrap>,
 }
 
 static STATE: LazyLock<Mutex<WasmState>> = LazyLock::new(|| {
@@ -53,6 +63,7 @@ static STATE: LazyLock<Mutex<WasmState>> = LazyLock::new(|| {
         file_receivers: HashMap::new(),
         unlock_code_hash: None,
         decoy_active: false,
+        pending_bootstrap: None,
     })
 });
 
@@ -111,7 +122,9 @@ pub fn initialize_from_key(secret_key_hex: &str) -> Result<String, JsError> {
 #[wasm_bindgen]
 pub fn export_secret_key() -> Result<String, JsError> {
     let state = STATE.lock().unwrap();
-    let client = state.client.as_ref()
+    let client = state
+        .client
+        .as_ref()
         .ok_or_else(|| JsError::new("not initialized"))?;
     Ok(hex::encode(client.export_identity_secret()))
 }
@@ -214,8 +227,7 @@ pub fn send_message(peer_id_hex: &str, plaintext: &str) -> Result<JsValue, JsErr
         ciphertext_hex: hex::encode(&ciphertext),
     };
 
-    serde_wasm_bindgen::to_value(&result)
-        .map_err(|e| JsError::new(&format!("serialize: {e}")))
+    serde_wasm_bindgen::to_value(&result).map_err(|e| JsError::new(&format!("serialize: {e}")))
 }
 
 /// Check if a session exists for a peer.
@@ -350,8 +362,7 @@ pub fn get_file_offer(file_id_hex: &str) -> Result<JsValue, JsError> {
         total_chunks: offer.total_chunks(),
     };
 
-    serde_wasm_bindgen::to_value(&result)
-        .map_err(|e| JsError::new(&format!("serialize: {e}")))
+    serde_wasm_bindgen::to_value(&result).map_err(|e| JsError::new(&format!("serialize: {e}")))
 }
 
 /// Get the next chunk from an outgoing file transfer.
@@ -500,37 +511,161 @@ pub fn enter_decoy_mode() {
 // ── Bootstrap ───────────────────────────────────────────────
 
 /// Generate a QR bootstrap payload (CBOR bytes, hex-encoded).
+///
+/// Also stores the ratchet secret and seed in WASM state so the presenter
+/// can later establish a responder session when the scanner connects.
 #[wasm_bindgen]
 pub fn generate_qr_payload(
     identity_key_hex: &str,
     relay_hint: Option<String>,
 ) -> Result<String, JsError> {
-    let ik_bytes = hex::decode(identity_key_hex)
-        .map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
+    let ik_bytes =
+        hex::decode(identity_key_hex).map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
     if ik_bytes.len() != 32 {
         return Err(JsError::new("identity key must be 32 bytes"));
     }
     let mut ik = [0u8; 32];
     ik.copy_from_slice(&ik_bytes);
 
-    let payload =
-        parolnet_core::bootstrap::generate_qr_payload(&ik, relay_hint.as_deref())
+    let result =
+        parolnet_core::bootstrap::generate_qr_payload_with_ratchet(&ik, relay_hint.as_deref())
             .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    Ok(hex::encode(payload))
+    // Store the ratchet secret and seed for later responder session establishment
+    let mut state = STATE.lock().unwrap();
+    state.pending_bootstrap = Some(PendingBootstrap {
+        seed: result.seed,
+        ratchet_secret: result.ratchet_secret,
+    });
+
+    Ok(hex::encode(result.payload_bytes))
 }
 
 /// Parse a QR bootstrap payload from hex-encoded CBOR bytes.
 #[wasm_bindgen]
 pub fn parse_qr_payload(hex_data: &str) -> Result<JsValue, JsError> {
-    let data = hex::decode(hex_data)
-        .map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
+    let data = hex::decode(hex_data).map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
 
     let payload = parolnet_core::bootstrap::parse_qr_payload(&data)
         .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    serde_wasm_bindgen::to_value(&payload)
-        .map_err(|e| JsError::new(&format!("serialize: {e}")))
+    serde_wasm_bindgen::to_value(&payload).map_err(|e| JsError::new(&format!("serialize: {e}")))
+}
+
+/// Process a scanned QR payload: parse, derive bootstrap secret, establish initiator session.
+///
+/// This is the **scanner** side of the bootstrap. Returns `{ peer_id }` on success.
+/// The scanner can immediately start sending encrypted messages after this call.
+#[wasm_bindgen]
+pub fn process_scanned_qr(hex_data: &str) -> Result<JsValue, JsError> {
+    let data = hex::decode(hex_data).map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
+
+    let state = STATE.lock().unwrap();
+    let client = state
+        .client
+        .as_ref()
+        .ok_or_else(|| JsError::new("not initialized — call initialize() first"))?;
+
+    // Parse and derive bootstrap secret
+    let (payload, bs) = client
+        .process_qr(&data)
+        .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    // Compute PeerId from the presenter's identity key
+    let mut their_ik = [0u8; 32];
+    their_ik.copy_from_slice(&payload.ik);
+    let their_peer_id = parolnet_protocol::address::PeerId::from_public_key(&their_ik);
+
+    // Get the ratchet public key — required for session establishment
+    if payload.rk.is_empty() {
+        return Err(JsError::new(
+            "QR payload missing ratchet key — cannot establish session",
+        ));
+    }
+    let mut ratchet_key = [0u8; 32];
+    ratchet_key.copy_from_slice(&payload.rk);
+
+    // Establish initiator session using the ratchet key from QR
+    client
+        .establish_session(
+            their_peer_id,
+            parolnet_crypto::SharedSecret(bs),
+            &ratchet_key,
+            true,
+        )
+        .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    #[derive(serde::Serialize)]
+    struct ScanResult {
+        peer_id: String,
+        their_identity_key: String,
+    }
+
+    let result = ScanResult {
+        peer_id: hex::encode(their_peer_id.0),
+        their_identity_key: hex::encode(&payload.ik),
+    };
+
+    serde_wasm_bindgen::to_value(&result).map_err(|e| JsError::new(&format!("serialize: {e}")))
+}
+
+/// Complete the bootstrap as the QR **presenter** (responder side).
+///
+/// Called when the presenter receives a bootstrap handshake from the scanner,
+/// containing the scanner's identity key. Uses the stored ratchet secret from
+/// QR generation to establish the responder session.
+///
+/// `their_identity_key_hex` — the scanner's Ed25519 identity public key.
+#[wasm_bindgen]
+pub fn complete_bootstrap_as_presenter(their_identity_key_hex: &str) -> Result<JsValue, JsError> {
+    let their_ik_bytes = hex::decode(their_identity_key_hex)
+        .map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
+    if their_ik_bytes.len() != 32 {
+        return Err(JsError::new("identity key must be 32 bytes"));
+    }
+
+    let mut state = STATE.lock().unwrap();
+
+    let pending = state
+        .pending_bootstrap
+        .take()
+        .ok_or_else(|| JsError::new("no pending bootstrap — generate a QR first"))?;
+
+    let client = state
+        .client
+        .as_ref()
+        .ok_or_else(|| JsError::new("not initialized — call initialize() first"))?;
+
+    // Derive the same bootstrap secret the scanner derived
+    let our_ik = client.public_key();
+    let mut their_ik = [0u8; 32];
+    their_ik.copy_from_slice(&their_ik_bytes);
+
+    let bs = parolnet_core::bootstrap::derive_bootstrap_secret(&pending.seed, &our_ik, &their_ik)
+        .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    // Compute scanner's PeerId
+    let their_peer_id = parolnet_protocol::address::PeerId::from_public_key(&their_ik);
+
+    // Establish responder session using our stored ratchet secret
+    client
+        .establish_responder_session(
+            their_peer_id,
+            parolnet_crypto::SharedSecret(bs),
+            pending.ratchet_secret,
+        )
+        .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    #[derive(serde::Serialize)]
+    struct PresenterResult {
+        peer_id: String,
+    }
+
+    let result = PresenterResult {
+        peer_id: hex::encode(their_peer_id.0),
+    };
+
+    serde_wasm_bindgen::to_value(&result).map_err(|e| JsError::new(&format!("serialize: {e}")))
 }
 
 /// Compute a 6-digit SAS verification string.
@@ -561,6 +696,7 @@ pub fn panic_wipe() {
     state.file_receivers.clear();
     state.unlock_code_hash = None;
     state.decoy_active = false;
+    state.pending_bootstrap = None;
     // call_manager doesn't have a clear method, but dropping calls is fine
     // The CallManager is behind a Mutex internally; we replace it.
     // Note: we can't easily replace it due to LazyLock, so we prune finished calls.
@@ -576,8 +712,7 @@ pub fn version() -> String {
 // ── Helpers ─────────────────────────────────────────────────
 
 fn decode_32(hex_str: &str) -> Result<[u8; 32], JsError> {
-    let bytes = hex::decode(hex_str)
-        .map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
+    let bytes = hex::decode(hex_str).map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
     if bytes.len() != 32 {
         return Err(JsError::new("expected 32 bytes"));
     }
@@ -587,8 +722,7 @@ fn decode_32(hex_str: &str) -> Result<[u8; 32], JsError> {
 }
 
 fn decode_16(hex_str: &str) -> Result<[u8; 16], JsError> {
-    let bytes = hex::decode(hex_str)
-        .map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
+    let bytes = hex::decode(hex_str).map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
     if bytes.len() != 16 {
         return Err(JsError::new("expected 16 bytes"));
     }

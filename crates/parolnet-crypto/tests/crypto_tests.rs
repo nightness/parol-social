@@ -1,8 +1,8 @@
-use parolnet_crypto::*;
-use parolnet_crypto::aead::{ChaCha20Poly1305Cipher, Aes256GcmCipher};
+use parolnet_crypto::aead::{Aes256GcmCipher, ChaCha20Poly1305Cipher};
+use parolnet_crypto::identity::{OneTimePreKeyPair, SignedPreKey};
 use parolnet_crypto::kdf;
 use parolnet_crypto::x3dh::X3dhKeyAgreement;
-use parolnet_crypto::identity::{SignedPreKey, OneTimePreKeyPair};
+use parolnet_crypto::*;
 
 // ── HKDF Tests ──────────────────────────────────────────────────
 
@@ -15,18 +15,15 @@ fn test_hkdf_rfc5869_test_case_1() {
 
     let okm = kdf::hkdf_sha256(&salt, &ikm, &info, 42).unwrap();
     let expected = hex::decode(
-        "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
-    ).unwrap();
+        "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865",
+    )
+    .unwrap();
     assert_eq!(okm, expected);
 }
 
 #[test]
 fn test_hkdf_fixed_size() {
-    let key: [u8; 32] = kdf::hkdf_sha256_fixed(
-        b"salt",
-        b"input key material",
-        b"info",
-    ).unwrap();
+    let key: [u8; 32] = kdf::hkdf_sha256_fixed(b"salt", b"input key material", b"info").unwrap();
     assert_eq!(key.len(), 32);
     assert_ne!(key, [0u8; 32]);
 }
@@ -238,7 +235,10 @@ fn test_hkdf_max_output() {
     // HKDF-SHA256 max output is 255 * 32 = 8160 bytes.
     // Requesting 8161 bytes should fail with KdfFailed.
     let result = kdf::hkdf_sha256(b"salt", b"ikm", b"info", 8161);
-    assert!(result.is_err(), "HKDF should fail for output length > 255*HashLen");
+    assert!(
+        result.is_err(),
+        "HKDF should fail for output length > 255*HashLen"
+    );
 }
 
 // ── Double Ratchet Edge Case Tests ─────────────────────────────
@@ -248,8 +248,8 @@ fn setup_session_pair() -> (
     parolnet_crypto::double_ratchet::DoubleRatchetSession,
     parolnet_crypto::double_ratchet::DoubleRatchetSession,
 ) {
-    use x25519_dalek::{PublicKey, StaticSecret};
     use rand::rngs::OsRng;
+    use x25519_dalek::{PublicKey, StaticSecret};
 
     let shared_secret = [0x42u8; 32];
     let bob_ratchet = StaticSecret::random_from_rng(&mut OsRng);
@@ -371,7 +371,10 @@ fn test_x3dh_not_deterministic() {
     let (secret2, _) = agreement.initiate(&bundle).unwrap();
 
     // Ephemeral key is random each time, so shared secrets must differ
-    assert_ne!(secret1.0, secret2.0, "two X3DH initiations with the same bundle must produce different shared secrets");
+    assert_ne!(
+        secret1.0, secret2.0,
+        "two X3DH initiations with the same bundle must produce different shared secrets"
+    );
 }
 
 #[test]
@@ -386,5 +389,8 @@ fn test_x3dh_different_bundles_different_secrets() {
     let (secret1, _) = agreement.initiate(&bundle1).unwrap();
     let (secret2, _) = agreement.initiate(&bundle2).unwrap();
 
-    assert_ne!(secret1.0, secret2.0, "different Bob bundles must produce different shared secrets");
+    assert_ne!(
+        secret1.0, secret2.0,
+        "different Bob bundles must produce different shared secrets"
+    );
 }

@@ -13,7 +13,12 @@
 #[test]
 fn test_wasm_generate_identity_returns_hex() {
     let id = parolnet_wasm::generate_identity();
-    assert_eq!(id.len(), 64, "PeerId hex should be 64 chars, got {}", id.len());
+    assert_eq!(
+        id.len(),
+        64,
+        "PeerId hex should be 64 chars, got {}",
+        id.len()
+    );
     assert!(
         id.chars().all(|c| c.is_ascii_hexdigit()),
         "PeerId should contain only hex characters, got: {}",

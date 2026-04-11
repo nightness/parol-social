@@ -27,6 +27,7 @@ hmac.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 rand.workspace = true
+x25519-dalek.workspace = true
 zeroize.workspace = true
 serde_bytes.workspace = true
 web-time.workspace = true

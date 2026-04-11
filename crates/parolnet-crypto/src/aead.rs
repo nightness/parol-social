@@ -31,8 +31,8 @@ impl ChaCha20Poly1305Cipher {
 
 impl Aead for ChaCha20Poly1305Cipher {
     fn encrypt(&self, nonce: &[u8], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        use chacha20poly1305::aead::{Aead as AeadTrait, KeyInit, Payload};
         use chacha20poly1305::ChaCha20Poly1305;
+        use chacha20poly1305::aead::{Aead as AeadTrait, KeyInit, Payload};
 
         if nonce.len() != 12 {
             return Err(CryptoError::InvalidNonceLength {
@@ -44,13 +44,19 @@ impl Aead for ChaCha20Poly1305Cipher {
         let cipher = ChaCha20Poly1305::new((&self.key).into());
         let nonce = chacha20poly1305::Nonce::from_slice(nonce);
         cipher
-            .encrypt(nonce, Payload { msg: plaintext, aad })
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .map_err(|_| CryptoError::EncryptionFailed)
     }
 
     fn decrypt(&self, nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        use chacha20poly1305::aead::{Aead as AeadTrait, KeyInit, Payload};
         use chacha20poly1305::ChaCha20Poly1305;
+        use chacha20poly1305::aead::{Aead as AeadTrait, KeyInit, Payload};
 
         if nonce.len() != 12 {
             return Err(CryptoError::InvalidNonceLength {
@@ -62,12 +68,22 @@ impl Aead for ChaCha20Poly1305Cipher {
         let cipher = ChaCha20Poly1305::new((&self.key).into());
         let nonce = chacha20poly1305::Nonce::from_slice(nonce);
         cipher
-            .decrypt(nonce, Payload { msg: ciphertext, aad })
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|_| CryptoError::DecryptionFailed)
     }
 
-    fn key_len(&self) -> usize { 32 }
-    fn nonce_len(&self) -> usize { 12 }
+    fn key_len(&self) -> usize {
+        32
+    }
+    fn nonce_len(&self) -> usize {
+        12
+    }
 }
 
 /// AES-256-GCM AEAD cipher.
@@ -95,8 +111,8 @@ impl Aes256GcmCipher {
 
 impl Aead for Aes256GcmCipher {
     fn encrypt(&self, nonce: &[u8], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        use aes_gcm::aead::{Aead as AeadTrait, KeyInit, Payload};
         use aes_gcm::Aes256Gcm;
+        use aes_gcm::aead::{Aead as AeadTrait, KeyInit, Payload};
 
         if nonce.len() != 12 {
             return Err(CryptoError::InvalidNonceLength {
@@ -108,13 +124,19 @@ impl Aead for Aes256GcmCipher {
         let cipher = Aes256Gcm::new((&self.key).into());
         let nonce = aes_gcm::Nonce::from_slice(nonce);
         cipher
-            .encrypt(nonce, Payload { msg: plaintext, aad })
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .map_err(|_| CryptoError::EncryptionFailed)
     }
 
     fn decrypt(&self, nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        use aes_gcm::aead::{Aead as AeadTrait, KeyInit, Payload};
         use aes_gcm::Aes256Gcm;
+        use aes_gcm::aead::{Aead as AeadTrait, KeyInit, Payload};
 
         if nonce.len() != 12 {
             return Err(CryptoError::InvalidNonceLength {
@@ -126,10 +148,20 @@ impl Aead for Aes256GcmCipher {
         let cipher = Aes256Gcm::new((&self.key).into());
         let nonce = aes_gcm::Nonce::from_slice(nonce);
         cipher
-            .decrypt(nonce, Payload { msg: ciphertext, aad })
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|_| CryptoError::DecryptionFailed)
     }
 
-    fn key_len(&self) -> usize { 32 }
-    fn nonce_len(&self) -> usize { 12 }
+    fn key_len(&self) -> usize {
+        32
+    }
+    fn nonce_len(&self) -> usize {
+        12
+    }
 }

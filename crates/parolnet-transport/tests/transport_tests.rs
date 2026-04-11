@@ -11,15 +11,27 @@ use std::time::Duration;
 
 #[test]
 fn test_bandwidth_mode_intervals() {
-    assert_eq!(BandwidthMode::Low.padding_interval(), Duration::from_millis(2000));
-    assert_eq!(BandwidthMode::Normal.padding_interval(), Duration::from_millis(500));
-    assert_eq!(BandwidthMode::High.padding_interval(), Duration::from_millis(100));
+    assert_eq!(
+        BandwidthMode::Low.padding_interval(),
+        Duration::from_millis(2000)
+    );
+    assert_eq!(
+        BandwidthMode::Normal.padding_interval(),
+        Duration::from_millis(500)
+    );
+    assert_eq!(
+        BandwidthMode::High.padding_interval(),
+        Duration::from_millis(100)
+    );
 }
 
 #[test]
 fn test_bandwidth_mode_jitter() {
     assert_eq!(BandwidthMode::Low.jitter_max(), Duration::from_millis(500));
-    assert_eq!(BandwidthMode::Normal.jitter_max(), Duration::from_millis(100));
+    assert_eq!(
+        BandwidthMode::Normal.jitter_max(),
+        Duration::from_millis(100)
+    );
     assert_eq!(BandwidthMode::High.jitter_max(), Duration::from_millis(30));
 }
 
@@ -34,7 +46,9 @@ fn test_dummy_traffic_percent() {
 
 #[test]
 fn test_standard_shaper_has_dummy_interval() {
-    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::Normal,
+    };
     assert!(shaper.dummy_traffic_interval().is_some());
     assert_eq!(
         shaper.dummy_traffic_interval().unwrap(),
@@ -44,20 +58,30 @@ fn test_standard_shaper_has_dummy_interval() {
 
 #[test]
 fn test_shaper_delay_within_bounds() {
-    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::Normal,
+    };
 
     // Run 100 times and verify delays are within expected range
     for _ in 0..100 {
         let delay = shaper.delay_before_send();
         // Normal mode: 500ms base + 0-100ms jitter = 500-600ms
-        assert!(delay >= Duration::from_millis(500), "delay {delay:?} too low");
-        assert!(delay <= Duration::from_millis(600), "delay {delay:?} too high");
+        assert!(
+            delay >= Duration::from_millis(500),
+            "delay {delay:?} too low"
+        );
+        assert!(
+            delay <= Duration::from_millis(600),
+            "delay {delay:?} too high"
+        );
     }
 }
 
 #[test]
 fn test_shaper_delay_low_mode() {
-    let shaper = StandardShaper { mode: BandwidthMode::Low };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::Low,
+    };
     for _ in 0..50 {
         let delay = shaper.delay_before_send();
         assert!(delay >= Duration::from_millis(2000));
@@ -67,7 +91,9 @@ fn test_shaper_delay_low_mode() {
 
 #[test]
 fn test_shaper_delay_high_mode() {
-    let shaper = StandardShaper { mode: BandwidthMode::High };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::High,
+    };
     for _ in 0..50 {
         let delay = shaper.delay_before_send();
         assert!(delay >= Duration::from_millis(100));
@@ -77,7 +103,9 @@ fn test_shaper_delay_high_mode() {
 
 #[test]
 fn test_shaper_burst_smoothing() {
-    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::Normal,
+    };
 
     // Small burst: all at base rate
     let messages: Vec<Vec<u8>> = (0..5).map(|i| vec![i]).collect();
@@ -90,7 +118,9 @@ fn test_shaper_burst_smoothing() {
 
 #[test]
 fn test_shaper_large_burst_doubles_rate() {
-    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::Normal,
+    };
 
     // Large burst (>32): first 32 at double rate
     let messages: Vec<Vec<u8>> = (0..50).map(|i| vec![i]).collect();
@@ -99,8 +129,14 @@ fn test_shaper_large_burst_doubles_rate() {
 
     // First 32 should have halved base interval (250ms + jitter)
     for (delay, _) in &shaped[..32] {
-        assert!(*delay >= Duration::from_millis(250), "burst delay {delay:?} too low");
-        assert!(*delay <= Duration::from_millis(350), "burst delay {delay:?} too high");
+        assert!(
+            *delay >= Duration::from_millis(250),
+            "burst delay {delay:?} too low"
+        );
+        assert!(
+            *delay <= Duration::from_millis(350),
+            "burst delay {delay:?} too high"
+        );
     }
 
     // Remaining should have normal interval
@@ -127,7 +163,10 @@ fn test_firefox_fingerprint_profile() {
     assert!(!profile.cipher_suites.is_empty());
     assert!(profile.alpn_protocols.contains(&"h2".to_string()));
     // Firefox and Chrome have different cipher suite ordering
-    assert_ne!(profile.cipher_suites, FingerprintProfile::chrome().cipher_suites);
+    assert_ne!(
+        profile.cipher_suites,
+        FingerprintProfile::chrome().cipher_suites
+    );
 }
 
 #[test]
@@ -144,7 +183,9 @@ fn test_fingerprint_builds_client_config() {
 
 #[test]
 fn test_shaper_jitter_never_below_base() {
-    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::Normal,
+    };
     let base = Duration::from_millis(500);
     for _ in 0..1000 {
         let delay = shaper.delay_before_send();
@@ -157,7 +198,9 @@ fn test_shaper_jitter_never_below_base() {
 
 #[test]
 fn test_shaper_shape_preserves_message_order() {
-    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::Normal,
+    };
     let messages: Vec<Vec<u8>> = (0..10).map(|i| format!("{i}").into_bytes()).collect();
     let shaped = shaper.shape(messages);
     assert_eq!(shaped.len(), 10);
@@ -173,7 +216,9 @@ fn test_shaper_shape_preserves_message_order() {
 
 #[test]
 fn test_shaper_shape_empty_input() {
-    let shaper = StandardShaper { mode: BandwidthMode::Normal };
+    let shaper = StandardShaper {
+        mode: BandwidthMode::Normal,
+    };
     let shaped = shaper.shape(vec![]);
     assert!(shaped.is_empty());
 }
@@ -184,16 +229,28 @@ fn test_shaper_shape_empty_input() {
 fn test_fingerprint_both_profiles_have_cipher_suites() {
     let chrome = FingerprintProfile::chrome();
     let firefox = FingerprintProfile::firefox();
-    assert!(!chrome.cipher_suites.is_empty(), "Chrome profile has no cipher suites");
-    assert!(!firefox.cipher_suites.is_empty(), "Firefox profile has no cipher suites");
+    assert!(
+        !chrome.cipher_suites.is_empty(),
+        "Chrome profile has no cipher suites"
+    );
+    assert!(
+        !firefox.cipher_suites.is_empty(),
+        "Firefox profile has no cipher suites"
+    );
 }
 
 #[test]
 fn test_fingerprint_alpn_h2_first() {
     let chrome = FingerprintProfile::chrome();
     let firefox = FingerprintProfile::firefox();
-    assert_eq!(chrome.alpn_protocols[0], "h2", "Chrome ALPN[0] should be h2");
-    assert_eq!(firefox.alpn_protocols[0], "h2", "Firefox ALPN[0] should be h2");
+    assert_eq!(
+        chrome.alpn_protocols[0], "h2",
+        "Chrome ALPN[0] should be h2"
+    );
+    assert_eq!(
+        firefox.alpn_protocols[0], "h2",
+        "Firefox ALPN[0] should be h2"
+    );
 }
 
 #[test]
@@ -215,7 +272,9 @@ fn test_fingerprint_x25519_in_groups() {
 #[test]
 fn test_fingerprint_config_alpn_matches() {
     let profile = FingerprintProfile::chrome();
-    let config = profile.build_client_config().expect("build_client_config failed");
+    let config = profile
+        .build_client_config()
+        .expect("build_client_config failed");
     assert_eq!(
         config.alpn_protocols.len(),
         2,
@@ -225,7 +284,11 @@ fn test_fingerprint_config_alpn_matches() {
 
 #[test]
 fn test_bandwidth_modes_are_distinct() {
-    let modes = [BandwidthMode::Low, BandwidthMode::Normal, BandwidthMode::High];
+    let modes = [
+        BandwidthMode::Low,
+        BandwidthMode::Normal,
+        BandwidthMode::High,
+    ];
     for i in 0..modes.len() {
         for j in (i + 1)..modes.len() {
             let a = modes[i];
@@ -267,15 +330,17 @@ fn build_test_tls_transport() -> TlsTransport {
         .with_no_client_auth()
         .with_single_cert(
             vec![rustls::pki_types::CertificateDer::from(cert_der.to_vec())],
-            rustls::pki_types::PrivateKeyDer::Pkcs8(
-                rustls::pki_types::PrivatePkcs8KeyDer::from(key_der),
-            ),
+            rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+                key_der,
+            )),
         )
         .expect("build server config");
 
     // Client config trusting the self-signed cert
     let mut root_store = rustls::RootCertStore::empty();
-    root_store.add(cert_der).expect("add self-signed cert to root store");
+    root_store
+        .add(cert_der)
+        .expect("add self-signed cert to root store");
     let client_config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth();
@@ -303,7 +368,10 @@ async fn test_tls_loopback_send_recv() {
 
     // Client connects, sends, receives echo
     let client_conn = transport.connect(bound_addr).await.expect("connect");
-    client_conn.send(b"hello parolnet").await.expect("client send");
+    client_conn
+        .send(b"hello parolnet")
+        .await
+        .expect("client send");
     let echoed = client_conn.recv().await.expect("client recv");
     assert_eq!(echoed, b"hello parolnet");
     client_conn.close().await.expect("client close");
@@ -486,7 +554,10 @@ async fn test_tls_server_recv_after_client_close() {
         assert_eq!(data, b"ping");
         // Client will close; second recv should fail with ConnectionClosed
         let result = conn.recv().await;
-        assert!(result.is_err(), "server recv after client close should fail");
+        assert!(
+            result.is_err(),
+            "server recv after client close should fail"
+        );
         match result {
             Err(TransportError::ConnectionClosed) => {}
             Err(other) => panic!("expected ConnectionClosed, got: {other:?}"),
@@ -561,7 +632,13 @@ async fn test_tls_peer_addr_is_set() {
 
 #[test]
 fn test_media_call_bandwidth_mode() {
-    assert_eq!(BandwidthMode::MediaCall.padding_interval(), Duration::from_millis(20));
-    assert_eq!(BandwidthMode::MediaCall.jitter_max(), Duration::from_millis(5));
+    assert_eq!(
+        BandwidthMode::MediaCall.padding_interval(),
+        Duration::from_millis(20)
+    );
+    assert_eq!(
+        BandwidthMode::MediaCall.jitter_max(),
+        Duration::from_millis(5)
+    );
     assert_eq!(BandwidthMode::MediaCall.dummy_traffic_percent(), 10);
 }

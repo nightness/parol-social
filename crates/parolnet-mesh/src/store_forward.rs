@@ -28,6 +28,12 @@ pub struct InMemoryStore {
     buffers: Mutex<HashMap<PeerId, Vec<BufferedMessage>>>,
 }
 
+impl Default for InMemoryStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryStore {
     pub fn new() -> Self {
         Self {
@@ -47,12 +53,7 @@ impl InMemoryStore {
 
     /// Get total buffered message count across all peers.
     pub fn total_count(&self) -> usize {
-        self.buffers
-            .lock()
-            .unwrap()
-            .values()
-            .map(|v| v.len())
-            .sum()
+        self.buffers.lock().unwrap().values().map(|v| v.len()).sum()
     }
 
     /// Evict messages to make room, following PNP-005 Section 5.4 priority:
