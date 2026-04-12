@@ -390,8 +390,8 @@ async function onWasmReady() {
     // Pre-render QR code so it's ready when user opens Add Contact
     renderBootstrapQR();
 
-    // Connect to relay server
-    connectRelay();
+    // Start connection manager (tracker + relay)
+    connMgr.start();
 }
 
 function onWasmUnavailable() {
@@ -400,102 +400,30 @@ function onWasmUnavailable() {
     const el = document.getElementById('settings-version');
     if (el) el.textContent = 'dev (no WASM)';
 
-    // Connect to relay server even without WASM (plaintext testing)
-    connectRelay();
+    // Start connection manager even without WASM (plaintext testing)
+    connMgr.start();
 }
 
-// ── WebSocket Relay Connection ─────────────────────────────
-let ws = null;
-let wsReconnectTimer = null;
-let wsReconnectDelay = 1000;
-
-function connectRelay() {
-    if (ws && ws.readyState === WebSocket.OPEN) return;
-
-    // Determine WebSocket URL from current page location
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = protocol + '//' + location.host + '/ws';
-
-    try {
-        ws = new WebSocket(wsUrl);
-    } catch(e) {
-        console.warn('WebSocket connect failed:', e);
-        scheduleReconnect();
-        return;
-    }
-
-    ws.onopen = () => {
-        console.log('Relay connected');
-        telemetry.track('relay_connect');
-        wsReconnectDelay = 1000; // reset backoff
-        updateConnectionStatus(true);
-
-        // Register with our PeerId
-        if (window._peerId) {
-            ws.send(JSON.stringify({
-                type: 'register',
-                peer_id: window._peerId
-            }));
-        }
-        flushMessageQueue();
-    };
-
-    ws.onmessage = (event) => {
-        try {
-            const msg = JSON.parse(event.data);
-            handleRelayMessage(msg);
-        } catch(e) {
-            console.warn('Invalid relay message:', e);
-        }
-    };
-
-    ws.onclose = () => {
-        console.log('Relay disconnected');
-        telemetry.track('relay_disconnect');
-        updateConnectionStatus(false);
-        scheduleReconnect();
-
-        // Try WebRTC to known peers when relay drops
-        if (window._knownPeers && typeof RTCPeerConnection !== 'undefined') {
-            for (const pid of window._knownPeers) {
-                if (!hasDirectConnection(pid)) {
-                    initWebRTC(pid, true).catch(() => {});
-                }
-            }
-        }
-    };
-
-    ws.onerror = (e) => {
-        console.warn('Relay error');
-        updateConnectionStatus(false);
-    };
-}
-
-function scheduleReconnect() {
-    if (wsReconnectTimer) return;
-    wsReconnectTimer = setTimeout(() => {
-        wsReconnectTimer = null;
-        wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000); // exponential backoff, max 30s
-        connectRelay();
-    }, wsReconnectDelay);
-}
-
-function updateConnectionStatus(relayConnected) {
+// ── Connection Status ─────────────────────────────────────
+function updateConnectionStatus() {
     const dot = document.getElementById('connection-dot');
     if (!dot) return;
 
+    const hasRelay = connMgr.isRelayConnected();
+    const hasTracker = connMgr.isTrackerConnected();
     const hasAnyWebRTC = Object.values(rtcConnections).some(c => c.dc && c.dc.readyState === 'open');
 
-    if (relayConnected && hasAnyWebRTC) {
+    if ((hasRelay || hasTracker) && hasAnyWebRTC) {
         dot.className = 'connection-dot online';
-        dot.title = 'Connected (relay + direct)';
-    } else if (relayConnected || hasAnyWebRTC) {
+        dot.title = 'Connected (P2P active)';
+    } else if (hasRelay || hasTracker || hasAnyWebRTC) {
         dot.className = 'connection-dot partial';
-        dot.title = relayConnected ? 'Relay only' : 'Direct only (relay offline)';
+        dot.title = hasTracker ? 'Tracker connected' : hasRelay ? 'Relay only' : 'Direct only';
     } else {
         dot.className = 'connection-dot offline';
         dot.title = 'Offline — messages will be queued';
     }
+    updateNetworkSettings();
 }
 
 // ── Peer Discovery ─────────────────────────────────────────
@@ -600,9 +528,21 @@ function onIncomingMessage(fromPeerId, payload) {
                         lastMessage: 'Encrypted session established',
                         lastTime: formatTime(Date.now()),
                         unread: 0
-                    }).then(() => {
+                    }).then(async () => {
                         showToast('Secure contact: ' + result.peer_id.slice(0, 8) + '...');
                         loadContacts();
+                        // Derive contact-specific tracker hash for peer discovery
+                        try {
+                            const sortedIds = [result.peer_id, window._peerId].sort().join(':');
+                            const contactHash = await sha1Hex(sortedIds + ':parolnet-contact');
+                            await dbPut('settings', { key: 'contact_hash_' + result.peer_id, value: contactHash });
+                            if (connMgr.tracker) {
+                                connMgr.announceContact(result.peer_id, contactHash);
+                            }
+                            console.log('[Contact] Tracker hash stored for', result.peer_id.slice(0,8));
+                        } catch(e) {
+                            console.warn('[Contact] Failed to store tracker hash:', e);
+                        }
                     }).catch(() => {});
                 } catch(e) {
                     console.warn('[Bootstrap] Failed to complete presenter bootstrap:', e);
@@ -667,16 +607,7 @@ function onIncomingMessage(fromPeerId, payload) {
 }
 
 function sendToRelay(toPeerId, payload) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        showToast('Not connected to relay');
-        return false;
-    }
-    ws.send(JSON.stringify({
-        type: 'message',
-        to: toPeerId,
-        payload: payload
-    }));
-    return true;
+    return connMgr.sendRelay(toPeerId, payload);
 }
 
 // ── WebRTC Peer Connections ────────────────────────────────
@@ -698,13 +629,7 @@ async function initWebRTC(peerId, isInitiator) {
     // ICE candidate handling
     pc.onicecandidate = (event) => {
         if (event.candidate) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'rtc_ice',
-                    to: peerId,
-                    payload: JSON.stringify(event.candidate)
-                }));
-            }
+            connMgr.sendSignaling('rtc_ice', peerId, JSON.stringify(event.candidate));
         }
     };
 
@@ -726,13 +651,7 @@ async function initWebRTC(peerId, isInitiator) {
         // Create and send offer
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: 'rtc_offer',
-                to: peerId,
-                payload: JSON.stringify(offer)
-            }));
-        }
+        connMgr.sendSignaling('rtc_offer', peerId, JSON.stringify(offer));
     } else {
         // Wait for data channel from remote
         pc.ondatachannel = (event) => {
@@ -746,6 +665,10 @@ function setupDataChannel(peerId, dc) {
 
     dc.onopen = () => {
         console.log('[WebRTC] Data channel open with', peerId.slice(0,8));
+        // Send identity for tracker-originated connections
+        try {
+            dc.send(JSON.stringify({ type: 'identity', peerId: window._peerId }));
+        } catch(e) {}
         telemetry.track('webrtc_connect_success');
         rtcConnections[peerId].status = 'open';
         updatePeerConnectionUI(peerId, 'direct');
@@ -762,7 +685,19 @@ function setupDataChannel(peerId, dc) {
         // Received message via WebRTC data channel
         try {
             const msg = JSON.parse(event.data);
-            if (msg.type === 'chat') {
+            if (msg.type === 'identity' && msg.peerId) {
+                // Map truncated tracker ID to full PeerId
+                const fullPeerId = msg.peerId;
+                if (peerId !== fullPeerId && (peerId.startsWith('pending_') || fullPeerId.startsWith(peerId.slice(0, 40)))) {
+                    // Remap the connection from temporary/truncated ID to full PeerId
+                    const conn = rtcConnections[peerId];
+                    if (conn) {
+                        delete rtcConnections[peerId];
+                        rtcConnections[fullPeerId] = conn;
+                        console.log('[Identity] Mapped', peerId.slice(0,8), '\u2192', fullPeerId.slice(0,8));
+                    }
+                }
+            } else if (msg.type === 'chat') {
                 onIncomingMessage(peerId, msg.payload);
             } else if (msg.type === 'gossip') {
                 // Gossip message — check if for us, forward if not seen
@@ -795,13 +730,7 @@ async function handleRTCOffer(fromPeerId, offerJson) {
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            type: 'rtc_answer',
-            to: fromPeerId,
-            payload: JSON.stringify(answer)
-        }));
-    }
+    connMgr.sendSignaling('rtc_answer', fromPeerId, JSON.stringify(answer));
 }
 
 async function handleRTCAnswer(fromPeerId, answerJson) {
@@ -852,6 +781,489 @@ function hasDirectConnection(peerId) {
     const conn = rtcConnections[peerId];
     return conn && conn.dc && conn.dc.readyState === 'open';
 }
+
+// ── Tracker Signaling (PNP-008) ──────────────────────────────
+
+const DEFAULT_TRACKERS = [
+    'wss://tracker.openwebtorrent.com',
+    'wss://tracker.webtorrent.dev',
+    'wss://tracker.btorrent.xyz',
+    'wss://tracker.fastcast.nz'
+];
+
+async function sha1Hex(input) {
+    const data = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+    const hashBuffer = await crypto.subtle.digest('SHA-1', data);
+    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+class TrackerClient {
+    constructor(trackerUrls, infoHash, peerId) {
+        this.trackerUrls = [...trackerUrls];
+        this.infoHash = infoHash;       // 40-char hex (20 bytes)
+        this.peerId = peerId;           // 40-char hex (first 20 bytes of ParolNet PeerId)
+        this.sockets = new Map();       // url -> WebSocket
+        this.reconnectAttempts = new Map(); // url -> attempt count
+        this.reconnectTimers = new Map();  // url -> timeout id
+        this.pendingOffers = new Map(); // offerId -> { pc, dc }
+        this.closed = false;
+
+        // Callbacks — assign externally
+        this.onOffer = null;            // (fromPeerId, offer, offerId, trackerUrl) => {}
+        this.onAnswer = null;           // (offerId, answer) => {}
+        this.onTrackerConnect = null;   // (url) => {}
+        this.onTrackerError = null;     // (url, err) => {}
+    }
+
+    connect() {
+        for (const url of this.trackerUrls) {
+            this._connectTracker(url);
+        }
+    }
+
+    _connectTracker(url) {
+        if (this.closed) return;
+        try {
+            const ws = new WebSocket(url);
+            ws.onopen = () => {
+                console.log('[Tracker] Connected to', url);
+                this.sockets.set(url, ws);
+                this.reconnectAttempts.set(url, 0);
+                if (this.onTrackerConnect) this.onTrackerConnect(url);
+            };
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    this._handleMessage(url, msg);
+                } catch (e) {
+                    console.warn('[Tracker] Bad message from', url, e);
+                }
+            };
+            ws.onerror = (err) => {
+                console.warn('[Tracker] Error on', url, err);
+                if (this.onTrackerError) this.onTrackerError(url, err);
+            };
+            ws.onclose = () => {
+                console.log('[Tracker] Disconnected from', url);
+                this.sockets.delete(url);
+                this._scheduleReconnect(url);
+            };
+        } catch (err) {
+            console.warn('[Tracker] Failed to connect to', url, err);
+            if (this.onTrackerError) this.onTrackerError(url, err);
+            this._scheduleReconnect(url);
+        }
+    }
+
+    _scheduleReconnect(url) {
+        if (this.closed) return;
+        const attempt = this.reconnectAttempts.get(url) || 0;
+        const delay = Math.min(1000 * Math.pow(2, attempt), 60000);
+        console.log('[Tracker] Reconnecting to', url, 'in', delay, 'ms (attempt', attempt + 1 + ')');
+        const timer = setTimeout(() => {
+            this.reconnectTimers.delete(url);
+            this.reconnectAttempts.set(url, attempt + 1);
+            this._connectTracker(url);
+        }, delay);
+        this.reconnectTimers.set(url, timer);
+    }
+
+    _handleMessage(trackerUrl, msg) {
+        if (msg.info_hash !== this.infoHash) return;
+
+        if (msg.offer && msg.peer_id) {
+            // Inbound offer from another peer
+            console.log('[Tracker] Received offer from', msg.peer_id.slice(0, 8), 'via', trackerUrl);
+            if (this.onOffer) {
+                this.onOffer(msg.peer_id, msg.offer, msg.offer_id, trackerUrl);
+            }
+        } else if (msg.answer && msg.offer_id) {
+            // Inbound answer to one of our offers
+            console.log('[Tracker] Received answer for offer', msg.offer_id.slice(0, 8), 'via', trackerUrl);
+            if (this.onAnswer) {
+                this.onAnswer(msg.offer_id, msg.answer);
+            }
+        }
+    }
+
+    async announce(numwant = 5) {
+        const offers = [];
+        for (let i = 0; i < numwant; i++) {
+            try {
+                const pc = new RTCPeerConnection(RTC_CONFIG);
+                const dc = pc.createDataChannel('parolnet', { ordered: true });
+                const offerId = Array.from(crypto.getRandomValues(new Uint8Array(20)))
+                    .map(b => b.toString(16).padStart(2, '0')).join('');
+
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                // Wait for ICE gathering to complete (no trickle)
+                await new Promise((resolve) => {
+                    if (pc.iceGatheringState === 'complete') {
+                        resolve();
+                    } else {
+                        pc.onicegatheringstatechange = () => {
+                            if (pc.iceGatheringState === 'complete') resolve();
+                        };
+                        // Safety timeout for ICE gathering
+                        setTimeout(resolve, 10000);
+                    }
+                });
+
+                this.pendingOffers.set(offerId, { pc, dc });
+                offers.push({
+                    offer_id: offerId,
+                    offer: { type: pc.localDescription.type, sdp: pc.localDescription.sdp }
+                });
+            } catch (err) {
+                console.warn('[Tracker] Failed to create offer', i, err);
+            }
+        }
+
+        if (offers.length === 0) {
+            console.warn('[Tracker] No offers created, skipping announce');
+            return;
+        }
+
+        const announceMsg = JSON.stringify({
+            action: 'announce',
+            info_hash: this.infoHash,
+            peer_id: this.peerId,
+            event: 'started',
+            numwant: numwant,
+            offers: offers
+        });
+
+        let sent = 0;
+        for (const [url, ws] of this.sockets) {
+            if (ws.readyState === WebSocket.OPEN) {
+                try {
+                    ws.send(announceMsg);
+                    sent++;
+                } catch (err) {
+                    console.warn('[Tracker] Failed to send announce to', url, err);
+                }
+            }
+        }
+        console.log('[Tracker] Announced to', sent, 'trackers with', offers.length, 'offers');
+    }
+
+    sendAnswer(trackerUrl, toPeerId, offerId, answer) {
+        const ws = this.sockets.get(trackerUrl);
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            console.warn('[Tracker] Cannot send answer, tracker not connected:', trackerUrl);
+            return;
+        }
+        const msg = JSON.stringify({
+            action: 'announce',
+            info_hash: this.infoHash,
+            peer_id: this.peerId,
+            to_peer_id: toPeerId,
+            offer_id: offerId,
+            answer: { type: answer.type, sdp: answer.sdp }
+        });
+        ws.send(msg);
+        console.log('[Tracker] Sent answer to', toPeerId.slice(0, 8), 'via', trackerUrl);
+    }
+
+    getPendingOffer(offerId) {
+        return this.pendingOffers.get(offerId) || null;
+    }
+
+    removePendingOffer(offerId) {
+        this.pendingOffers.delete(offerId);
+    }
+
+    connectedCount() {
+        let count = 0;
+        for (const ws of this.sockets.values()) {
+            if (ws.readyState === WebSocket.OPEN) count++;
+        }
+        return count;
+    }
+
+    anyConnected() {
+        return this.connectedCount() > 0;
+    }
+
+    addTracker(url) {
+        if (this.trackerUrls.includes(url)) return;
+        this.trackerUrls.push(url);
+        this._connectTracker(url);
+    }
+
+    close() {
+        this.closed = true;
+        for (const timer of this.reconnectTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.reconnectTimers.clear();
+        for (const ws of this.sockets.values()) {
+            try { ws.close(); } catch (_) { /* ignore */ }
+        }
+        this.sockets.clear();
+        for (const { pc } of this.pendingOffers.values()) {
+            try { pc.close(); } catch (_) { /* ignore */ }
+        }
+        this.pendingOffers.clear();
+    }
+}
+
+// ── Connection Manager ─────────────────────────────────────
+const connMgr = {
+    tracker: null,          // TrackerClient instance
+    relayWs: null,          // WebSocket to relay (fallback)
+    relayUrl: null,         // relay WebSocket URL
+    relayReconnectTimer: null,
+    relayReconnectDelay: 1000,
+    meshInfoHash: null,     // SHA-1("parolnet-mesh-v1")
+    trackerPeerId: null,    // first 20 bytes of our PeerId
+    contactTrackers: new Map(), // peerId -> {infoHash, announced}
+    _contactsAnnounced: false,
+
+    async start() {
+        // Compute mesh info hash
+        this.meshInfoHash = await sha1Hex('parolnet-mesh-v1');
+
+        // Derive tracker peer ID (first 20 bytes = 40 hex chars of our 64-char PeerId)
+        this.trackerPeerId = window._peerId ? window._peerId.slice(0, 40) :
+            Array.from(crypto.getRandomValues(new Uint8Array(20))).map(b => b.toString(16).padStart(2,'0')).join('');
+
+        // Load custom trackers from IndexedDB
+        let customTrackers = [];
+        try {
+            const saved = await dbGet('settings', 'custom_trackers');
+            if (saved && saved.value) customTrackers = saved.value;
+        } catch(e) {}
+
+        // Start tracker client (PRIMARY)
+        const allTrackers = DEFAULT_TRACKERS.concat(customTrackers);
+        this.tracker = new TrackerClient(allTrackers, this.meshInfoHash, this.trackerPeerId);
+
+        this.tracker.onOffer = (fromPeerId, offer, offerId, trackerUrl) => {
+            this._handleTrackerOffer(fromPeerId, offer, offerId, trackerUrl);
+        };
+        this.tracker.onAnswer = (offerId, answer) => {
+            this._handleTrackerAnswer(offerId, answer);
+        };
+        this.tracker.onTrackerConnect = async (url) => {
+            console.log('[ConnMgr] Tracker connected:', url);
+            telemetry.track('tracker_connect', { url });
+            updateConnectionStatus();
+            // Announce stored contact hashes on first tracker connect
+            if (!this._contactsAnnounced) {
+                this._contactsAnnounced = true;
+                try {
+                    const allSettings = await dbGetAll('settings');
+                    for (const setting of allSettings) {
+                        if (setting.key && setting.key.startsWith('contact_hash_')) {
+                            const cPeerId = setting.key.slice('contact_hash_'.length);
+                            await this.announceContact(cPeerId, setting.value);
+                        }
+                    }
+                } catch(e) {
+                    console.warn('[ConnMgr] Failed to load contact hashes:', e);
+                }
+            }
+        };
+        this.tracker.onTrackerError = (url, err) => {
+            telemetry.track('tracker_error', { url });
+        };
+
+        this.tracker.connect();
+
+        // Start relay connection (FALLBACK)
+        this.relayUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+        this._connectRelay();
+    },
+
+    _connectRelay() {
+        // Same logic as old connectRelay() but stored on connMgr
+        if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) return;
+        try {
+            this.relayWs = new WebSocket(this.relayUrl);
+        } catch(e) {
+            this._scheduleRelayReconnect();
+            return;
+        }
+
+        this.relayWs.onopen = () => {
+            console.log('[ConnMgr] Relay connected');
+            this.relayReconnectDelay = 1000;
+            telemetry.track('relay_connect');
+            updateConnectionStatus();
+            if (window._peerId) {
+                this.relayWs.send(JSON.stringify({ type: 'register', peer_id: window._peerId }));
+            }
+            flushMessageQueue();
+        };
+
+        this.relayWs.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                handleRelayMessage(msg);
+            } catch(e) {}
+        };
+
+        this.relayWs.onclose = () => {
+            console.log('[ConnMgr] Relay disconnected');
+            telemetry.track('relay_disconnect');
+            updateConnectionStatus();
+            this._scheduleRelayReconnect();
+            // Try WebRTC to known peers when relay drops
+            if (window._knownPeers && typeof RTCPeerConnection !== 'undefined') {
+                for (const pid of window._knownPeers) {
+                    if (!hasDirectConnection(pid)) {
+                        initWebRTC(pid, true).catch(() => {});
+                    }
+                }
+            }
+        };
+
+        this.relayWs.onerror = () => {
+            updateConnectionStatus();
+        };
+    },
+
+    _scheduleRelayReconnect() {
+        if (this.relayReconnectTimer) return;
+        this.relayReconnectTimer = setTimeout(() => {
+            this.relayReconnectTimer = null;
+            this.relayReconnectDelay = Math.min(this.relayReconnectDelay * 2, 30000);
+            this._connectRelay();
+        }, this.relayReconnectDelay);
+    },
+
+    // Handle incoming WebRTC offer from tracker
+    async _handleTrackerOffer(fromPeerId, offer, offerId, trackerUrl) {
+        console.log('[ConnMgr] Tracker offer from', fromPeerId.slice(0,8));
+
+        // Check if we already have a connection to this peer
+        if (rtcConnections[fromPeerId] && rtcConnections[fromPeerId].status === 'open') return;
+
+        try {
+            const pc = new RTCPeerConnection(RTC_CONFIG);
+
+            pc.ondatachannel = (event) => {
+                setupDataChannel(fromPeerId, event.channel);
+            };
+
+            pc.onconnectionstatechange = () => {
+                if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+                    cleanupRTC(fromPeerId);
+                }
+            };
+
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            // Wait for ICE gathering
+            await new Promise((resolve) => {
+                if (pc.iceGatheringState === 'complete') { resolve(); return; }
+                pc.onicegatheringstatechange = () => {
+                    if (pc.iceGatheringState === 'complete') resolve();
+                };
+                setTimeout(resolve, 5000);
+            });
+
+            // Send answer back through tracker
+            this.tracker.sendAnswer(trackerUrl, fromPeerId, offerId, pc.localDescription);
+
+            // Store the connection
+            rtcConnections[fromPeerId] = { pc, dc: null, status: 'connecting' };
+
+        } catch(e) {
+            console.warn('[ConnMgr] Failed to handle tracker offer:', e);
+        }
+    },
+
+    // Handle answer to our offer from tracker
+    async _handleTrackerAnswer(offerId, answer) {
+        const pending = this.tracker.getPendingOffer(offerId);
+        if (!pending) return;
+
+        try {
+            await pending.pc.setRemoteDescription(new RTCSessionDescription(answer));
+            const tempId = 'pending_' + offerId;
+            rtcConnections[tempId] = { pc: pending.pc, dc: pending.dc, status: 'connecting' };
+            setupDataChannel(tempId, pending.dc);
+            this.tracker.removePendingOffer(offerId);
+        } catch(e) {
+            console.warn('[ConnMgr] Failed to set tracker answer:', e);
+        }
+    },
+
+    // Send signaling through best available channel
+    sendSignaling(type, toPeerId, payload) {
+        if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) {
+            this.relayWs.send(JSON.stringify({ type, to: toPeerId, payload }));
+            return true;
+        }
+        return false;
+    },
+
+    // Send a message through relay (for non-signaling messages)
+    sendRelay(toPeerId, payload) {
+        if (!this.relayWs || this.relayWs.readyState !== WebSocket.OPEN) return false;
+        this.relayWs.send(JSON.stringify({ type: 'message', to: toPeerId, payload }));
+        return true;
+    },
+
+    isRelayConnected() {
+        return this.relayWs && this.relayWs.readyState === WebSocket.OPEN;
+    },
+
+    isTrackerConnected() {
+        return this.tracker && this.tracker.anyConnected();
+    },
+
+    isConnected() {
+        return this.isRelayConnected() || this.isTrackerConnected();
+    },
+
+    trackerCount() {
+        return this.tracker ? this.tracker.connectedCount() : 0;
+    },
+
+    async announceContact(peerId, contactHash) {
+        if (this.contactTrackers.has(peerId)) return;
+        this.contactTrackers.set(peerId, { infoHash: contactHash, announced: true });
+        // Announce on the contact-specific hash using existing tracker connections
+        if (this.tracker) {
+            for (const [url, ws] of this.tracker.sockets) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    try {
+                        const pc = new RTCPeerConnection(RTC_CONFIG);
+                        const dc = pc.createDataChannel('parolnet', { ordered: true });
+                        const offer = await pc.createOffer();
+                        await pc.setLocalDescription(offer);
+                        await new Promise(r => {
+                            if (pc.iceGatheringState === 'complete') { r(); return; }
+                            pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') r(); };
+                            setTimeout(r, 5000);
+                        });
+                        const offerId = Array.from(crypto.getRandomValues(new Uint8Array(10)))
+                            .map(b => b.toString(16).padStart(2,'0')).join('');
+                        this.tracker.pendingOffers.set(offerId, { pc, dc });
+
+                        ws.send(JSON.stringify({
+                            action: 'announce',
+                            info_hash: contactHash,
+                            peer_id: this.trackerPeerId,
+                            numwant: 1,
+                            offers: [{ offer_id: offerId, offer: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } }]
+                        }));
+                        console.log('[Contact] Announced hash for', peerId.slice(0,8), 'on', url);
+                    } catch(e) {
+                        console.warn('[Contact] Announce failed for', peerId.slice(0,8), e);
+                    }
+                }
+            }
+        }
+    }
+};
 
 // ── Message Queue (offline resilience) ─────────────────────
 const messageQueue = [];
@@ -1457,7 +1869,7 @@ function handleScannedQR(data) {
         lastMessage: sessionEstablished ? 'Encrypted session established' : 'Connected via QR',
         lastTime: formatTime(Date.now()),
         unread: 0
-    }).then(() => {
+    }).then(async () => {
         loadContacts();
         if (sessionEstablished && wasm && wasm.get_public_key) {
             // Send bootstrap handshake so the presenter can establish their responder session
@@ -1465,6 +1877,18 @@ function handleScannedQR(data) {
             sendToRelay(peerId, '__system:bootstrap:' + ourIk);
         } else {
             sendToRelay(peerId, '__system:contact_added');
+        }
+        // Derive contact-specific tracker hash for peer discovery
+        try {
+            const sortedIds = [peerId, window._peerId].sort().join(':');
+            const contactHash = await sha1Hex(sortedIds + ':parolnet-contact');
+            await dbPut('settings', { key: 'contact_hash_' + peerId, value: contactHash });
+            if (connMgr.tracker) {
+                connMgr.announceContact(peerId, contactHash);
+            }
+            console.log('[Contact] Tracker hash stored for', peerId.slice(0,8));
+        } catch(e) {
+            console.warn('[Contact] Failed to store tracker hash:', e);
         }
         openChat(peerId);
     }).catch(e => console.warn('Failed to save contact:', e));
@@ -1642,6 +2066,99 @@ function connectViaPassphrase() {
 // ── Settings ────────────────────────────────────────────────
 function openSettings() {
     showView('settings');
+    updateNetworkSettings();
+}
+
+// ── Network Settings ───────────────────────────────────────
+async function addCustomTracker() {
+    const input = document.getElementById('custom-tracker-input');
+    if (!input) return;
+    const url = input.value.trim();
+    if (!url || !url.startsWith('wss://')) {
+        showToast('Tracker URL must start with wss://');
+        return;
+    }
+
+    let trackers = [];
+    try {
+        const saved = await dbGet('settings', 'custom_trackers');
+        if (saved && saved.value) trackers = saved.value;
+    } catch(e) {}
+
+    if (trackers.includes(url)) {
+        showToast('Tracker already added');
+        return;
+    }
+
+    trackers.push(url);
+    await dbPut('settings', { key: 'custom_trackers', value: trackers });
+
+    // Add to live tracker client
+    if (connMgr.tracker) {
+        connMgr.tracker.addTracker(url);
+    }
+
+    input.value = '';
+    showToast('Tracker added');
+    updateNetworkSettings();
+}
+
+async function removeCustomTracker(url) {
+    let trackers = [];
+    try {
+        const saved = await dbGet('settings', 'custom_trackers');
+        if (saved && saved.value) trackers = saved.value;
+    } catch(e) {}
+
+    trackers = trackers.filter(t => t !== url);
+    await dbPut('settings', { key: 'custom_trackers', value: trackers });
+    showToast('Tracker removed');
+    updateNetworkSettings();
+}
+
+function updateNetworkSettings() {
+    const trackerCount = document.getElementById('settings-tracker-count');
+    const peerCount = document.getElementById('settings-peer-count');
+    const relayStatus = document.getElementById('settings-relay-status');
+    const contactChannels = document.getElementById('settings-contact-channels');
+    const trackerList = document.getElementById('custom-tracker-list');
+
+    if (trackerCount) {
+        const count = connMgr.trackerCount();
+        const total = connMgr.tracker ? connMgr.tracker.trackerUrls.length : 0;
+        trackerCount.textContent = count + '/' + total + ' connected';
+    }
+
+    if (peerCount) {
+        const count = Object.values(rtcConnections).filter(c => c.dc && c.dc.readyState === 'open').length;
+        peerCount.textContent = count.toString();
+    }
+
+    if (relayStatus) {
+        relayStatus.textContent = connMgr.isRelayConnected() ? 'Connected' : 'Disconnected';
+        relayStatus.style.color = connMgr.isRelayConnected() ? '#4CAF50' : '#f44336';
+    }
+
+    if (contactChannels) {
+        contactChannels.textContent = connMgr.contactTrackers ? connMgr.contactTrackers.size.toString() : '0';
+    }
+
+    // Render custom tracker list
+    if (trackerList) {
+        dbGet('settings', 'custom_trackers').then(saved => {
+            const trackers = (saved && saved.value) || [];
+            if (trackers.length === 0) {
+                trackerList.innerHTML = '<div style="color: #666;">No custom trackers</div>';
+            } else {
+                trackerList.innerHTML = trackers.map(t =>
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+                        '<span style="word-break:break-all;">' + t + '</span>' +
+                        '<button onclick="removeCustomTracker(\'' + t + '\')" style="background:none;border:none;color:#f44;cursor:pointer;font-size:18px;flex-shrink:0;">&times;</button>' +
+                    '</div>'
+                ).join('');
+            }
+        }).catch(() => {});
+    }
 }
 
 function enableDecoyMode() {
@@ -1841,4 +2358,6 @@ window.startQRScanner = startQRScanner;
 window.showToast = showToast;
 window.requestNotificationPermission = requestNotificationPermission;
 window.copyBootstrapCode = copyBootstrapCode;
+window.addCustomTracker = addCustomTracker;
+window.removeCustomTracker = removeCustomTracker;
 window.currentPeerId = null;
