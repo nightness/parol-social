@@ -7,10 +7,25 @@ use parolnet_protocol::address::PeerId;
 use parolnet_protocol::media::{AudioCodec, CallSignalMessage, CallState, VideoConfig};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use web_time::{Duration, Instant};
+use std::time::Duration;
 
-/// Call timeout for unanswered calls.
+/// Call timeout for unanswered calls (milliseconds).
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Platform-agnostic millisecond timestamp (avoids web_time::Instant which
+/// requires the Performance API and breaks WASM instantiation).
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// Elapsed time since a timestamp in milliseconds.
+fn elapsed_ms(since: u64) -> Duration {
+    let now = now_ms();
+    Duration::from_millis(now.saturating_sub(since))
+}
 
 /// Represents an active or pending call.
 #[derive(Debug)]
@@ -21,8 +36,8 @@ pub struct Call {
     pub audio_codec: Option<AudioCodec>,
     pub video_config: Option<VideoConfig>,
     pub muted: bool,
-    pub created_at: Instant,
-    pub started_at: Option<Instant>,
+    pub created_at: u64,
+    pub started_at: Option<u64>,
 }
 
 impl Call {
@@ -35,7 +50,7 @@ impl Call {
             audio_codec: None,
             video_config: None,
             muted: false,
-            created_at: Instant::now(),
+            created_at: now_ms(),
             started_at: None,
         }
     }
@@ -49,7 +64,7 @@ impl Call {
             audio_codec: None,
             video_config: None,
             muted: false,
-            created_at: Instant::now(),
+            created_at: now_ms(),
             started_at: None,
         }
     }
@@ -57,12 +72,12 @@ impl Call {
     /// Check if the call has timed out (unanswered for > CALL_TIMEOUT).
     pub fn is_timed_out(&self) -> bool {
         matches!(self.state, CallState::Offering | CallState::Ringing)
-            && self.created_at.elapsed() > CALL_TIMEOUT
+            && elapsed_ms(self.created_at) > CALL_TIMEOUT
     }
 
     /// Get call duration (None if not active/ended).
     pub fn duration(&self) -> Option<Duration> {
-        self.started_at.map(|s| s.elapsed())
+        self.started_at.map(|s| elapsed_ms(s))
     }
 
     /// Transition the call state based on a signaling message.
@@ -75,7 +90,7 @@ impl Call {
                 match self.state {
                     CallState::Offering => {
                         self.state = CallState::Active;
-                        self.started_at = Some(Instant::now());
+                        self.started_at = Some(now_ms());
                         Ok(())
                     }
                     _ => Err(crate::CoreError::SessionError(format!(
@@ -172,7 +187,7 @@ impl CallManager {
         match call.state {
             CallState::Ringing => {
                 call.state = CallState::Active;
-                call.started_at = Some(Instant::now());
+                call.started_at = Some(now_ms());
                 Ok(())
             }
             _ => Err(crate::CoreError::SessionError(format!(

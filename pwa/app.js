@@ -260,7 +260,9 @@ async function loadWasm() {
         if (statusEl) statusEl.textContent = 'Loading crypto module...';
         wasm = await import('./pkg/parolnet_wasm.js');
         if (statusEl) statusEl.textContent = 'Initializing...';
-        await wasm.default();
+        // Cache-bust the WASM binary to prevent stale cached versions
+        const wasmUrl = './pkg/parolnet_wasm_bg.wasm?v=' + Date.now();
+        await wasm.default(wasmUrl);
         if (statusEl) statusEl.textContent = 'Restoring identity...';
         await onWasmReady();
     } catch (e) {

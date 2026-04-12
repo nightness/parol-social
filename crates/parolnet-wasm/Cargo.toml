@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "WASM bindings for ParolNet — exposes crypto + protocol to JS/TS PWA shell"
+repository = "https://github.com/nightness/parolnet"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -22,6 +23,7 @@ web-sys = { workspace = true, features = [
     "MessageEvent",
     "BinaryType",
     "Window",
+    "Performance",
 ] }
 js-sys.workspace = true
 serde-wasm-bindgen.workspace = true
