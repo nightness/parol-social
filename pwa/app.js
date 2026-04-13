@@ -1,6 +1,9 @@
 // ParolNet PWA — Main Application
 // Zero-dependency vanilla JS messaging app with calculator decoy mode.
 
+import { CryptoStore } from './crypto-store.js';
+const cryptoStore = new CryptoStore();
+
 // ── State ───────────────────────────────────────────────────
 let wasm = null;
 let currentView = 'loading';
@@ -64,7 +67,7 @@ let calcDisplay = '0';
 let calcExpression = '';
 let calcBuffer = '';
 
-function calcPress(key) {
+async function calcPress(key) {
     if (key === 'C') {
         calcDisplay = '0';
         calcExpression = '';
@@ -78,6 +81,14 @@ function calcPress(key) {
         }
         if (wasm && wasm.is_decoy_enabled && wasm.is_decoy_enabled() &&
             wasm.verify_unlock_code && wasm.verify_unlock_code(calcBuffer)) {
+            // Also unlock encrypted storage with the same code
+            if (cryptoStore.isEnabled() && !cryptoStore.isUnlocked()) {
+                try {
+                    await cryptoStore.unlock(calcBuffer, dbGetRaw);
+                } catch (e) {
+                    console.warn('[Decoy] Crypto unlock failed:', e);
+                }
+            }
             showView('contacts');
             calcBuffer = '';
             return;
@@ -150,7 +161,7 @@ function updateCalcDisplay() {
 
 // ── IndexedDB Storage ──────────────────────────────────────
 const DB_NAME = 'parolnet';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 function openDB() {
     return new Promise((resolve, reject) => {
@@ -177,6 +188,9 @@ function openDB() {
                 if (!db.objectStoreNames.contains('settings')) {
                     db.createObjectStore('settings', { keyPath: 'key' });
                 }
+                if (!db.objectStoreNames.contains('crypto_meta')) {
+                    db.createObjectStore('crypto_meta', { keyPath: 'key' });
+                }
             };
             req.onsuccess = () => { if (!resolved) { resolved = true; clearTimeout(timeout); resolve(req.result); } };
             req.onerror = () => { if (!resolved) { resolved = true; clearTimeout(timeout); reject(req.error); } };
@@ -187,7 +201,7 @@ function openDB() {
     });
 }
 
-async function dbGetAll(storeName) {
+async function dbGetAllRaw(storeName) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readonly');
@@ -198,7 +212,7 @@ async function dbGetAll(storeName) {
     });
 }
 
-async function dbPut(storeName, item) {
+async function dbPutRaw(storeName, item) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readwrite');
@@ -209,7 +223,7 @@ async function dbPut(storeName, item) {
     });
 }
 
-async function dbGet(storeName, key) {
+async function dbGetRaw(storeName, key) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readonly');
@@ -218,6 +232,55 @@ async function dbGet(storeName, key) {
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
     });
+}
+
+// Stores that should be encrypted when crypto is active
+const ENCRYPTED_STORES = new Set(['contacts', 'messages', 'settings']);
+
+function getKeyField(storeName) {
+    if (storeName === 'contacts') return 'peerId';
+    if (storeName === 'messages') return 'id';
+    if (storeName === 'settings') return 'key';
+    if (storeName === 'crypto_meta') return 'key';
+    return 'id';
+}
+
+// Encrypted wrappers
+async function dbPut(storeName, item) {
+    if (cryptoStore.isUnlocked() && ENCRYPTED_STORES.has(storeName)) {
+        const keyField = getKeyField(storeName);
+        const keyValue = item[keyField];
+        const encrypted = await cryptoStore.encrypt(item);
+        return dbPutRaw(storeName, { [keyField]: keyValue, _enc: Array.from(encrypted) });
+    }
+    return dbPutRaw(storeName, item);
+}
+
+async function dbGet(storeName, key) {
+    const raw = await dbGetRaw(storeName, key);
+    if (raw && raw._enc && cryptoStore.isUnlocked()) {
+        return await cryptoStore.decrypt(new Uint8Array(raw._enc));
+    }
+    return raw;
+}
+
+async function dbGetAll(storeName) {
+    const items = await dbGetAllRaw(storeName);
+    if (!cryptoStore.isUnlocked() || !ENCRYPTED_STORES.has(storeName)) return items;
+    const decrypted = [];
+    for (const item of items) {
+        if (item._enc) {
+            try {
+                decrypted.push(await cryptoStore.decrypt(new Uint8Array(item._enc)));
+            } catch {
+                // Skip items that fail to decrypt (corrupted or from different key)
+                console.warn('Failed to decrypt item in', storeName);
+            }
+        } else {
+            decrypted.push(item); // Plaintext item (pre-encryption or not encrypted)
+        }
+    }
+    return decrypted;
 }
 
 async function dbGetByIndex(storeName, indexName, value) {
@@ -334,6 +397,21 @@ async function loadWasm() {
 }
 
 async function onWasmReady() {
+    // Check if encryption is enabled
+    const encEnabled = await cryptoStore.checkEnabled(dbGetRaw);
+    if (encEnabled && !cryptoStore.isUnlocked()) {
+        // Need to unlock before proceeding
+        // If decoy mode is active, the calculator keypad handles unlock
+        // Otherwise show the unlock view
+        const decoyEnabled = localStorage.getItem('decoy_enabled') === 'true';
+        if (!decoyEnabled) {
+            showView('unlock');
+            document.getElementById('loading-status').textContent = 'Encrypted — enter passphrase';
+        }
+        // Don't proceed with identity restore until unlocked
+        return;
+    }
+
     // Try to restore saved identity — with timeout so iOS IndexedDB hangs don't block
     let peerId = null;
     try {
@@ -400,6 +478,23 @@ async function onWasmReady() {
 
     // Start connection manager (tracker + relay)
     connMgr.start();
+}
+
+async function attemptUnlock() {
+    const input = document.getElementById('unlock-input');
+    const passphrase = input ? input.value : '';
+    if (!passphrase) return;
+
+    try {
+        await cryptoStore.unlock(passphrase, dbGetRaw);
+        if (input) input.value = ''; // Clear passphrase from input
+        showView('loading');
+        document.getElementById('loading-status').textContent = 'Decrypting...';
+        await onWasmReady(); // Re-run startup now that we're unlocked
+    } catch (e) {
+        showToast('Wrong passphrase');
+        if (input) { input.value = ''; input.focus(); }
+    }
 }
 
 function onWasmUnavailable() {
@@ -2103,6 +2198,73 @@ function connectViaPassphrase() {
 function openSettings() {
     showView('settings');
     updateNetworkSettings();
+
+    // Show/hide encryption setup vs status
+    const encSetup = document.getElementById('encryption-setup');
+    const encStatus = document.getElementById('encryption-status');
+    if (encSetup && encStatus) {
+        if (cryptoStore.isEnabled()) {
+            encSetup.style.display = 'none';
+            encStatus.style.display = 'block';
+        } else {
+            encSetup.style.display = 'block';
+            encStatus.style.display = 'none';
+        }
+    }
+}
+
+async function enableEncryption() {
+    const input = document.getElementById('encryption-passphrase-input');
+    const confirm = document.getElementById('encryption-passphrase-confirm');
+    const passphrase = input ? input.value : '';
+    const confirmed = confirm ? confirm.value : '';
+
+    if (!passphrase || passphrase.length < 4) {
+        showToast('Passphrase must be at least 4 characters');
+        return;
+    }
+    if (passphrase !== confirmed) {
+        showToast('Passphrases do not match');
+        return;
+    }
+
+    try {
+        // Setup encryption
+        await cryptoStore.setup(passphrase, dbPutRaw, dbGetRaw);
+
+        // Migrate existing plaintext data
+        showToast('Encrypting data...');
+        await migrateToEncrypted();
+
+        showToast('Encryption enabled!');
+        if (input) input.value = '';
+        if (confirm) confirm.value = '';
+
+        // Update settings UI
+        const encSetup = document.getElementById('encryption-setup');
+        const encStatus = document.getElementById('encryption-status');
+        if (encSetup) encSetup.style.display = 'none';
+        if (encStatus) encStatus.style.display = 'block';
+    } catch (e) {
+        showToast('Failed to enable encryption: ' + e.message);
+    }
+}
+
+async function migrateToEncrypted() {
+    // Re-encrypt all existing plaintext records
+    for (const storeName of ENCRYPTED_STORES) {
+        try {
+            const items = await dbGetAllRaw(storeName);
+            for (const item of items) {
+                if (!item._enc) {
+                    // This is plaintext — encrypt it
+                    await dbPut(storeName, item);
+                }
+            }
+        } catch (e) {
+            console.warn('Migration failed for', storeName, e);
+        }
+    }
 }
 
 // ── Network Settings ───────────────────────────────────────
@@ -2279,6 +2441,9 @@ function enableDecoyMode() {
 
 // ── Panic Wipe ──────────────────────────────────────────────
 function executePanicWipe() {
+    // Wipe in-memory encryption key
+    cryptoStore.lock();
+
     // Clear everything immediately — no confirmation
     try { localStorage.clear(); } catch {}
     try { sessionStorage.clear(); } catch {}
@@ -2422,6 +2587,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// ── Auto-lock on background ────────────────────────────────
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && cryptoStore.isUnlocked()) {
+        // Lock after 5 minutes in background
+        window._lockTimer = setTimeout(() => {
+            cryptoStore.lock();
+            // If decoy mode, show calculator; otherwise show unlock
+            const decoyEnabled = localStorage.getItem('decoy_enabled') === 'true';
+            if (decoyEnabled) {
+                showView('calculator');
+            } else if (cryptoStore.isEnabled()) {
+                showView('unlock');
+            }
+        }, 5 * 60 * 1000);
+    } else {
+        clearTimeout(window._lockTimer);
+    }
+});
+
 // Export for onclick handlers
 window.calcPress = calcPress;
 window.sendMessage = sendMessage;
@@ -2445,4 +2629,6 @@ window.requestNotificationPermission = requestNotificationPermission;
 window.copyBootstrapCode = copyBootstrapCode;
 window.addCustomTracker = addCustomTracker;
 window.removeCustomTracker = removeCustomTracker;
+window.attemptUnlock = attemptUnlock;
+window.enableEncryption = enableEncryption;
 window.currentPeerId = null;
