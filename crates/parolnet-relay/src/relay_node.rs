@@ -90,11 +90,24 @@ impl RelayNode for StandardRelayNode {
             }
 
             CellType::Destroy => {
-                // Teardown circuit
+                // Look up next hop BEFORE removing
+                let next = {
+                    let circuits = self.circuits.lock().unwrap();
+                    circuits.get(&cell.circuit_id).and_then(|e| e.next_hop)
+                };
+                // Remove our circuit state
                 self.remove_circuit(cell.circuit_id);
                 // Forward DESTROY to next hop if one exists
-                // (In a full implementation, we'd look up the next hop first)
-                Ok(RelayAction::Discard)
+                match next {
+                    Some((addr, next_cid)) => {
+                        let destroy_cell = RelayCell::destroy(next_cid, cell.payload[0]);
+                        Ok(RelayAction::Forward {
+                            next_hop: addr,
+                            cell: destroy_cell,
+                        })
+                    }
+                    None => Ok(RelayAction::Discard),
+                }
             }
 
             CellType::Data => {
