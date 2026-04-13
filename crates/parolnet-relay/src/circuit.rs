@@ -15,7 +15,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 /// An established circuit with keys for each hop.
 pub struct EstablishedCircuit {
     /// Keys for each hop in order (guard, middle, exit).
-    hop_keys: Vec<HopKeys>,
+    hop_keys: Mutex<Vec<HopKeys>>,
     /// Forward counters for each hop.
     forward_counters: Mutex<Vec<u32>>,
     /// Backward counters for each hop.
@@ -32,7 +32,7 @@ impl EstablishedCircuit {
     pub fn from_hop_keys(hop_keys: Vec<HopKeys>, circuit_id: u32) -> Self {
         let n = hop_keys.len();
         Self {
-            hop_keys,
+            hop_keys: Mutex::new(hop_keys),
             forward_counters: Mutex::new(vec![0; n]),
             backward_counters: Mutex::new(vec![0; n]),
             circuit_id,
@@ -53,9 +53,11 @@ impl EstablishedCircuit {
 
     /// Encrypt data with all onion layers for sending through the circuit.
     pub fn wrap_data(&self, data: &[u8]) -> Result<Vec<u8>, RelayError> {
+        let hop_keys = self.hop_keys.lock().unwrap();
         let counters = self.forward_counters.lock().unwrap();
-        let result = onion::onion_encrypt(data, &self.hop_keys, &counters)?;
+        let result = onion::onion_encrypt(data, &hop_keys, &counters)?;
         drop(counters);
+        drop(hop_keys);
 
         // Increment all forward counters
         let mut counters = self.forward_counters.lock().unwrap();
@@ -68,9 +70,11 @@ impl EstablishedCircuit {
 
     /// Decrypt data received through the circuit (reverse direction).
     pub fn unwrap_data(&self, data: &[u8]) -> Result<Vec<u8>, RelayError> {
+        let hop_keys = self.hop_keys.lock().unwrap();
         let counters = self.backward_counters.lock().unwrap();
-        let result = onion::onion_decrypt(data, &self.hop_keys, &counters)?;
+        let result = onion::onion_decrypt(data, &hop_keys, &counters)?;
         drop(counters);
+        drop(hop_keys);
 
         let mut counters = self.backward_counters.lock().unwrap();
         for c in counters.iter_mut() {
@@ -87,7 +91,7 @@ impl EstablishedCircuit {
 
     /// Get the number of hops in this circuit.
     pub fn hop_count(&self) -> usize {
-        self.hop_keys.len()
+        self.hop_keys.lock().unwrap().len()
     }
 
     /// Check whether this circuit has a guard connection attached.
@@ -200,12 +204,11 @@ impl Circuit for EstablishedCircuit {
             )));
         }
 
-        // Derive keys for the new hop
-        let _new_keys = CircuitHandshake::process_extended(&response, &our_secret)?;
-
-        // Note: In production, we'd add new_keys to hop_keys. This requires
-        // interior mutability for hop_keys, which we defer to the caller using
-        // build_circuit_with_connection for full circuit construction.
+        // Derive keys for the new hop and add to circuit
+        let new_keys = CircuitHandshake::process_extended(&response, &our_secret)?;
+        self.hop_keys.lock().unwrap().push(new_keys);
+        self.forward_counters.lock().unwrap().push(0);
+        self.backward_counters.lock().unwrap().push(0);
 
         Ok(())
     }
@@ -337,9 +340,9 @@ impl StandardCircuitBuilder {
         }
 
         Ok(EstablishedCircuit {
-            hop_keys: hop_keys.clone(),
             forward_counters: Mutex::new(vec![0; hop_keys.len()]),
             backward_counters: Mutex::new(vec![0; hop_keys.len()]),
+            hop_keys: Mutex::new(hop_keys),
             circuit_id,
             guard_connection: Some(conn),
         })
