@@ -2,7 +2,7 @@
 
 > **Parol** — *parole* (speech/word) in French, *пароль* (password) in Russian, *parola* (password) in Turkish, *parola* (word) in Italian. It embodies the dual mission: **free speech protected by strong security**.
 
-A secure, decentralized communication platform promoting free expression and open access to information. Designed for citizens in countries with oppressive authoritarian regimes who still have internet access.
+A secure, decentralized communication platform promoting free expression and open access to information. Designed for citizens in countries with oppressive authoritarian regimes who still have internet access. But usable for secure communication in general.
 
 ---
 
