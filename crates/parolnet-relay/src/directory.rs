@@ -1,6 +1,7 @@
 //! Relay directory — gossip-based discovery (PNP-004 Section 5.6).
 
 use crate::RelayInfo;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use parolnet_protocol::address::PeerId;
 use std::collections::HashMap;
 
@@ -25,6 +26,29 @@ pub struct RelayDescriptor {
 }
 
 impl RelayDescriptor {
+    /// Produce the bytes to sign (all fields except signature).
+    pub fn signable_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(128);
+        buf.extend_from_slice(&self.peer_id.0);
+        buf.extend_from_slice(&self.identity_key);
+        buf.extend_from_slice(&self.x25519_key);
+        match self.addr {
+            std::net::SocketAddr::V4(a) => {
+                buf.push(4);
+                buf.extend_from_slice(&a.ip().octets());
+            }
+            std::net::SocketAddr::V6(a) => {
+                buf.push(6);
+                buf.extend_from_slice(&a.ip().octets());
+            }
+        }
+        buf.extend_from_slice(&self.addr.port().to_be_bytes());
+        buf.push(self.bandwidth_class);
+        buf.extend_from_slice(&self.uptime_secs.to_be_bytes());
+        buf.extend_from_slice(&self.timestamp.to_be_bytes());
+        buf
+    }
+
     /// Convert to a RelayInfo for circuit building.
     pub fn to_relay_info(&self) -> RelayInfo {
         RelayInfo {
@@ -133,8 +157,8 @@ impl RelayDirectory {
 
     /// Create a signed relay descriptor for this node.
     ///
-    /// The signature field is zeroed — Ed25519 signing is deferred to
-    /// `parolnet-crypto` integration (TODO).
+    /// Signs the descriptor with the provided Ed25519 key.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_descriptor(
         peer_id: PeerId,
         identity_key: [u8; 32],
@@ -143,8 +167,9 @@ impl RelayDirectory {
         bandwidth_class: u8,
         uptime_secs: u64,
         now: u64,
+        signing_key: &SigningKey,
     ) -> RelayDescriptor {
-        RelayDescriptor {
+        let mut desc = RelayDescriptor {
             peer_id,
             identity_key,
             x25519_key,
@@ -152,8 +177,11 @@ impl RelayDirectory {
             bandwidth_class,
             uptime_secs,
             timestamp: now,
-            signature: [0u8; 64], // TODO: Ed25519 signing
-        }
+            signature: [0u8; 64],
+        };
+        let sig = signing_key.sign(&desc.signable_bytes());
+        desc.signature = sig.to_bytes();
+        desc
     }
 
     /// Process a received relay descriptor from gossip.
@@ -166,7 +194,19 @@ impl RelayDirectory {
         if now.saturating_sub(desc.timestamp) >= MAX_DESCRIPTOR_AGE_SECS {
             return false;
         }
-        // TODO: verify Ed25519 signature once signing is implemented.
+
+        // Verify Ed25519 signature
+        let verifying_key = match VerifyingKey::from_bytes(&desc.identity_key) {
+            Ok(vk) => vk,
+            Err(_) => return false,
+        };
+        let signature = Signature::from_bytes(&desc.signature);
+        if verifying_key
+            .verify(&desc.signable_bytes(), &signature)
+            .is_err()
+        {
+            return false;
+        }
 
         // Only accept if newer than what we have
         if let Some(existing) = self.descriptors.get(&desc.peer_id)

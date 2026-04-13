@@ -1,3 +1,4 @@
+use ed25519_dalek::{SigningKey, Verifier};
 use parolnet_protocol::address::PeerId;
 use parolnet_relay::circuit::{EstablishedCircuit, StandardCircuitBuilder};
 use parolnet_relay::directory::{RelayDescriptor, RelayDirectory};
@@ -479,4 +480,77 @@ fn test_directory_select_path_insufficient_relays() {
         path.is_none(),
         "select_path should return None with only 2 relays"
     );
+}
+
+// ── Descriptor Signing Tests ──────────────────────────────────
+
+fn make_signed_descriptor(id: u8, uptime_days: u64, signing_key: &SigningKey) -> RelayDescriptor {
+    let peer_id = PeerId([id; 32]);
+    let identity_key = signing_key.verifying_key().to_bytes();
+    RelayDirectory::create_descriptor(
+        peer_id,
+        identity_key,
+        [id; 32],
+        format!("10.0.{id}.1:443").parse().unwrap(),
+        1,
+        uptime_days * 86400,
+        1700000000,
+        signing_key,
+    )
+}
+
+#[test]
+fn test_descriptor_signature_roundtrip() {
+    let signing_key = SigningKey::generate(&mut rand::thread_rng());
+    let desc = make_signed_descriptor(1, 10, &signing_key);
+
+    // Verify signature manually
+    let verifying_key = signing_key.verifying_key();
+    let signature = ed25519_dalek::Signature::from_bytes(&desc.signature);
+    assert!(
+        verifying_key
+            .verify(&desc.signable_bytes(), &signature)
+            .is_ok(),
+        "signature should verify against the signing key"
+    );
+}
+
+#[test]
+fn test_descriptor_reject_tampered() {
+    let signing_key = SigningKey::generate(&mut rand::thread_rng());
+    let mut desc = make_signed_descriptor(1, 10, &signing_key);
+
+    // Tamper with the bandwidth_class field
+    desc.bandwidth_class = 255;
+
+    let mut dir = RelayDirectory::new();
+    let accepted = dir.handle_gossip_descriptor(desc, 1700000000 + 60);
+    assert!(!accepted, "tampered descriptor should be rejected");
+}
+
+#[test]
+fn test_descriptor_reject_wrong_key() {
+    let key_a = SigningKey::generate(&mut rand::thread_rng());
+    let key_b = SigningKey::generate(&mut rand::thread_rng());
+
+    // Sign with key_a but set identity_key to key_b's public key
+    let mut desc = make_signed_descriptor(1, 10, &key_a);
+    desc.identity_key = key_b.verifying_key().to_bytes();
+
+    let mut dir = RelayDirectory::new();
+    let accepted = dir.handle_gossip_descriptor(desc, 1700000000 + 60);
+    assert!(
+        !accepted,
+        "descriptor signed with wrong key should be rejected"
+    );
+}
+
+#[test]
+fn test_gossip_accepts_valid_signed_descriptor() {
+    let signing_key = SigningKey::generate(&mut rand::thread_rng());
+    let desc = make_signed_descriptor(1, 10, &signing_key);
+
+    let mut dir = RelayDirectory::new();
+    let accepted = dir.handle_gossip_descriptor(desc, 1700000000 + 60);
+    assert!(accepted, "valid signed descriptor should be accepted");
 }
