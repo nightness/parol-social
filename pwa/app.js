@@ -267,13 +267,18 @@ const telemetry = {
 
     async flush() {
         if (this.events.length === 0) return;
+        // Skip telemetry if no relay server is configured/connected
+        const relayUrl = connMgr && connMgr.relayUrl;
+        if (!relayUrl) return;
+        // Convert WebSocket URL to HTTP base URL for telemetry endpoint
+        const httpBase = relayUrl.replace(/^ws(s?):/, 'http$1:').replace(/\/ws\/?$/, '');
         const batch = {
             sid: this.sid,
             ts: Date.now(),
             events: this.events.splice(0, this.events.length)
         };
         try {
-            const resp = await fetch('/telemetry', {
+            const resp = await fetch(httpBase + '/telemetry', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(batch)
@@ -533,8 +538,7 @@ function onIncomingMessage(fromPeerId, payload) {
                         loadContacts();
                         // Derive contact-specific tracker hash for peer discovery
                         try {
-                            const sortedIds = [result.peer_id, window._peerId].sort().join(':');
-                            const contactHash = await sha1Hex(sortedIds + ':parolnet-contact');
+                            const contactHash = await sha1Hex(result.bootstrap_secret + ':parolnet-contact');
                             await dbPut('settings', { key: 'contact_hash_' + result.peer_id, value: contactHash });
                             if (connMgr.tracker) {
                                 connMgr.announceContact(result.peer_id, contactHash);
@@ -1826,12 +1830,14 @@ function handleScannedQR(data) {
 
     let peerId = null;
     let sessionEstablished = false;
+    let bootstrapSecret = null;
 
     // Try full QR payload first (hex-encoded CBOR with ratchet key)
     if (/^[0-9a-fA-F]+$/.test(data) && data.length > 64 && wasm && wasm.process_scanned_qr) {
         try {
             const result = wasm.process_scanned_qr(data);
             peerId = result.peer_id;
+            bootstrapSecret = result.bootstrap_secret;
             sessionEstablished = true;
             telemetry.track('session_established');
             console.log('[QR] Session established with:', peerId.slice(0, 8));
@@ -1879,16 +1885,17 @@ function handleScannedQR(data) {
             sendToRelay(peerId, '__system:contact_added');
         }
         // Derive contact-specific tracker hash for peer discovery
-        try {
-            const sortedIds = [peerId, window._peerId].sort().join(':');
-            const contactHash = await sha1Hex(sortedIds + ':parolnet-contact');
-            await dbPut('settings', { key: 'contact_hash_' + peerId, value: contactHash });
-            if (connMgr.tracker) {
-                connMgr.announceContact(peerId, contactHash);
+        if (bootstrapSecret) {
+            try {
+                const contactHash = await sha1Hex(bootstrapSecret + ':parolnet-contact');
+                await dbPut('settings', { key: 'contact_hash_' + peerId, value: contactHash });
+                if (connMgr.tracker) {
+                    connMgr.announceContact(peerId, contactHash);
+                }
+                console.log('[Contact] Tracker hash stored for', peerId.slice(0,8));
+            } catch(e) {
+                console.warn('[Contact] Failed to store tracker hash:', e);
             }
-            console.log('[Contact] Tracker hash stored for', peerId.slice(0,8));
-        } catch(e) {
-            console.warn('[Contact] Failed to store tracker hash:', e);
         }
         openChat(peerId);
     }).catch(e => console.warn('Failed to save contact:', e));

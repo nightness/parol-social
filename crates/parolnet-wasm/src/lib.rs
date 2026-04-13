@@ -598,11 +598,13 @@ pub fn process_scanned_qr(hex_data: &str) -> Result<JsValue, JsError> {
     struct ScanResult {
         peer_id: String,
         their_identity_key: String,
+        bootstrap_secret: String,
     }
 
     let result = ScanResult {
         peer_id: hex::encode(their_peer_id.0),
         their_identity_key: hex::encode(&payload.ik),
+        bootstrap_secret: hex::encode(bs),
     };
 
     serde_wasm_bindgen::to_value(&result).map_err(|e| JsError::new(&format!("serialize: {e}")))
@@ -658,10 +660,12 @@ pub fn complete_bootstrap_as_presenter(their_identity_key_hex: &str) -> Result<J
     #[derive(serde::Serialize)]
     struct PresenterResult {
         peer_id: String,
+        bootstrap_secret: String,
     }
 
     let result = PresenterResult {
         peer_id: hex::encode(their_peer_id.0),
+        bootstrap_secret: hex::encode(bs),
     };
 
     serde_wasm_bindgen::to_value(&result).map_err(|e| JsError::new(&format!("serialize: {e}")))
