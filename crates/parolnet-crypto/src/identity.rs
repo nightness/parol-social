@@ -25,7 +25,7 @@ pub struct SignedPreKey {
 impl SignedPreKey {
     /// Generate a new signed pre-key and sign it with the identity key.
     pub fn generate(id: u32, identity_key: &crate::IdentityKeyPair) -> Result<Self, CryptoError> {
-        let private_key = x25519_dalek::StaticSecret::random_from_rng(&mut OsRng);
+        let private_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
         let public_key = x25519_dalek::PublicKey::from(&private_key);
 
         // Sign (spk_public_bytes || id) with the Ed25519 identity key
@@ -72,7 +72,7 @@ pub struct OneTimePreKeyPair {
 impl OneTimePreKeyPair {
     /// Generate a new one-time pre-key.
     pub fn generate(id: u32) -> Self {
-        let private_key = x25519_dalek::StaticSecret::random_from_rng(&mut OsRng);
+        let private_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
         let public_key = x25519_dalek::PublicKey::from(&private_key);
         Self {
             id,

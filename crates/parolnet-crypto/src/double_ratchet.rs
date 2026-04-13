@@ -53,7 +53,7 @@ impl DoubleRatchetSession {
         shared_secret: [u8; 32],
         remote_ratchet_key: &[u8; 32],
     ) -> Result<Self, CryptoError> {
-        let dh_self = StaticSecret::random_from_rng(&mut OsRng);
+        let dh_self = StaticSecret::random_from_rng(OsRng);
         let dh_remote = PublicKey::from(*remote_ratchet_key);
 
         // Perform initial DH ratchet
@@ -132,7 +132,7 @@ impl DoubleRatchetSession {
         self.dh_remote = Some(dh_remote);
 
         // Generate new DH keypair for sending
-        let new_dh_self = StaticSecret::random_from_rng(&mut OsRng);
+        let new_dh_self = StaticSecret::random_from_rng(OsRng);
         let dh_output = new_dh_self.diffie_hellman(&dh_remote);
         let kdf_out = hkdf_sha256(
             &self.root_key,

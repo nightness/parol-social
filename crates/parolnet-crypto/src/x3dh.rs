@@ -12,9 +12,10 @@ use crate::{
 };
 use rand::rngs::OsRng;
 use x25519_dalek::{PublicKey as X25519Public, StaticSecret};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// X3DH key agreement implementation.
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct X3dhKeyAgreement {
     pub identity: IdentityKeyPair,
 }
@@ -37,12 +38,18 @@ fn ed25519_signing_to_x25519(signing_key: &ed25519_dalek::SigningKey) -> StaticS
 }
 
 /// Convert an Ed25519 verifying key to an X25519 public key.
-fn ed25519_verify_to_x25519(verify_key: &ed25519_dalek::VerifyingKey) -> X25519Public {
+fn ed25519_verify_to_x25519(
+    verify_key: &ed25519_dalek::VerifyingKey,
+) -> Result<X25519Public, CryptoError> {
     use curve25519_dalek::edwards::CompressedEdwardsY;
     let compressed = CompressedEdwardsY(verify_key.to_bytes());
-    let edwards = compressed.decompress().expect("valid Ed25519 public key");
+    let edwards = compressed
+        .decompress()
+        .ok_or(CryptoError::InvalidPreKeyBundle {
+            reason: "failed to decompress Ed25519 public key to Edwards point".into(),
+        })?;
     let montgomery = edwards.to_montgomery();
-    X25519Public::from(montgomery.to_bytes())
+    Ok(X25519Public::from(montgomery.to_bytes()))
 }
 
 impl KeyAgreement for X3dhKeyAgreement {
@@ -85,11 +92,11 @@ impl KeyAgreement for X3dhKeyAgreement {
 
         // Convert identity keys to X25519
         let ik_a_x25519 = ed25519_signing_to_x25519(&self.identity.signing_key);
-        let ik_b_x25519 = ed25519_verify_to_x25519(&bob_ik);
+        let ik_b_x25519 = ed25519_verify_to_x25519(&bob_ik)?;
         let spk_b = X25519Public::from(recipient_bundle.signed_prekey);
 
         // Generate ephemeral key
-        let ek_a = StaticSecret::random_from_rng(&mut OsRng);
+        let ek_a = StaticSecret::random_from_rng(OsRng);
         let ek_a_public = X25519Public::from(&ek_a);
 
         // Compute DH values
@@ -134,7 +141,9 @@ impl KeyAgreement for X3dhKeyAgreement {
         // This requires Bob's SPK private key and optionally OPK private key,
         // which are stored in the identity/key management layer.
         // The full implementation needs access to the key store.
-        todo!("X3DH response requires key store integration - implement with session manager")
+        Err(CryptoError::NotImplemented {
+            feature: "X3DH response (requires key store integration)".into(),
+        })
     }
 }
 
