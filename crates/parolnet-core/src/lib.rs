@@ -9,6 +9,9 @@
 //! - Decoy mode (fake app UI for plausible deniability)
 //! - C FFI for mobile integration
 
+mod time_compat;
+pub(crate) use time_compat::*;
+
 #[cfg(feature = "native")]
 pub mod audio;
 pub mod bootstrap;

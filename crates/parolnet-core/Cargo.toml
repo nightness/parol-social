@@ -9,6 +9,7 @@ description = "ParolNet client library: session management, bootstrap, panic wip
 [features]
 default = ["native"]
 native = ["parolnet-transport", "parolnet-mesh", "parolnet-relay", "tokio", "tracing-subscriber", "opus-rs", "codec2"]
+wasm = ["js-sys"]
 
 [dependencies]
 parolnet-crypto.workspace = true
@@ -33,6 +34,7 @@ serde_bytes.workspace = true
 # web-time removed — it pulls in performance.now() which breaks WASM instantiation
 opus-rs = { workspace = true, optional = true }
 codec2 = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test.workspace = true

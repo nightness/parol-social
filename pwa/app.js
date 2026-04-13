@@ -320,7 +320,7 @@ async function loadWasm() {
         if (statusEl) statusEl.textContent = 'Initializing...';
         // Cache-bust the WASM binary to prevent stale cached versions
         const wasmUrl = './pkg/parolnet_wasm_bg.wasm?v=' + Date.now();
-        await wasm.default(wasmUrl);
+        await wasm.default({ module_or_path: wasmUrl });
         if (statusEl) statusEl.textContent = 'Restoring identity...';
         telemetry.track('wasm_load_success');
         await onWasmReady();
@@ -421,12 +421,12 @@ function updateConnectionStatus() {
     const hasTracker = connMgr.isTrackerConnected();
     const hasAnyWebRTC = Object.values(rtcConnections).some(c => c.dc && c.dc.readyState === 'open');
 
-    if ((hasRelay || hasTracker) && hasAnyWebRTC) {
+    if (hasRelay || (hasTracker && hasAnyWebRTC)) {
         dot.className = 'connection-dot online';
-        dot.title = 'Connected (P2P active)';
-    } else if (hasRelay || hasTracker || hasAnyWebRTC) {
+        dot.title = hasRelay ? 'Relay connected' : 'Connected (P2P active)';
+    } else if (hasTracker || hasAnyWebRTC) {
         dot.className = 'connection-dot partial';
-        dot.title = hasTracker ? 'Tracker connected' : hasRelay ? 'Relay only' : 'Direct only';
+        dot.title = hasTracker ? 'Tracker only' : 'Direct only';
     } else {
         dot.className = 'connection-dot offline';
         dot.title = 'Offline — messages will be queued';
@@ -1093,8 +1093,16 @@ const connMgr = {
 
         this.tracker.connect();
 
-        // Start relay connection (FALLBACK)
-        this.relayUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+        // Load custom relay URL from IndexedDB
+        let customRelayUrl = null;
+        try {
+            const saved = await dbGet('settings', 'custom_relay_url');
+            if (saved && saved.value) customRelayUrl = saved.value;
+        } catch(e) {}
+
+        // Use custom relay URL if set, otherwise default to same-origin
+        this.relayUrl = customRelayUrl ||
+            (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
         this._connectRelay();
     },
 
@@ -2142,6 +2150,48 @@ async function removeCustomTracker(url) {
     updateNetworkSettings();
 }
 
+async function setCustomRelay() {
+    const input = document.getElementById('custom-relay-input');
+    if (!input) return;
+    const url = input.value.trim();
+
+    if (url && !url.startsWith('wss://') && !url.startsWith('ws://')) {
+        showToast('Relay URL must start with wss:// or ws://');
+        return;
+    }
+
+    if (url) {
+        await dbPut('settings', { key: 'custom_relay_url', value: url });
+        showToast('Relay URL set — reconnecting...');
+    } else {
+        // Clear custom URL — revert to default
+        try { await dbDelete('settings', 'custom_relay_url'); } catch(e) {}
+        showToast('Relay URL reset to default');
+    }
+
+    input.value = '';
+
+    // Reconnect relay with new URL
+    connMgr.relayUrl = url || (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    if (connMgr.relayWs) {
+        connMgr.relayWs.close();
+    }
+    connMgr._connectRelay();
+    updateNetworkSettings();
+}
+
+async function clearCustomRelay() {
+    try { await dbDelete('settings', 'custom_relay_url'); } catch(e) {}
+
+    connMgr.relayUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    if (connMgr.relayWs) {
+        connMgr.relayWs.close();
+    }
+    connMgr._connectRelay();
+    showToast('Relay URL reset to default');
+    updateNetworkSettings();
+}
+
 function updateNetworkSettings() {
     const trackerCount = document.getElementById('settings-tracker-count');
     const peerCount = document.getElementById('settings-peer-count');
@@ -2163,6 +2213,20 @@ function updateNetworkSettings() {
     if (relayStatus) {
         relayStatus.textContent = connMgr.isRelayConnected() ? 'Connected' : 'Disconnected';
         relayStatus.style.color = connMgr.isRelayConnected() ? '#4CAF50' : '#f44336';
+    }
+
+    const relayUrlDisplay = document.getElementById('relay-url-display');
+    if (relayUrlDisplay) {
+        dbGet('settings', 'custom_relay_url').then(saved => {
+            if (saved && saved.value) {
+                relayUrlDisplay.innerHTML = 'Current: ' + saved.value +
+                    ' <a href="#" onclick="clearCustomRelay(); return false;" style="color: #f44;">Reset</a>';
+            } else {
+                relayUrlDisplay.textContent = 'Default: ' + (connMgr.relayUrl || 'same origin');
+            }
+        }).catch(() => {
+            relayUrlDisplay.textContent = 'Default: ' + (connMgr.relayUrl || 'same origin');
+        });
     }
 
     if (contactChannels) {

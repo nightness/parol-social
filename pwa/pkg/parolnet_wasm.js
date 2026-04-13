@@ -880,6 +880,17 @@ function __wbg_get_imports() {
             const ret = getObject(arg0).crypto;
             return addHeapObject(ret);
         },
+        __wbg_error_a6fa202b58aa1cd3: function(arg0, arg1) {
+            let deferred0_0;
+            let deferred0_1;
+            try {
+                deferred0_0 = arg0;
+                deferred0_1 = arg1;
+                console.error(getStringFromWasm0(arg0, arg1));
+            } finally {
+                wasm.__wbindgen_export4(deferred0_0, deferred0_1, 1);
+            }
+        },
         __wbg_from_741da0f916ab74aa: function(arg0) {
             const ret = Array.from(getObject(arg0));
             return addHeapObject(ret);
@@ -893,6 +904,10 @@ function __wbg_get_imports() {
         },
         __wbg_msCrypto_bd5a034af96bcba6: function(arg0) {
             const ret = getObject(arg0).msCrypto;
+            return addHeapObject(ret);
+        },
+        __wbg_new_227d7c05414eb861: function() {
+            const ret = new Error();
             return addHeapObject(ret);
         },
         __wbg_new_4f9fafbb3909af72: function() {
@@ -911,6 +926,10 @@ function __wbg_get_imports() {
             const ret = getObject(arg0).node;
             return addHeapObject(ret);
         },
+        __wbg_now_88621c9c9a4f3ffc: function() {
+            const ret = Date.now();
+            return ret;
+        },
         __wbg_process_44c7a14e11e9f69e: function(arg0) {
             const ret = getObject(arg0).process;
             return addHeapObject(ret);
@@ -927,6 +946,13 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbg_set_6be42768c690e380: function(arg0, arg1, arg2) {
             getObject(arg0)[takeObject(arg1)] = takeObject(arg2);
+        },
+        __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
+            const ret = getObject(arg1).stack;
+            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
         __wbg_static_accessor_GLOBAL_THIS_a1248013d790bf5f: function() {
             const ret = typeof globalThis === 'undefined' ? null : globalThis;

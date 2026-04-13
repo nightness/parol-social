@@ -236,7 +236,6 @@ export interface InitOutput {
     readonly get_public_key: (a: number) => void;
     readonly hangup_call: (a: number, b: number, c: number) => void;
     readonly has_session: (a: number, b: number) => number;
-    readonly init: () => void;
     readonly initialize: (a: number) => void;
     readonly initialize_from_key: (a: number, b: number, c: number) => void;
     readonly is_decoy_enabled: () => number;
@@ -251,13 +250,14 @@ export interface InitOutput {
     readonly start_call: (a: number, b: number, c: number) => void;
     readonly verify_unlock_code: (a: number, b: number) => number;
     readonly version: (a: number) => void;
+    readonly init: () => void;
     readonly enter_decoy_mode: () => void;
     readonly session_count: () => number;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;
-    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_start: () => void;
 }
 

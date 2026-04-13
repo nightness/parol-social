@@ -56,10 +56,7 @@ pub fn generate_qr_payload_with_ratchet(
     let ratchet_secret = StaticSecret::random_from_rng(rand::thread_rng());
     let ratchet_public = PublicKey::from(&ratchet_secret);
 
-    let now_secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now_secs = crate::now_epoch_secs();
     let coarsened = (now_secs / 300) * 300;
 
     let payload = QrPayload {

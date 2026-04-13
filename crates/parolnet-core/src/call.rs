@@ -15,10 +15,7 @@ pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// Platform-agnostic millisecond timestamp (avoids web_time::Instant which
 /// requires the Performance API and breaks WASM instantiation).
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+    crate::now_epoch_ms()
 }
 
 /// Elapsed time since a timestamp in milliseconds.
