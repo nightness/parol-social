@@ -53,6 +53,9 @@ pub struct GossipEnvelope {
     pub id: Vec<u8>,
     /// Sender PeerId.
     pub src: PeerId,
+    /// Sender's Ed25519 public key (32 bytes). SHA-256(src_pubkey) == src.
+    #[serde(with = "serde_bytes")]
+    pub src_pubkey: Vec<u8>,
     /// Origin timestamp (unix seconds).
     pub ts: u64,
     /// Expiry timestamp (unix seconds, max 24 hours from ts).
@@ -133,6 +136,7 @@ impl GossipEnvelope {
     pub fn is_valid_structure(&self) -> bool {
         self.v == 1
             && self.id.len() == 32
+            && self.src_pubkey.len() == 32
             && self.pow.len() == 8
             && self.sig.len() == 64
             && self.seen.len() == 128
@@ -149,16 +153,17 @@ impl GossipEnvelope {
     pub fn signable_bytes(&self) -> Vec<u8> {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
-        hasher.update(&[self.v]);
+        hasher.update([self.v]);
         hasher.update(&self.id);
-        hasher.update(&self.src.0);
-        hasher.update(&self.ts.to_be_bytes());
-        hasher.update(&self.exp.to_be_bytes());
-        hasher.update(&[self.ttl]);
-        hasher.update(&[self.hops]);
+        hasher.update(self.src.0);
+        hasher.update(&self.src_pubkey);
+        hasher.update(self.ts.to_be_bytes());
+        hasher.update(self.exp.to_be_bytes());
+        hasher.update([self.ttl]);
+        hasher.update([self.hops]);
         hasher.update(&self.seen);
         hasher.update(&self.pow);
-        hasher.update(&[self.payload_type]);
+        hasher.update([self.payload_type]);
         hasher.update(&self.payload);
         hasher.finalize().to_vec()
     }
@@ -174,6 +179,7 @@ mod tests {
             v: 1,
             id: vec![0xAA; 32],
             src: PeerId([0xBB; 32]),
+            src_pubkey: vec![0xCC; 32],
             ts: 1000,
             exp: 87400,
             ttl: 7,
@@ -208,6 +214,7 @@ mod tests {
             v: 1,
             id: vec![0; 32],
             src: PeerId([0; 32]),
+            src_pubkey: vec![0; 32],
             ts: 1000,
             exp: 2000,
             ttl: 7,
@@ -230,6 +237,7 @@ mod tests {
             v: 1,
             id: vec![0; 32],
             src: PeerId([0; 32]),
+            src_pubkey: vec![0; 32],
             ts: 1000,
             exp: 2000,
             ttl: 7,
@@ -248,5 +256,89 @@ mod tests {
         env.v = 1;
         env.id = vec![0; 16]; // wrong length
         assert!(!env.is_valid_structure());
+
+        // wrong src_pubkey length
+        env.id = vec![0; 32];
+        env.src_pubkey = vec![0; 16];
+        assert!(!env.is_valid_structure());
+    }
+
+    #[test]
+    fn test_gossip_envelope_signed_roundtrip() {
+        use ed25519_dalek::{Signer, SigningKey};
+        use sha2::{Digest, Sha256};
+
+        let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+        let pubkey_bytes = verifying_key.to_bytes();
+        let peer_id = PeerId(Sha256::digest(pubkey_bytes).into());
+
+        let mut env = GossipEnvelope {
+            v: 1,
+            id: vec![0xAA; 32],
+            src: peer_id,
+            src_pubkey: pubkey_bytes.to_vec(),
+            ts: 1000,
+            exp: 87400,
+            ttl: 7,
+            hops: 0,
+            seen: vec![0; 128],
+            pow: vec![0; 8],
+            sig: vec![0u8; 64],
+            payload_type: GossipPayloadType::UserMessage as u8,
+            payload: b"test payload".to_vec(),
+        };
+
+        let signable = env.signable_bytes();
+        let signature = signing_key.sign(&signable);
+        env.sig = signature.to_bytes().to_vec();
+
+        // Verify the signature
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+        let vk = VerifyingKey::from_bytes(&pubkey_bytes).unwrap();
+        let sig = Signature::from_bytes(env.sig.as_slice().try_into().unwrap());
+        let signable2 = env.signable_bytes();
+        assert!(vk.verify(&signable2, &sig).is_ok());
+    }
+
+    #[test]
+    fn test_gossip_envelope_tampered_signature_rejected() {
+        use ed25519_dalek::{Signer, SigningKey};
+        use sha2::{Digest, Sha256};
+
+        let signing_key = SigningKey::from_bytes(&[99u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+        let pubkey_bytes = verifying_key.to_bytes();
+        let peer_id = PeerId(Sha256::digest(pubkey_bytes).into());
+
+        let mut env = GossipEnvelope {
+            v: 1,
+            id: vec![0xBB; 32],
+            src: peer_id,
+            src_pubkey: pubkey_bytes.to_vec(),
+            ts: 2000,
+            exp: 88400,
+            ttl: 5,
+            hops: 0,
+            seen: vec![0; 128],
+            pow: vec![0; 8],
+            sig: vec![0u8; 64],
+            payload_type: GossipPayloadType::UserMessage as u8,
+            payload: b"tamper test".to_vec(),
+        };
+
+        let signable = env.signable_bytes();
+        let signature = signing_key.sign(&signable);
+        env.sig = signature.to_bytes().to_vec();
+
+        // Tamper with the payload
+        env.payload = b"tampered payload".to_vec();
+
+        // Verification should fail
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+        let vk = VerifyingKey::from_bytes(&pubkey_bytes).unwrap();
+        let sig = Signature::from_bytes(env.sig.as_slice().try_into().unwrap());
+        let signable2 = env.signable_bytes();
+        assert!(vk.verify(&signable2, &sig).is_err());
     }
 }

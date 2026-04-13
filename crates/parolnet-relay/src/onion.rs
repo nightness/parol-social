@@ -5,7 +5,9 @@
 //! - Each relay peels one layer by decrypting with its forward key
 //! - Reverse direction: each relay adds one layer by encrypting with backward key
 
-use crate::{AEAD_TAG_SIZE, RelayError};
+#[cfg(test)]
+use crate::AEAD_TAG_SIZE;
+use crate::RelayError;
 use parolnet_crypto::Aead;
 use parolnet_crypto::aead::ChaCha20Poly1305Cipher;
 

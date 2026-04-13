@@ -227,6 +227,12 @@ pub struct StandardCircuitBuilder {
     _connector: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
+impl Default for StandardCircuitBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StandardCircuitBuilder {
     /// Create a new builder (no transport — uses simulated key exchange).
     pub fn new() -> Self {
@@ -239,7 +245,7 @@ impl StandardCircuitBuilder {
     /// Here we simulate the key exchange for testing.
     pub fn key_exchange_with_relay(relay: &RelayInfo) -> Result<(HopKeys, [u8; 32]), RelayError> {
         // Generate our ephemeral key
-        let our_secret = StaticSecret::random_from_rng(&mut OsRng);
+        let our_secret = StaticSecret::random_from_rng(OsRng);
         let our_public = PublicKey::from(&our_secret);
 
         // In production: send our_public in CREATE cell, receive relay's public
@@ -354,7 +360,7 @@ impl CircuitBuilder for StandardCircuitBuilder {
         let mut hop_keys = Vec::with_capacity(REQUIRED_HOPS);
 
         // Perform key exchange with each hop
-        for (_i, relay) in hops.iter().enumerate() {
+        for relay in hops.iter() {
             let (keys, _our_public) = Self::key_exchange_with_relay(relay)?;
             hop_keys.push(keys);
         }

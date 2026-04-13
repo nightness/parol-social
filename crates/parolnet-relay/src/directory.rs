@@ -44,6 +44,12 @@ pub struct RelayDirectory {
     guards: Vec<PeerId>,
 }
 
+impl Default for RelayDirectory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RelayDirectory {
     pub fn new() -> Self {
         Self {
@@ -163,10 +169,10 @@ impl RelayDirectory {
         // TODO: verify Ed25519 signature once signing is implemented.
 
         // Only accept if newer than what we have
-        if let Some(existing) = self.descriptors.get(&desc.peer_id) {
-            if existing.timestamp >= desc.timestamp {
-                return false;
-            }
+        if let Some(existing) = self.descriptors.get(&desc.peer_id)
+            && existing.timestamp >= desc.timestamp
+        {
+            return false;
         }
 
         self.insert(desc);

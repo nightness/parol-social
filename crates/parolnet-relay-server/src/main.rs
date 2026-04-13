@@ -346,7 +346,8 @@ async fn main() {
 
     // Initialize mesh PeerManager as a gossip supernode
     let our_peer_id = PeerId([0u8; 32]); // Relay's own peer ID (could generate a real one)
-    let peer_manager = Arc::new(PeerManager::new(our_peer_id));
+    let relay_signing_key = ed25519_dalek::SigningKey::from_bytes(&[0u8; 32]);
+    let peer_manager = Arc::new(PeerManager::new(our_peer_id, relay_signing_key));
 
     // Spawn periodic maintenance (dedup rotation, stored-message expiry)
     {

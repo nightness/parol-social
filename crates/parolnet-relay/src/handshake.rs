@@ -17,7 +17,7 @@ impl CircuitHandshake {
     /// Returns `(cell, our_secret)` so the caller can complete the handshake
     /// once the CREATED response arrives.
     pub fn create_cell(circuit_id: u32) -> (RelayCell, StaticSecret) {
-        let secret = StaticSecret::random_from_rng(&mut rand::thread_rng());
+        let secret = StaticSecret::random_from_rng(rand::thread_rng());
         let public = PublicKey::from(&secret);
 
         let mut payload = [0u8; CELL_PAYLOAD_SIZE];
@@ -91,7 +91,7 @@ impl CircuitHandshake {
         circuit_id: u32,
         target_addr: std::net::SocketAddr,
     ) -> (RelayCell, StaticSecret) {
-        let secret = StaticSecret::random_from_rng(&mut rand::thread_rng());
+        let secret = StaticSecret::random_from_rng(rand::thread_rng());
         let public = PublicKey::from(&secret);
 
         let mut payload = [0u8; CELL_PAYLOAD_SIZE];

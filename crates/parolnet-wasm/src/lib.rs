@@ -87,12 +87,11 @@ pub fn generate_identity() -> String {
 #[wasm_bindgen]
 pub fn generate_keypair() -> JsValue {
     let keypair = parolnet_crypto::IdentityKeyPair::generate();
-    let result = serde_wasm_bindgen::to_value(&KeypairResult {
+    serde_wasm_bindgen::to_value(&KeypairResult {
         peer_id: hex::encode(keypair.peer_id()),
         public_key: hex::encode(keypair.public_key_bytes()),
     })
-    .unwrap_or(JsValue::NULL);
-    result
+    .unwrap_or(JsValue::NULL)
 }
 
 #[derive(serde::Serialize)]

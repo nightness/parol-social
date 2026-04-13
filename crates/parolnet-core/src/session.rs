@@ -17,6 +17,12 @@ pub struct SessionManager {
     sessions: Mutex<HashMap<PeerId, Session>>,
 }
 
+impl Default for SessionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionManager {
     pub fn new() -> Self {
         Self {
@@ -43,7 +49,7 @@ impl SessionManager {
         session
             .ratchet
             .encrypt(plaintext)
-            .map_err(|e| crate::CoreError::Crypto(e))
+            .map_err(crate::CoreError::Crypto)
     }
 
     /// Decrypt a message from a peer using their Double Ratchet session.
@@ -60,7 +66,7 @@ impl SessionManager {
         session
             .ratchet
             .decrypt(header, ciphertext)
-            .map_err(|e| crate::CoreError::Crypto(e))
+            .map_err(crate::CoreError::Crypto)
     }
 
     /// Check if a session exists for a peer.

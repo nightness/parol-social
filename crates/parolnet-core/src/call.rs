@@ -77,7 +77,7 @@ impl Call {
 
     /// Get call duration (None if not active/ended).
     pub fn duration(&self) -> Option<Duration> {
-        self.started_at.map(|s| elapsed_ms(s))
+        self.started_at.map(elapsed_ms)
     }
 
     /// Transition the call state based on a signaling message.
@@ -150,6 +150,12 @@ impl Call {
 /// Manages all active and pending calls.
 pub struct CallManager {
     calls: Mutex<HashMap<[u8; 16], Call>>,
+}
+
+impl Default for CallManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CallManager {

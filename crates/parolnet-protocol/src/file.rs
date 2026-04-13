@@ -49,6 +49,6 @@ impl FileOffer {
         if self.file_size == 0 {
             return 1; // empty file is 1 chunk
         }
-        ((self.file_size + self.chunk_size as u64 - 1) / self.chunk_size as u64) as u32
+        self.file_size.div_ceil(self.chunk_size as u64) as u32
     }
 }

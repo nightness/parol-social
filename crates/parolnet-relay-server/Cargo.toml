@@ -25,6 +25,7 @@ futures-util.workspace = true
 rand.workspace = true
 async-trait.workspace = true
 hex.workspace = true
+ed25519-dalek.workspace = true
 
 [features]
 analytics = []

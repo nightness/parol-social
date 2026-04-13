@@ -47,6 +47,7 @@ impl FileTransferSender {
     }
 
     /// Get the next chunk to send. Returns None when all chunks are sent.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<(FileChunkHeader, Vec<u8>)> {
         let total = self.total_chunks();
         if self.next_chunk >= total {

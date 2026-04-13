@@ -11,6 +11,7 @@ pub struct AudioEncoder {
     pub codec_type: AudioCodec,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum AudioCodecImpl {
     Opus(OpusEncoderInner),
     Codec2(Codec2EncoderInner),
@@ -31,6 +32,7 @@ pub struct AudioDecoder {
     pub codec_type: AudioCodec,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum AudioDecoderImpl {
     Opus(OpusDecoderInner),
     Codec2(Codec2DecoderInner),
@@ -136,13 +138,13 @@ impl AudioEncoder {
                 let len = enc
                     .encoder
                     .encode(&f32_input, enc.frame_size, &mut output)
-                    .map_err(|e| AudioError::EncodeFailed(format!("{e}")))?;
+                    .map_err(|e| AudioError::EncodeFailed(e.to_string()))?;
                 output.truncate(len);
                 Ok(output)
             }
             AudioCodecImpl::Codec2(enc) => {
                 // codec2: encode(&mut self, bits: &mut [u8], speech: &[i16])
-                let bytes_per_frame = (enc.codec.bits_per_frame() + 7) / 8;
+                let bytes_per_frame = enc.codec.bits_per_frame().div_ceil(8);
                 let mut output = vec![0u8; bytes_per_frame];
                 enc.codec.encode(&mut output, pcm);
                 Ok(output)
@@ -197,7 +199,7 @@ impl AudioDecoder {
                 let len = dec
                     .decoder
                     .decode(data, dec.frame_size, &mut f32_output)
-                    .map_err(|e| AudioError::DecodeFailed(format!("{e}")))?;
+                    .map_err(|e| AudioError::DecodeFailed(e.to_string()))?;
                 // Convert f32 -> i16
                 let i16_output: Vec<i16> = f32_output[..len]
                     .iter()

@@ -14,10 +14,10 @@ use zeroize::Zeroize;
 /// 2. Securely overwrite and delete storage files
 pub fn execute_panic_wipe(storage_path: Option<&Path>) -> Result<(), CoreError> {
     // Wipe storage directory if it exists
-    if let Some(path) = storage_path {
-        if path.exists() {
-            secure_delete_directory(path)?;
-        }
+    if let Some(path) = storage_path
+        && path.exists()
+    {
+        secure_delete_directory(path)?;
     }
 
     Ok(())

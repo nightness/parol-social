@@ -21,6 +21,7 @@ struct CircuitEntry {
     /// Forward direction counter.
     forward_counter: u32,
     /// Backward direction counter.
+    #[allow(dead_code)]
     backward_counter: u32,
     /// Next hop: (address, circuit_id) or None if this is the exit.
     next_hop: Option<(SocketAddr, u32)>,
@@ -30,6 +31,12 @@ struct CircuitEntry {
 pub struct StandardRelayNode {
     /// Circuit table: circuit_id -> circuit entry.
     circuits: Mutex<HashMap<u32, CircuitEntry>>,
+}
+
+impl Default for StandardRelayNode {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StandardRelayNode {
@@ -97,7 +104,7 @@ impl RelayNode for StandardRelayNode {
                     .ok_or(RelayError::CircuitNotFound(cell.circuit_id))?;
 
                 // Check counter overflow
-                if entry.forward_counter >= u32::MAX {
+                if entry.forward_counter == u32::MAX {
                     return Err(RelayError::NonceOverflow);
                 }
 
@@ -138,7 +145,7 @@ impl RelayNode for StandardRelayNode {
 
             CellType::Create => {
                 // Generate a per-circuit ephemeral X25519 keypair and perform DH
-                let secret = StaticSecret::random_from_rng(&mut rand::thread_rng());
+                let secret = StaticSecret::random_from_rng(rand::thread_rng());
                 let (created, keys) = CircuitHandshake::handle_create(&cell, &secret)?;
                 // Register circuit with no next_hop (we are the entry point)
                 self.register_circuit(cell.circuit_id, keys, None)?;

@@ -20,9 +20,9 @@ pub struct PeerManager {
 
 impl PeerManager {
     /// Create a new PeerManager.
-    pub fn new(our_peer_id: PeerId) -> Self {
+    pub fn new(our_peer_id: PeerId, signing_key: ed25519_dalek::SigningKey) -> Self {
         let pool = Arc::new(ConnectionPool::new());
-        let gossip = StandardGossip::new(our_peer_id, pool.clone());
+        let gossip = StandardGossip::new(our_peer_id, signing_key, pool.clone());
         let store = InMemoryStore::new();
         Self {
             our_peer_id,
@@ -173,7 +173,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_remove_peer() {
-        let mgr = PeerManager::new(PeerId([0xAA; 32]));
+        let mgr = PeerManager::new(
+            PeerId([0xAA; 32]),
+            ed25519_dalek::SigningKey::from_bytes(&[0xAA; 32]),
+        );
         let peer_id = PeerId([0xBB; 32]);
         let (conn, _sent) = MockConnection::new();
 
@@ -186,7 +189,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_maintenance() {
-        let mgr = PeerManager::new(PeerId([0xAA; 32]));
+        let mgr = PeerManager::new(
+            PeerId([0xAA; 32]),
+            ed25519_dalek::SigningKey::from_bytes(&[0xAA; 32]),
+        );
         // Should not panic with empty state
         mgr.run_maintenance().await.unwrap();
     }

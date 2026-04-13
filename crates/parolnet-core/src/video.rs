@@ -64,7 +64,7 @@ pub fn fragment_video_frame(frame: &VideoFrame, frame_id: u32) -> Vec<VideoFragm
 /// Reassemble a video frame from fragments.
 /// Fragments must all have the same frame_id and be complete (0..total_fragments).
 pub fn reassemble_video_frame(
-    fragments: &mut Vec<VideoFragment>,
+    fragments: &mut [VideoFragment],
     codec: VideoCodec,
     width: u16,
     height: u16,

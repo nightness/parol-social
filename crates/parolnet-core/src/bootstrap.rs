@@ -53,7 +53,7 @@ pub fn generate_qr_payload_with_ratchet(
     rand::thread_rng().fill_bytes(&mut seed);
 
     // Generate X25519 ratchet keypair for Double Ratchet initialization
-    let ratchet_secret = StaticSecret::random_from_rng(&mut rand::thread_rng());
+    let ratchet_secret = StaticSecret::random_from_rng(rand::thread_rng());
     let ratchet_public = PublicKey::from(&ratchet_secret);
 
     let now_secs = std::time::SystemTime::now()

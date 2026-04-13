@@ -17,7 +17,7 @@ const NUM_CELLS: usize = 80;
 const NUM_HASHES: usize = 3;
 
 /// A single cell in the IBLT.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct IbltCell {
     /// XOR of all key hashes mapped to this cell.
     key_sum: [u8; 32],
@@ -25,16 +25,6 @@ struct IbltCell {
     hash_sum: [u8; 32],
     /// Count of entries mapped to this cell.
     count: i32,
-}
-
-impl Default for IbltCell {
-    fn default() -> Self {
-        Self {
-            key_sum: [0; 32],
-            hash_sum: [0; 32],
-            count: 0,
-        }
-    }
 }
 
 /// Invertible Bloom Lookup Table for set reconciliation.
@@ -56,7 +46,7 @@ impl Iblt {
         let mut indices = [0usize; NUM_HASHES];
         for (i, idx) in indices.iter_mut().enumerate() {
             let mut hasher = Sha256::new();
-            hasher.update(&[i as u8]);
+            hasher.update([i as u8]);
             hasher.update(key);
             let hash = hasher.finalize();
             *idx = u64::from_be_bytes(hash[..8].try_into().unwrap()) as usize % NUM_CELLS;
@@ -113,7 +103,8 @@ impl Iblt {
     /// Returns (positive_keys, negative_keys) where:
     /// - positive_keys are entries in self but not other (after subtract)
     /// - negative_keys are entries in other but not self
-    /// Returns Err if decoding fails (too many differences for this IBLT size).
+    ///   Returns Err if decoding fails (too many differences for this IBLT size).
+    #[allow(clippy::type_complexity)]
     pub fn decode(&self) -> Result<(Vec<[u8; 32]>, Vec<[u8; 32]>), MeshError> {
         let mut iblt = self.clone();
         let mut positive = Vec::new();
