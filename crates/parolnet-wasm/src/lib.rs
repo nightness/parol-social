@@ -70,7 +70,7 @@ static STATE: LazyLock<Mutex<WasmState>> = LazyLock::new(|| {
 /// Initialize the WASM module.
 #[wasm_bindgen(start)]
 pub fn init() {
-    // Future: set up panic hook for better browser console errors
+    console_error_panic_hook::set_once();
 }
 
 // ── Identity ────────────────────────────────────────────────
@@ -111,7 +111,7 @@ pub fn initialize_from_key(secret_key_hex: &str) -> Result<String, JsError> {
     let config = parolnet_core::ParolNetConfig::default();
     let client = parolnet_core::ParolNet::from_identity(config, identity);
     let peer_id = hex::encode(client.peer_id().0);
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.client = Some(client);
     Ok(peer_id)
 }
@@ -120,7 +120,7 @@ pub fn initialize_from_key(secret_key_hex: &str) -> Result<String, JsError> {
 /// Used to save the identity to persistent storage.
 #[wasm_bindgen]
 pub fn export_secret_key() -> Result<String, JsError> {
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let client = state
         .client
         .as_ref()
@@ -135,7 +135,7 @@ pub fn initialize() -> String {
     let config = parolnet_core::ParolNetConfig::default();
     let client = ParolNet::new(config);
     let peer_id = hex::encode(client.peer_id().0);
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.client = Some(client);
     peer_id
 }
@@ -143,7 +143,7 @@ pub fn initialize() -> String {
 /// Get the current peer ID (hex). Returns empty string if not initialized.
 #[wasm_bindgen]
 pub fn get_peer_id() -> String {
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state
         .client
         .as_ref()
@@ -154,7 +154,7 @@ pub fn get_peer_id() -> String {
 /// Get the current public key (hex). Returns empty string if not initialized.
 #[wasm_bindgen]
 pub fn get_public_key() -> String {
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state
         .client
         .as_ref()
@@ -180,7 +180,7 @@ pub fn create_session(
     let peer_id = parolnet_protocol::address::PeerId(peer_id_bytes);
     let shared_secret = parolnet_crypto::SharedSecret(shared_secret_bytes);
 
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let client = state
         .client
         .as_ref()
@@ -201,7 +201,7 @@ pub fn send_message(peer_id_hex: &str, plaintext: &str) -> Result<JsValue, JsErr
     let peer_id_bytes = decode_32(peer_id_hex)?;
     let peer_id = parolnet_protocol::address::PeerId(peer_id_bytes);
 
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let client = state
         .client
         .as_ref()
@@ -236,7 +236,7 @@ pub fn has_session(peer_id_hex: &str) -> bool {
         return false;
     };
     let peer_id = parolnet_protocol::address::PeerId(peer_id_bytes);
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state
         .client
         .as_ref()
@@ -247,7 +247,7 @@ pub fn has_session(peer_id_hex: &str) -> bool {
 /// Get the number of active sessions.
 #[wasm_bindgen]
 pub fn session_count() -> u32 {
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state
         .client
         .as_ref()
@@ -262,7 +262,7 @@ pub fn session_count() -> u32 {
 pub fn start_call(peer_id_hex: &str) -> Result<String, JsError> {
     let peer_id_bytes = decode_32(peer_id_hex)?;
     let peer_id = parolnet_protocol::address::PeerId(peer_id_bytes);
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let call_id = state
         .call_manager
         .start_call(peer_id)
@@ -274,7 +274,7 @@ pub fn start_call(peer_id_hex: &str) -> Result<String, JsError> {
 #[wasm_bindgen]
 pub fn answer_call(call_id_hex: &str) -> Result<(), JsError> {
     let call_id = decode_16(call_id_hex)?;
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state
         .call_manager
         .answer(&call_id)
@@ -285,7 +285,7 @@ pub fn answer_call(call_id_hex: &str) -> Result<(), JsError> {
 #[wasm_bindgen]
 pub fn reject_call(call_id_hex: &str) -> Result<(), JsError> {
     let call_id = decode_16(call_id_hex)?;
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state
         .call_manager
         .reject(&call_id)
@@ -296,7 +296,7 @@ pub fn reject_call(call_id_hex: &str) -> Result<(), JsError> {
 #[wasm_bindgen]
 pub fn hangup_call(call_id_hex: &str) -> Result<(), JsError> {
     let call_id = decode_16(call_id_hex)?;
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state
         .call_manager
         .hangup(&call_id)
@@ -308,7 +308,7 @@ pub fn hangup_call(call_id_hex: &str) -> Result<(), JsError> {
 #[wasm_bindgen]
 pub fn get_call_state(call_id_hex: &str) -> Result<String, JsError> {
     let call_id = decode_16(call_id_hex)?;
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let call_state = state.call_manager.get_state(&call_id);
     let name = match call_state {
         Some(s) => format!("{:?}", s).to_lowercase(),
@@ -328,7 +328,7 @@ pub fn create_file_transfer(
 ) -> Result<String, JsError> {
     let sender = FileTransferSender::new(data.to_vec(), filename.to_string(), mime_type);
     let file_id_hex = hex::encode(sender.offer.file_id);
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.file_senders.insert(file_id_hex.clone(), sender);
     Ok(file_id_hex)
 }
@@ -337,7 +337,7 @@ pub fn create_file_transfer(
 /// Returns `{ file_id, file_name, file_size, chunk_size, total_chunks }`.
 #[wasm_bindgen]
 pub fn get_file_offer(file_id_hex: &str) -> Result<JsValue, JsError> {
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let sender = state
         .file_senders
         .get(file_id_hex)
@@ -368,7 +368,7 @@ pub fn get_file_offer(file_id_hex: &str) -> Result<JsValue, JsError> {
 /// Returns `{ chunk_index, data_hex, is_last }` or null if all chunks are sent.
 #[wasm_bindgen]
 pub fn get_next_chunk(file_id_hex: &str) -> Result<JsValue, JsError> {
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let sender = state
         .file_senders
         .get_mut(file_id_hex)
@@ -416,7 +416,7 @@ pub fn receive_file_offer(
     };
 
     let receiver = FileTransferReceiver::new(offer);
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state
         .file_receivers
         .insert(file_id_hex.to_string(), receiver);
@@ -440,7 +440,7 @@ pub fn receive_chunk(
         is_last,
     };
 
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let receiver = state
         .file_receivers
         .get_mut(file_id_hex)
@@ -454,7 +454,7 @@ pub fn receive_chunk(
 /// Reassemble a completed file transfer and return the raw bytes.
 #[wasm_bindgen]
 pub fn assemble_file(file_id_hex: &str) -> Result<Vec<u8>, JsError> {
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let receiver = state
         .file_receivers
         .get(file_id_hex)
@@ -474,7 +474,7 @@ pub fn set_unlock_code(code: &str) -> Result<(), JsError> {
     hasher.update(code.as_bytes());
     let hash: [u8; 32] = hasher.finalize().into();
 
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.unlock_code_hash = Some(hash);
     Ok(())
 }
@@ -486,7 +486,7 @@ pub fn verify_unlock_code(code: &str) -> bool {
     hasher.update(code.as_bytes());
     let hash: [u8; 32] = hasher.finalize().into();
 
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     match &state.unlock_code_hash {
         Some(stored) => stored.ct_eq(&hash).into(),
         None => false,
@@ -496,14 +496,14 @@ pub fn verify_unlock_code(code: &str) -> bool {
 /// Check if an unlock code has been set (decoy mode is enabled).
 #[wasm_bindgen]
 pub fn is_decoy_enabled() -> bool {
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.unlock_code_hash.is_some()
 }
 
 /// Enter decoy mode — the app should switch to a fake UI.
 #[wasm_bindgen]
 pub fn enter_decoy_mode() {
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.decoy_active = true;
 }
 
@@ -531,7 +531,7 @@ pub fn generate_qr_payload(
             .map_err(|e| JsError::new(&format!("{e}")))?;
 
     // Store the ratchet secret and seed for later responder session establishment
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.pending_bootstrap = Some(PendingBootstrap {
         seed: result.seed,
         ratchet_secret: result.ratchet_secret,
@@ -559,7 +559,7 @@ pub fn parse_qr_payload(hex_data: &str) -> Result<JsValue, JsError> {
 pub fn process_scanned_qr(hex_data: &str) -> Result<JsValue, JsError> {
     let data = hex::decode(hex_data).map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
 
-    let state = STATE.lock().unwrap();
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let client = state
         .client
         .as_ref()
@@ -625,7 +625,7 @@ pub fn complete_bootstrap_as_presenter(their_identity_key_hex: &str) -> Result<J
         return Err(JsError::new("identity key must be 32 bytes"));
     }
 
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
 
     let pending = state
         .pending_bootstrap
@@ -693,7 +693,7 @@ pub fn compute_sas(
 /// Emergency: wipe all state from memory.
 #[wasm_bindgen]
 pub fn panic_wipe() {
-    let mut state = STATE.lock().unwrap();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.client = None;
     state.file_senders.clear();
     state.file_receivers.clear();

@@ -33,3 +33,4 @@ sha2.workspace = true
 subtle.workspace = true
 getrandom_02.workspace = true
 getrandom_03.workspace = true
+console_error_panic_hook = "0.1"
