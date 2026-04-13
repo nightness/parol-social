@@ -169,22 +169,35 @@ impl ParolNet {
     }
 
     /// Send a message within an established session.
+    ///
+    /// Automatically pads the plaintext to a bucket size before encrypting,
+    /// ensuring no unpadded message reaches the transport layer.
     pub fn send(
         &self,
         peer_id: &PeerId,
         message: &[u8],
     ) -> Result<(RatchetHeader, Vec<u8>), CoreError> {
-        self.sessions.encrypt(peer_id, message)
+        use parolnet_protocol::PaddingStrategy;
+        use parolnet_protocol::padding::BucketPadding;
+        let padder = BucketPadding;
+        let padded = padder.pad(message);
+        self.sessions.encrypt(peer_id, &padded)
     }
 
     /// Decrypt a received message.
+    ///
+    /// Automatically unpads the plaintext after decrypting.
     pub fn recv(
         &self,
         peer_id: &PeerId,
         header: &RatchetHeader,
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, CoreError> {
-        self.sessions.decrypt(peer_id, header, ciphertext)
+        use parolnet_protocol::PaddingStrategy;
+        use parolnet_protocol::padding::BucketPadding;
+        let padded_plaintext = self.sessions.decrypt(peer_id, header, ciphertext)?;
+        let padder = BucketPadding;
+        padder.unpad(&padded_plaintext).map_err(CoreError::Protocol)
     }
 
     /// Check if we have an active session with a peer.

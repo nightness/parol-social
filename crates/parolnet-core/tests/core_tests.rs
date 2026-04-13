@@ -1977,3 +1977,54 @@ fn test_message_flags() {
     flags.set_final_fragment();
     assert!(flags.is_final_fragment());
 }
+
+// ── Padding Enforcement Tests ──────────────────────────────────
+
+/// Verify that `send()` automatically pads messages to bucket sizes
+/// and `recv()` recovers the original plaintext.
+#[test]
+fn test_send_recv_padding_roundtrip() {
+    use parolnet_protocol::BUCKET_SIZES;
+    use rand::rngs::OsRng;
+
+    let alice = ParolNet::new(ParolNetConfig::default());
+    let bob = ParolNet::new(ParolNetConfig::default());
+
+    let shared_secret = SharedSecret([0x42; 32]);
+
+    // Bob generates a ratchet keypair
+    let bob_ratchet_secret = x25519_dalek::StaticSecret::random_from_rng(&mut OsRng);
+    let bob_ratchet_pub = *x25519_dalek::PublicKey::from(&bob_ratchet_secret).as_bytes();
+
+    // Alice establishes as initiator, Bob as responder
+    alice
+        .establish_session(bob.peer_id(), shared_secret.clone(), &bob_ratchet_pub, true)
+        .unwrap();
+    bob.establish_responder_session(
+        alice.peer_id(),
+        shared_secret,
+        bob_ratchet_secret.to_bytes(),
+    )
+    .unwrap();
+
+    // Send a short message from Alice to Bob
+    let original = b"hello bob";
+    let (header, ciphertext) = alice.send(&bob.peer_id(), original).unwrap();
+
+    // The ciphertext should be larger than the original message due to
+    // bucket padding + AEAD overhead. Verify ciphertext length is at least
+    // the smallest bucket size (padding was applied before encryption).
+    assert!(
+        ciphertext.len() >= BUCKET_SIZES[0],
+        "ciphertext length {} should be >= smallest bucket size {}",
+        ciphertext.len(),
+        BUCKET_SIZES[0]
+    );
+
+    // Bob decrypts and gets the original plaintext back (unpadded automatically)
+    let decrypted = bob.recv(&alice.peer_id(), &header, &ciphertext).unwrap();
+    assert_eq!(
+        decrypted, original,
+        "decrypted message must match original plaintext"
+    );
+}
