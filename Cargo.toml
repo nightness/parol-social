@@ -85,4 +85,4 @@ codec2 = "0.3"
 # Testing
 proptest = "1"
 tokio-test = "0.4"
-rcgen = "0.13"
+rcgen = "0.14"
