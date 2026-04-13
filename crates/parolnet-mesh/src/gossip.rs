@@ -204,15 +204,21 @@ impl ProofOfWork {
 
 pub struct StandardGossip {
     pub our_peer_id: PeerId,
+    pub signing_key: ed25519_dalek::SigningKey,
     pub dedup: DedupFilter,
     pub default_difficulty: u8,
     pub pool: Arc<ConnectionPool>,
 }
 
 impl StandardGossip {
-    pub fn new(our_peer_id: PeerId, pool: Arc<ConnectionPool>) -> Self {
+    pub fn new(
+        our_peer_id: PeerId,
+        signing_key: ed25519_dalek::SigningKey,
+        pool: Arc<ConnectionPool>,
+    ) -> Self {
         Self {
             our_peer_id,
+            signing_key,
             dedup: DedupFilter::new(),
             default_difficulty: 16,
             pool,
@@ -256,21 +262,30 @@ impl StandardGossip {
         let pow_nonce =
             ProofOfWork::compute(&message_id, &self.our_peer_id, ts, self.default_difficulty);
 
-        Ok(GossipEnvelope {
+        // Build envelope with placeholder signature, then sign
+        let mut gossip_env = GossipEnvelope {
             v: 1,
             id: message_id.to_vec(),
             src: self.our_peer_id,
+            src_pubkey: self.signing_key.verifying_key().to_bytes().to_vec(),
             ts,
             exp,
             ttl: DEFAULT_TTL,
             hops: 0,
             seen: bloom.bits.to_vec(),
             pow: pow_nonce.to_vec(),
-            // TODO: Sign with Ed25519 key once key material is available here
             sig: vec![0u8; 64],
             payload_type: GossipPayloadType::UserMessage as u8,
             payload: payload_buf,
-        })
+        };
+
+        // Compute signable bytes and produce real Ed25519 signature
+        let signable = gossip_env.signable_bytes();
+        use ed25519_dalek::Signer;
+        let signature = self.signing_key.sign(&signable);
+        gossip_env.sig = signature.to_bytes().to_vec();
+
+        Ok(gossip_env)
     }
 
     /// Extract peer IDs from a bloom filter for exclusion during fanout.
@@ -349,7 +364,39 @@ impl StandardGossip {
             return Err(MeshError::InsufficientPoW);
         }
 
-        // 6. TODO: Verify Ed25519 signature once crypto integration is available
+        // 6. Verify Ed25519 signature
+        {
+            // Verify src_pubkey matches the claimed src PeerId
+            let pubkey_hash: [u8; 32] = Sha256::digest(&gossip_env.src_pubkey).into();
+            if pubkey_hash != gossip_env.src.0 {
+                self.pool
+                    .update_score(&gossip_env.src, |s| s.penalize_invalid())
+                    .await;
+                return Err(MeshError::ValidationFailed(
+                    "src_pubkey does not match src PeerId".into(),
+                ));
+            }
+
+            // Verify the Ed25519 signature
+            use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+            let verifying_key =
+                VerifyingKey::from_bytes(gossip_env.src_pubkey.as_slice().try_into().map_err(
+                    |_| MeshError::ValidationFailed("invalid src_pubkey length".into()),
+                )?)
+                .map_err(|_| MeshError::ValidationFailed("invalid Ed25519 public key".into()))?;
+
+            let sig_bytes: [u8; 64] = gossip_env
+                .sig
+                .as_slice()
+                .try_into()
+                .map_err(|_| MeshError::ValidationFailed("invalid signature length".into()))?;
+            let signature = Signature::from_bytes(&sig_bytes);
+
+            let signable = gossip_env.signable_bytes();
+            verifying_key
+                .verify(&signable, &signature)
+                .map_err(|_| MeshError::ValidationFailed("invalid Ed25519 signature".into()))?;
+        }
 
         // 7. Mark as seen in dedup
         self.dedup.mark_seen(message_id);
