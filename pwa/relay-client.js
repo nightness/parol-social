@@ -6,6 +6,7 @@ import { BOOTSTRAP_RELAYS, AUTHORITY_PUBKEYS } from './network-config.js';
 
 const DIRECTORY_CACHE_KEY = 'parolnet_relay_directory';
 const DIRECTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const BRIDGE_RELAYS_DB_KEY = 'bridge_relays';
 
 /**
  * Relay discovery and connection with fallback chain.
@@ -26,14 +27,24 @@ export class RelayClient {
         this.connected = false;
         /** @type {Object|null} Raw directory data from last fetch */
         this._lastDirectory = null;
+        /**
+         * Bridge relays for censorship circumvention.
+         * Each entry: { host, port, front_domain?, fingerprint?, wsUrl }
+         * @type {Object[]}
+         */
+        this.bridgeRelays = [];
     }
 
     /**
      * Initialize relay discovery with fallback chain.
      * Populates this.relays with all known relay addresses.
+     * Also loads bridge relays from IndexedDB.
      * @returns {Promise<string[]>} List of discovered relay URLs
      */
     async discover() {
+        // 0. Load bridge relays from IndexedDB
+        await this.loadBridges();
+
         // 1. Try cached directory from last session
         const cached = this.loadCachedDirectory();
         if (cached && cached.relays && cached.relays.length > 0) {
@@ -295,10 +306,31 @@ export class RelayClient {
 
     /**
      * Try connecting to any available relay via WebSocket.
-     * Shuffles relays for load distribution.
+     * Bridge relays are tried first (priority), then regular relays.
+     * Shuffles each group for load distribution.
      * @returns {Promise<string|null>} URL of connected relay, or null
      */
     async connect() {
+        // Try bridge relays first (priority for censored networks)
+        if (this.bridgeRelays.length > 0) {
+            const shuffledBridges = this._shuffle(this.bridgeRelays.slice());
+            for (const bridge of shuffledBridges) {
+                const wsUrl = bridge.wsUrl;
+                try {
+                    const success = await this._tryConnect(wsUrl);
+                    if (success) {
+                        this.connectedRelay = wsUrl;
+                        this.connected = true;
+                        console.log('[RelayClient] Connected via bridge relay:', wsUrl);
+                        return wsUrl;
+                    }
+                } catch (e) {
+                    console.debug('[RelayClient] Bridge connection failed to', wsUrl, e.message);
+                }
+            }
+        }
+
+        // Fall back to regular relays
         const shuffled = this._shuffle(this.relays.slice());
         for (const relayUrl of shuffled) {
             const wsUrl = this._toWebSocketUrl(relayUrl);
@@ -403,6 +435,163 @@ export class RelayClient {
         } catch (e) {
             return null;
         }
+    }
+
+    /**
+     * Add a bridge relay from a bridge address string.
+     * Format: bridge:host:port[;front=domain][;fp=hex_fingerprint]
+     * @param {string} bridgeString
+     * @returns {Object} The parsed bridge entry
+     */
+    addBridge(bridgeString) {
+        const bridge = this._parseBridgeString(bridgeString);
+        // Avoid duplicates
+        const existing = this.bridgeRelays.find(
+            b => b.host === bridge.host && b.port === bridge.port
+        );
+        if (!existing) {
+            this.bridgeRelays.push(bridge);
+            console.log('[RelayClient] Added bridge relay:', bridge.wsUrl);
+        }
+        return bridge;
+    }
+
+    /**
+     * Parse a bridge address string into an object.
+     * Format: bridge:host:port[;front=domain][;fp=hex_fingerprint]
+     * @param {string} s
+     * @returns {Object} { host, port, front_domain, fingerprint, wsUrl }
+     */
+    _parseBridgeString(s) {
+        s = s.trim();
+        if (!s.startsWith('bridge:')) {
+            throw new Error('Bridge string must start with "bridge:"');
+        }
+        const rest = s.slice('bridge:'.length);
+        const parts = rest.split(';');
+        const hostPort = parts[0];
+
+        // Find last colon for port separator
+        const lastColon = hostPort.lastIndexOf(':');
+        if (lastColon < 0) {
+            throw new Error('Bridge string missing port');
+        }
+        const host = hostPort.slice(0, lastColon);
+        const port = parseInt(hostPort.slice(lastColon + 1), 10);
+        if (!host || isNaN(port)) {
+            throw new Error('Invalid bridge host:port');
+        }
+
+        let front_domain = null;
+        let fingerprint = null;
+
+        for (let i = 1; i < parts.length; i++) {
+            const param = parts[i];
+            if (param.startsWith('front=')) {
+                front_domain = param.slice('front='.length);
+            } else if (param.startsWith('fp=')) {
+                fingerprint = param.slice('fp='.length);
+            }
+        }
+
+        // Build WebSocket URL
+        let wsUrl;
+        if (front_domain) {
+            wsUrl = 'wss://' + front_domain + '/ws';
+        } else {
+            wsUrl = 'wss://' + host + ':' + port + '/ws';
+        }
+
+        return { host, port, front_domain, fingerprint, wsUrl };
+    }
+
+    /**
+     * Load bridge relays from IndexedDB settings.
+     * @returns {Promise<void>}
+     */
+    async loadBridges() {
+        try {
+            if (typeof window === 'undefined' || !window.indexedDB) return;
+            const bridges = await this._idbGet(BRIDGE_RELAYS_DB_KEY);
+            if (Array.isArray(bridges) && bridges.length > 0) {
+                this.bridgeRelays = bridges;
+                console.log('[RelayClient] Loaded', bridges.length, 'bridge relays from IndexedDB');
+            }
+        } catch (e) {
+            console.debug('[RelayClient] Failed to load bridges from IndexedDB:', e.message);
+        }
+    }
+
+    /**
+     * Save bridge relays to IndexedDB settings.
+     * @returns {Promise<void>}
+     */
+    async saveBridges() {
+        try {
+            if (typeof window === 'undefined' || !window.indexedDB) return;
+            await this._idbSet(BRIDGE_RELAYS_DB_KEY, this.bridgeRelays);
+        } catch (e) {
+            console.debug('[RelayClient] Failed to save bridges to IndexedDB:', e.message);
+        }
+    }
+
+    /**
+     * Read a value from IndexedDB 'parolnet_settings' store.
+     * @param {string} key
+     * @returns {Promise<any>}
+     */
+    _idbGet(key) {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open('parolnet_settings', 1);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('settings')) {
+                    db.createObjectStore('settings');
+                }
+            };
+            req.onsuccess = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('settings')) {
+                    db.close();
+                    resolve(null);
+                    return;
+                }
+                const tx = db.transaction('settings', 'readonly');
+                const store = tx.objectStore('settings');
+                const getReq = store.get(key);
+                getReq.onsuccess = () => resolve(getReq.result);
+                getReq.onerror = () => reject(getReq.error);
+                tx.oncomplete = () => db.close();
+            };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    /**
+     * Write a value to IndexedDB 'parolnet_settings' store.
+     * @param {string} key
+     * @param {any} value
+     * @returns {Promise<void>}
+     */
+    _idbSet(key, value) {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open('parolnet_settings', 1);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('settings')) {
+                    db.createObjectStore('settings');
+                }
+            };
+            req.onsuccess = () => {
+                const db = req.result;
+                const tx = db.transaction('settings', 'readwrite');
+                const store = tx.objectStore('settings');
+                store.put(value, key);
+                tx.oncomplete = () => { db.close(); resolve(); };
+                tx.onerror = () => { db.close(); reject(tx.error); };
+            };
+            req.onerror = () => reject(req.error);
+        });
     }
 
     /**

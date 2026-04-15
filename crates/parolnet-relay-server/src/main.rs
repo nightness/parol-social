@@ -17,14 +17,15 @@ use parolnet_relay::directory::{RelayDescriptor, RelayDirectory};
 use parolnet_transport::{Connection, TransportError};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
 use tracing::info;
 
-type PeerMap = Arc<Mutex<HashMap<String, mpsc::UnboundedSender<String>>>>;
+type PeerMap = Arc<Mutex<HashMap<String, mpsc::UnboundedSender<Message>>>>;
 
 /// Per-IP WebSocket connection rate limiter.
 /// Max 10 new connections per minute per IP address.
@@ -78,6 +79,14 @@ impl<K: std::hash::Hash + Eq + Clone> RateLimiter<K> {
 
 type ConnRateLimiter = Arc<RateLimiter<std::net::IpAddr>>;
 type MsgRateLimiter = Arc<RateLimiter<String>>;
+/// Per-IP rate limiter for POST /directory/push requests.
+/// Max 10 pushes per minute per source IP.
+type PushRateLimiter = Arc<RateLimiter<std::net::IpAddr>>;
+const PUSH_RATE_LIMIT: u32 = 10;
+const PUSH_RATE_WINDOW_SECS: u64 = 60;
+
+/// Maximum number of dynamically discovered peer relay URLs.
+const MAX_DISCOVERED_PEERS: usize = 50;
 
 /// Maximum number of buffered messages per offline peer.
 const MAX_STORED_MESSAGES_PER_PEER: usize = 256;
@@ -165,7 +174,7 @@ impl RelayMessageStore {
 /// so that the PeerManager/gossip protocol can push CBOR gossip messages out
 /// over the existing relay WebSocket channels.
 struct WsConnection {
-    tx: mpsc::UnboundedSender<String>,
+    tx: mpsc::UnboundedSender<Message>,
 }
 
 #[async_trait]
@@ -180,7 +189,7 @@ impl Connection for WsConnection {
         })
         .to_string();
         self.tx
-            .send(msg)
+            .send(Message::Text(msg.into()))
             .map_err(|_| TransportError::ConnectionClosed)
     }
 
@@ -458,6 +467,42 @@ fn check_admin_token(headers: &axum::http::HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+/// Extract the real client IP, respecting X-Forwarded-For when the connecting
+/// IP is in the set of trusted proxy IPs (e.g., CDN edge servers).
+fn get_client_ip(
+    connecting_ip: IpAddr,
+    headers: &axum::http::HeaderMap,
+    trusted_proxies: &HashSet<IpAddr>,
+) -> IpAddr {
+    if trusted_proxies.contains(&connecting_ip)
+        && let Some(xff) = headers.get("x-forwarded-for")
+        && let Ok(xff_str) = xff.to_str()
+        && let Some(first_ip) = xff_str.split(',').next()
+        && let Ok(ip) = first_ip.trim().parse::<IpAddr>()
+    {
+        return ip;
+    }
+    connecting_ip
+}
+
+/// GET /bridge-info — returns bridge configuration JSON.
+/// Only active when BRIDGE_MODE=true.
+async fn handle_bridge_info(
+    bridge_front_domain: Option<String>,
+    relay_fingerprint: String,
+) -> impl IntoResponse {
+    let json = serde_json::json!({
+        "bridge": true,
+        "front_domain": bridge_front_domain,
+        "fingerprint": relay_fingerprint,
+    });
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        json.to_string(),
+    )
+}
+
 /// GET /directory — serve the current relay directory as CBOR-encoded endorsed descriptors.
 ///
 /// Returns a CBOR-serialized `Vec<RelayDescriptor>` of all known descriptors.
@@ -508,10 +553,119 @@ async fn handle_endorse(
     }
 }
 
-/// Background task: periodically pull `/directory` from peer relays and merge.
+/// POST /directory/push — accept CBOR-encoded `Vec<RelayDescriptor>` pushed from peer relays.
 ///
-/// Discovers peer addresses from the local directory, then fetches each
-/// peer's directory and merges endorsed descriptors via gossip rules.
+/// Merges the descriptors into our local directory via gossip validation
+/// (timestamp, Ed25519 signature, freshness). Rate-limited to 10 pushes per
+/// minute per source IP.
+async fn handle_directory_push(
+    directory: Arc<Mutex<RelayDirectory>>,
+    our_peer_id: PeerId,
+    push_rl: PushRateLimiter,
+    client_ip: IpAddr,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    if push_rl.is_limited(&client_ip) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({"error": "rate limited"})),
+        )
+            .into_response();
+    }
+
+    let descriptors: Vec<RelayDescriptor> = match ciborium::from_reader(body.as_ref()) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(error = %e, "Invalid CBOR in /directory/push request");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid CBOR"})),
+            )
+                .into_response();
+        }
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut dir = directory.lock().await;
+    let merged = dir.merge_descriptors(descriptors, &our_peer_id, now);
+    drop(dir);
+
+    if merged > 0 {
+        tracing::info!(merged, source = %client_ip, "Merged descriptors from /directory/push");
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"merged": merged}))).into_response()
+}
+
+/// Generate time-limited TURN credentials using HMAC-SHA1 (RFC 7635-adjacent).
+/// Requires `TURN_SECRET` env var. Returns 404 if TURN is not configured.
+async fn handle_turn_credentials() -> impl IntoResponse {
+    let secret = match std::env::var("TURN_SECRET") {
+        Ok(s) if !s.is_empty() => s,
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "TURN not configured"})),
+            )
+                .into_response();
+        }
+    };
+
+    let ttl: u64 = 86400; // 24 hours
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let expiry = now + ttl;
+
+    // Generate a random component for the username
+    let random_id: u64 = rand::random();
+    let username = format!("{expiry}:{random_id:016x}");
+
+    // HMAC-SHA1(secret, username) — standard TURN REST API pattern
+    use hmac::{Hmac, Mac};
+    use sha1::Sha1;
+    type HmacSha1 = Hmac<Sha1>;
+
+    let mut mac =
+        HmacSha1::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(username.as_bytes());
+    let result = mac.finalize();
+    let credential = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        result.into_bytes(),
+    );
+
+    // TURN URIs from env or empty
+    let uris: Vec<String> = std::env::var("TURN_URIS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "username": username,
+            "credential": credential,
+            "ttl": ttl,
+            "uris": uris
+        })),
+    )
+        .into_response()
+}
+
+/// Background task: periodically pull `/directory` from peer relays, merge,
+/// then push our directory to peers for bidirectional gossip propagation.
+///
+/// Also performs dynamic peer discovery: when merging descriptors, newly
+/// discovered relay addresses are added to the peer URL list (capped at
+/// `MAX_DISCOVERED_PEERS`).
 async fn relay_directory_sync(
     directory: Arc<Mutex<RelayDirectory>>,
     our_peer_id: PeerId,
@@ -548,6 +702,7 @@ async fn relay_directory_sync(
             .unwrap_or_default()
             .as_secs();
 
+        // --- Phase 1: Pull from peers ---
         for url in &urls {
             let directory_url = format!("{}/directory", url.trim_end_matches('/'));
             match client.get(&directory_url).send().await {
@@ -566,23 +721,53 @@ async fn relay_directory_sync(
                                         continue;
                                     }
                                 };
-                            let mut dir = directory.lock().await;
-                            let mut merged = 0usize;
-                            for desc in descriptors {
-                                // Skip our own descriptor
-                                if desc.peer_id == our_peer_id {
-                                    continue;
-                                }
-                                if dir.handle_gossip_descriptor(desc, now) {
-                                    merged += 1;
+
+                            // Dynamic peer discovery: collect new relay addresses
+                            // before merging (we need the addrs from descriptors).
+                            let mut new_peer_urls: Vec<String> = Vec::new();
+                            {
+                                let known_urls = peer_relay_urls.lock().await;
+                                for desc in &descriptors {
+                                    if desc.peer_id == our_peer_id {
+                                        continue;
+                                    }
+                                    let candidate_url = format!("http://{}", desc.addr);
+                                    if known_urls.len() + new_peer_urls.len() < MAX_DISCOVERED_PEERS
+                                        && !known_urls.contains(&candidate_url)
+                                        && !new_peer_urls.contains(&candidate_url)
+                                    {
+                                        new_peer_urls.push(candidate_url);
+                                    }
                                 }
                             }
+
+                            // Merge descriptors
+                            let mut dir = directory.lock().await;
+                            let merged = dir.merge_descriptors(descriptors, &our_peer_id, now);
+                            drop(dir);
+
                             if merged > 0 {
                                 tracing::info!(
                                     url = %directory_url,
                                     merged,
                                     "Merged descriptors from peer relay"
                                 );
+                            }
+
+                            // Add discovered peers
+                            if !new_peer_urls.is_empty() {
+                                let mut known_urls = peer_relay_urls.lock().await;
+                                for new_url in new_peer_urls {
+                                    if known_urls.len() < MAX_DISCOVERED_PEERS
+                                        && !known_urls.contains(&new_url)
+                                    {
+                                        tracing::info!(
+                                            url = %new_url,
+                                            "Discovered new peer relay from directory"
+                                        );
+                                        known_urls.push(new_url);
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
@@ -606,6 +791,57 @@ async fn relay_directory_sync(
                         url = %directory_url,
                         error = %e,
                         "Failed to reach peer relay"
+                    );
+                }
+            }
+        }
+
+        // --- Phase 2: Push our directory to peers ---
+        let our_descriptors: Vec<RelayDescriptor> = {
+            let dir = directory.lock().await;
+            dir.descriptors().values().cloned().collect()
+        };
+
+        if our_descriptors.is_empty() {
+            continue;
+        }
+
+        let mut cbor_buf = Vec::new();
+        if let Err(e) = ciborium::into_writer(&our_descriptors, &mut cbor_buf) {
+            tracing::error!(error = %e, "Failed to serialize directory for push");
+            continue;
+        }
+
+        // Re-read URLs in case new peers were discovered during pull phase
+        let push_urls: Vec<String> = {
+            let known_urls = peer_relay_urls.lock().await;
+            known_urls.clone()
+        };
+
+        for url in &push_urls {
+            let push_url = format!("{}/directory/push", url.trim_end_matches('/'));
+            match client
+                .post(&push_url)
+                .header("Content-Type", "application/cbor")
+                .body(cbor_buf.clone())
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    tracing::debug!(url = %push_url, "Pushed directory to peer relay");
+                }
+                Ok(resp) => {
+                    tracing::debug!(
+                        url = %push_url,
+                        status = %resp.status(),
+                        "Peer relay rejected directory push"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        url = %push_url,
+                        error = %e,
+                        "Failed to push directory to peer relay"
                     );
                 }
             }
@@ -674,6 +910,27 @@ async fn main() {
         .and_then(|p| p.parse().ok())
         .unwrap_or(9000);
 
+    // Bridge mode configuration
+    let bridge_mode = std::env::var("BRIDGE_MODE").unwrap_or_default() == "true";
+    let bridge_front_domain: Option<String> = std::env::var("BRIDGE_FRONT_DOMAIN").ok().filter(|s| !s.is_empty());
+    let trusted_proxies: Arc<HashSet<IpAddr>> = {
+        let ips: HashSet<IpAddr> = std::env::var("TRUSTED_PROXY_IPS")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|s| s.trim().parse::<IpAddr>().ok())
+            .collect();
+        if !ips.is_empty() {
+            info!("Configured {} trusted proxy IPs for X-Forwarded-For", ips.len());
+        }
+        Arc::new(ips)
+    };
+    if bridge_mode {
+        info!("Bridge mode enabled — relay will NOT join public directory");
+        if let Some(ref fd) = bridge_front_domain {
+            info!("Bridge front domain: {fd}");
+        }
+    }
+
     let peers: PeerMap = Arc::new(Mutex::new(HashMap::new()));
     let store = Arc::new(Mutex::new(RelayMessageStore::new()));
     let stats = Arc::new(analytics::Stats::new());
@@ -703,17 +960,21 @@ async fn main() {
     ));
     let msg_rate_limiter: MsgRateLimiter =
         Arc::new(RateLimiter::new(MSG_RATE_LIMIT, MSG_RATE_WINDOW_SECS));
+    let push_rate_limiter: PushRateLimiter =
+        Arc::new(RateLimiter::new(PUSH_RATE_LIMIT, PUSH_RATE_WINDOW_SECS));
 
     // Spawn periodic rate limiter cleanup (every 5 minutes)
     {
         let conn_rl = conn_rate_limiter.clone();
         let msg_rl = msg_rate_limiter.clone();
+        let push_rl = push_rate_limiter.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(300));
             loop {
                 interval.tick().await;
                 conn_rl.cleanup();
                 msg_rl.cleanup();
+                push_rl.cleanup();
             }
         });
     }
@@ -777,10 +1038,13 @@ async fn main() {
     }
 
     // Spawn relay-to-relay directory sync (every 60s)
-    {
+    // In bridge mode, skip sync — bridge relays must not appear in or push to the public directory.
+    if !bridge_mode {
         let dir = directory.clone();
         let urls = peer_relay_urls.clone();
         tokio::spawn(relay_directory_sync(dir, our_peer_id, urls));
+    } else {
+        info!("Directory sync disabled in bridge mode");
     }
 
     // Determine whether the /stats endpoint should be active
@@ -805,10 +1069,12 @@ async fn main() {
                 let peer_manager = peer_manager.clone();
                 let conn_rl = conn_rate_limiter.clone();
                 let msg_rl = msg_rate_limiter.clone();
+                let tp = trusted_proxies.clone();
                 move |ws: WebSocketUpgrade,
+                      headers: axum::http::HeaderMap,
                       connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>| async move {
-                    // Per-IP connection rate limiting
-                    let client_ip = connect_info.0.ip();
+                    // Per-IP connection rate limiting (respecting trusted proxies)
+                    let client_ip = get_client_ip(connect_info.0.ip(), &headers, &tp);
                     if conn_rl.is_limited(&client_ip) {
                         return StatusCode::TOO_MANY_REQUESTS.into_response();
                     }
@@ -820,6 +1086,7 @@ async fn main() {
             }),
         )
         .route("/health", get(|| async { "OK" }))
+        .route("/turn-credentials", get(|| async { handle_turn_credentials().await }))
         .route(
             "/peers",
             get({
@@ -870,6 +1137,25 @@ async fn main() {
                 }
             }),
         )
+        .route(
+            "/directory/push",
+            post({
+                let directory = directory.clone();
+                let push_rl = push_rate_limiter.clone();
+                let tp = trusted_proxies.clone();
+                move |headers: axum::http::HeaderMap,
+                      connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>,
+                      body: axum::body::Bytes| {
+                    let directory = directory.clone();
+                    let push_rl = push_rl.clone();
+                    let client_ip = get_client_ip(connect_info.0.ip(), &headers, &tp);
+                    async move {
+                        handle_directory_push(directory, our_peer_id, push_rl, client_ip, body)
+                            .await
+                    }
+                }
+            }),
+        )
         .layer({
             let cors_origins = std::env::var("CORS_ORIGINS").unwrap_or_default();
             if cors_origins.is_empty() {
@@ -886,6 +1172,20 @@ async fn main() {
                     .allow_headers(tower_http::cors::Any)
             }
         });
+
+    // Add /bridge-info endpoint when bridge mode is enabled
+    if bridge_mode {
+        let bfd = bridge_front_domain.clone();
+        let relay_fp = hex::encode(pubkey_bytes);
+        app = app.route(
+            "/bridge-info",
+            get(move || {
+                let bfd = bfd.clone();
+                let fp = relay_fp.clone();
+                async move { handle_bridge_info(bfd, fp).await }
+            }),
+        );
+    }
 
     // Add /stats endpoint only when feature is enabled AND env var is set
     #[cfg(feature = "analytics")]
@@ -941,7 +1241,7 @@ async fn forward_gossip(
     let peers_lock = peers.lock().await;
 
     // Collect eligible peers (not sender, not in exclude list)
-    let eligible: Vec<(&String, &mpsc::UnboundedSender<String>)> = peers_lock
+    let eligible: Vec<(&String, &mpsc::UnboundedSender<Message>)> = peers_lock
         .iter()
         .filter(|(id, _)| *id != sender && !exclude.contains(id))
         .collect();
@@ -966,7 +1266,7 @@ async fn forward_gossip(
     .unwrap();
 
     for (_id, tx) in selected {
-        let _ = tx.send(gossip_msg.clone());
+        let _ = tx.send(Message::Text(gossip_msg.clone().into()));
     }
 }
 
@@ -983,6 +1283,192 @@ fn parse_peer_id(hex_str: &str) -> Option<PeerId> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Circuit routing state for onion relay cells
+// ---------------------------------------------------------------------------
+
+/// Per-circuit state held by the relay server.
+struct CircuitState {
+    /// Keys derived from the CREATE/EXTEND handshake.
+    keys: parolnet_relay::onion::HopKeys,
+    /// Forward (client -> relay) counter for onion nonce derivation.
+    forward_counter: u32,
+    /// Backward (relay -> client) counter for onion nonce derivation.
+    /// Currently unused in single-relay MVP; reserved for reverse-direction routing.
+    #[allow(dead_code)]
+    backward_counter: u32,
+}
+
+type CircuitTable = Arc<std::sync::Mutex<HashMap<u32, CircuitState>>>;
+
+/// Handle a binary relay cell received from a WebSocket client.
+///
+/// Processes CREATE, EXTEND, DATA, and DESTROY cells. In single-relay MVP
+/// mode, EXTEND is handled internally (the relay creates a new sub-circuit
+/// for each hop rather than forwarding to another relay).
+fn handle_relay_cell(
+    cell: parolnet_relay::RelayCell,
+    tx: &mpsc::UnboundedSender<Message>,
+    circuit_table: &CircuitTable,
+    peers: &PeerMap,
+    _my_peer_id: &Option<String>,
+) {
+    use parolnet_relay::CellType;
+    use parolnet_relay::handshake::CircuitHandshake;
+    use parolnet_relay::onion::HopKeys;
+
+    match cell.cell_type {
+        CellType::Create => {
+            // Generate ephemeral X25519 key, do DH, derive keys, respond CREATED
+            let relay_secret = x25519_dalek::StaticSecret::random_from_rng(rand::thread_rng());
+            match CircuitHandshake::handle_create(&cell, &relay_secret) {
+                Ok((created_cell, keys)) => {
+                    let mut table = circuit_table.lock().unwrap();
+                    table.insert(
+                        cell.circuit_id,
+                        CircuitState {
+                            keys,
+                            forward_counter: 0,
+                            backward_counter: 0,
+                        },
+                    );
+                    let _ = tx.send(Message::Binary(created_cell.to_bytes().to_vec().into()));
+                    tracing::debug!(circuit_id = cell.circuit_id, "circuit CREATE handled");
+                }
+                Err(e) => {
+                    tracing::warn!(circuit_id = cell.circuit_id, error = %e, "CREATE failed");
+                }
+            }
+        }
+
+        CellType::Extend => {
+            // In single-relay MVP mode: handle EXTEND internally.
+            // Peel the onion layer from the EXTEND payload, then create a new
+            // sub-circuit with fresh DH keys.
+            let mut table = circuit_table.lock().unwrap();
+            if let Some(state) = table.get_mut(&cell.circuit_id) {
+                // Peel the onion layer from the EXTEND payload
+                let payload_data = &cell.payload[..cell.payload_len as usize];
+                let peeled = parolnet_relay::onion::onion_peel(
+                    payload_data,
+                    &state.keys.forward_key,
+                    &state.keys.forward_nonce_seed,
+                    state.forward_counter,
+                );
+                state.forward_counter += 1;
+
+                match peeled {
+                    Ok(inner) => {
+                        // Parse the inner EXTEND payload: peer_id[32] + client_pubkey[32]
+                        if inner.len() >= 64 {
+                            let mut client_pub = [0u8; 32];
+                            client_pub.copy_from_slice(&inner[32..64]);
+                            let client_public = x25519_dalek::PublicKey::from(client_pub);
+
+                            // Generate new DH keys for this sub-hop
+                            let hop_secret = x25519_dalek::StaticSecret::random_from_rng(
+                                rand::thread_rng(),
+                            );
+                            let hop_public = x25519_dalek::PublicKey::from(&hop_secret);
+                            let shared = hop_secret.diffie_hellman(&client_public);
+
+                            if let Ok(hop_keys) = HopKeys::from_shared_secret(shared.as_bytes()) {
+                                // Register the new sub-circuit hop — use a derived circuit_id
+                                // to avoid collision. We use circuit_id + hop_index.
+                                let sub_id = cell.circuit_id.wrapping_add(table.len() as u32 + 1000);
+                                table.insert(
+                                    sub_id,
+                                    CircuitState {
+                                        keys: hop_keys,
+                                        forward_counter: 0,
+                                        backward_counter: 0,
+                                    },
+                                );
+
+                                // Respond with EXTENDED containing the hop's public key
+                                let extended =
+                                    CircuitHandshake::extended_cell(cell.circuit_id, hop_public.as_bytes());
+                                let _ = tx.send(Message::Binary(extended.to_bytes().to_vec().into()));
+                                tracing::debug!(
+                                    circuit_id = cell.circuit_id,
+                                    "circuit EXTEND handled (single-relay MVP)"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            circuit_id = cell.circuit_id,
+                            error = %e,
+                            "EXTEND onion peel failed"
+                        );
+                    }
+                }
+            } else {
+                tracing::warn!(circuit_id = cell.circuit_id, "EXTEND for unknown circuit");
+            }
+        }
+
+        CellType::Data => {
+            // Peel one onion layer and deliver the payload
+            let mut table = circuit_table.lock().unwrap();
+            if let Some(state) = table.get_mut(&cell.circuit_id) {
+                let payload_data = &cell.payload[..cell.payload_len as usize];
+                let peeled = parolnet_relay::onion::onion_peel(
+                    payload_data,
+                    &state.keys.forward_key,
+                    &state.keys.forward_nonce_seed,
+                    state.forward_counter,
+                );
+                state.forward_counter += 1;
+
+                match peeled {
+                    Ok(plaintext) => {
+                        // Convert the decrypted payload to a JSON message and route
+                        // to the target peer using the existing PeerMap routing.
+                        // The plaintext is expected to be a UTF-8 JSON message.
+                        if let Ok(text) = String::from_utf8(plaintext) {
+                            // Try to route via PeerMap
+                            if let Ok(incoming) = serde_json::from_str::<serde_json::Value>(&text)
+                                && let Some(to) = incoming.get("to").and_then(|v| v.as_str())
+                            {
+                                let peers_guard =
+                                    peers.blocking_lock();
+                                if let Some(recipient_tx) = peers_guard.get(to) {
+                                    let _ = recipient_tx
+                                        .send(Message::Text(text.into()));
+                                }
+                            }
+                        }
+                        tracing::debug!(circuit_id = cell.circuit_id, "DATA cell routed");
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            circuit_id = cell.circuit_id,
+                            error = %e,
+                            "DATA onion peel failed"
+                        );
+                    }
+                }
+            }
+        }
+
+        CellType::Destroy => {
+            let mut table = circuit_table.lock().unwrap();
+            table.remove(&cell.circuit_id);
+            tracing::debug!(circuit_id = cell.circuit_id, "circuit destroyed");
+        }
+
+        _ => {
+            tracing::debug!(
+                circuit_id = cell.circuit_id,
+                cell_type = ?cell.cell_type,
+                "ignoring unhandled cell type"
+            );
+        }
+    }
+}
+
 async fn handle_socket(
     socket: WebSocket,
     peers: PeerMap,
@@ -992,19 +1478,18 @@ async fn handle_socket(
     msg_rate_limiter: MsgRateLimiter,
 ) {
     let (mut sender, mut receiver) = socket.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
     let mut my_peer_id: Option<String> = None;
+
+    // Circuit routing state for onion relay cells
+    let circuit_table: Arc<std::sync::Mutex<HashMap<u32, CircuitState>>> =
+        Arc::new(std::sync::Mutex::new(HashMap::new()));
 
     // Spawn task to forward messages from channel to WebSocket
     let send_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            // Sentinel value: send a WebSocket ping frame instead of text
-            if msg == "__ping__" {
-                if sender.send(Message::Ping(vec![].into())).await.is_err() {
-                    break;
-                }
-            } else if sender.send(Message::Text(msg.into())).await.is_err() {
+            if sender.send(msg).await.is_err() {
                 break;
             }
         }
@@ -1016,10 +1501,11 @@ async fn handle_socket(
 
     // Read messages from WebSocket, multiplexed with ping keepalive
     loop {
-        let text = tokio::select! {
+        let ws_msg = tokio::select! {
             msg_opt = receiver.next() => {
                 match msg_opt {
-                    Some(Ok(Message::Text(t))) => t.to_string(),
+                    Some(Ok(msg @ Message::Text(_))) => msg,
+                    Some(Ok(msg @ Message::Binary(_))) => msg,
                     Some(Ok(Message::Pong(_))) => continue,
                     Some(Ok(Message::Close(_))) | None => break,
                     Some(Ok(_)) => continue,
@@ -1028,22 +1514,40 @@ async fn handle_socket(
             }
             _ = ping_interval.tick() => {
                 // Send a ping through the channel to the send task
-                if tx.send("__ping__".to_string()).is_err() {
+                if tx.send(Message::Ping(vec![].into())).is_err() {
                     break; // send task died, connection is dead
                 }
                 continue;
             }
         };
 
+        // Handle binary frames (relay cells)
+        if let Message::Binary(ref bin) = ws_msg {
+            if bin.len() == parolnet_relay::CELL_SIZE {
+                let mut buf = [0u8; parolnet_relay::CELL_SIZE];
+                buf.copy_from_slice(bin);
+                if let Ok(cell) = parolnet_relay::RelayCell::from_bytes(&buf) {
+                    handle_relay_cell(cell, &tx, &circuit_table, &peers, &my_peer_id);
+                }
+            }
+            continue;
+        }
+
+        let text = match ws_msg {
+            Message::Text(t) => t.to_string(),
+            _ => continue,
+        };
+
         let Ok(incoming) = serde_json::from_str::<IncomingMessage>(&text) else {
-            let _ = tx.send(
+            let _ = tx.send(Message::Text(
                 serde_json::to_string(&OutgoingMessage {
                     msg_type: "error".into(),
                     message: Some("invalid JSON".into()),
                     ..Default::default()
                 })
-                .unwrap(),
-            );
+                .unwrap()
+                .into(),
+            ));
             continue;
         };
 
@@ -1051,14 +1555,15 @@ async fn handle_socket(
         if let Some(ref pid) = my_peer_id
             && msg_rate_limiter.is_limited(pid)
         {
-            let _ = tx.send(
+            let _ = tx.send(Message::Text(
                 serde_json::to_string(&OutgoingMessage {
                     msg_type: "error".into(),
                     message: Some("rate limited".into()),
                     ..Default::default()
                 })
-                .unwrap(),
-            );
+                .unwrap()
+                .into(),
+            ));
             continue;
         }
 
@@ -1123,15 +1628,16 @@ async fn handle_socket(
                                 }
 
                                 let online = peers.lock().await.len();
-                                let _ = tx.send(
+                                let _ = tx.send(Message::Text(
                                     serde_json::to_string(&OutgoingMessage {
                                         msg_type: "registered".into(),
                                         peer_id: Some(peer_id.clone()),
                                         online_peers: Some(online),
                                         ..Default::default()
                                     })
-                                    .unwrap(),
-                                );
+                                    .unwrap()
+                                    .into(),
+                                ));
 
                                 info!(
                                     "Peer registered (authenticated): {}...  ({} online)",
@@ -1143,7 +1649,7 @@ async fn handle_socket(
                                 if let Some(mesh_pid) = parse_peer_id(&peer_id) {
                                     let pending = store.lock().await.retrieve(&mesh_pid);
                                     for msg in pending {
-                                        let _ = tx.send(msg);
+                                        let _ = tx.send(Message::Text(msg.into()));
                                     }
                                 }
                             }
@@ -1152,14 +1658,15 @@ async fn handle_socket(
                                     Err(e) => e,
                                     _ => "authentication failed".into(),
                                 };
-                                let _ = tx.send(
+                                let _ = tx.send(Message::Text(
                                     serde_json::to_string(&OutgoingMessage {
                                         msg_type: "error".into(),
                                         message: Some(format!("register auth failed: {err_msg}")),
                                         ..Default::default()
                                     })
-                                    .unwrap(),
-                                );
+                                    .unwrap()
+                                    .into(),
+                                ));
                             }
                         }
                     } else {
@@ -1167,14 +1674,15 @@ async fn handle_socket(
                         let mut nonce = [0u8; 32];
                         rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce);
                         let nonce_hex = hex::encode(nonce);
-                        let _ = tx.send(
+                        let _ = tx.send(Message::Text(
                             serde_json::json!({
                                 "type": "challenge",
                                 "nonce": nonce_hex,
                                 "peer_id": peer_id
                             })
-                            .to_string(),
-                        );
+                            .to_string()
+                            .into(),
+                        ));
                     }
                 }
             }
@@ -1193,7 +1701,7 @@ async fn handle_socket(
                     let peers_lock = peers.lock().await;
                     if let Some(recipient_tx) = peers_lock.get(&to) {
                         // Recipient online -- forward directly
-                        let _ = recipient_tx.send(outgoing);
+                        let _ = recipient_tx.send(Message::Text(outgoing.into()));
                         stats.record_message_routed();
                     } else {
                         // Recipient offline -- buffer for later delivery
@@ -1202,14 +1710,15 @@ async fn handle_socket(
                             store.lock().await.store(dest_pid, outgoing);
                             stats.record_message_queued();
                         }
-                        let _ = tx.send(
+                        let _ = tx.send(Message::Text(
                             serde_json::to_string(&OutgoingMessage {
                                 msg_type: "queued".into(),
                                 message: Some("peer offline, message stored".into()),
                                 ..Default::default()
                             })
-                            .unwrap(),
-                        );
+                            .unwrap()
+                            .into(),
+                        ));
                     }
                 }
             }
@@ -1257,21 +1766,22 @@ async fn handle_socket(
                     let json = serde_json::to_string(&outgoing).unwrap_or_default();
                     let peers_lock = peers.lock().await;
                     if let Some(recipient_tx) = peers_lock.get(to) {
-                        let _ = recipient_tx.send(json);
+                        let _ = recipient_tx.send(Message::Text(json.into()));
                         stats.record_message_routed();
                     }
                 }
             }
 
             _ => {
-                let _ = tx.send(
+                let _ = tx.send(Message::Text(
                     serde_json::to_string(&OutgoingMessage {
                         msg_type: "error".into(),
                         message: Some(format!("unknown type: {}", incoming.msg_type)),
                         ..Default::default()
                     })
-                    .unwrap(),
-                );
+                    .unwrap()
+                    .into(),
+                ));
             }
         }
     }

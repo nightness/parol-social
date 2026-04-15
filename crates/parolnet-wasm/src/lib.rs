@@ -18,6 +18,7 @@
 //! - Panic wipe (clear all in-memory state)
 
 pub mod bindings;
+pub mod circuit;
 pub mod federation;
 pub mod storage;
 pub mod websocket;
@@ -940,11 +941,10 @@ pub fn create_group_file_transfer(
         .as_ref()
         .ok_or_else(|| JsError::new("not initialized"))?;
 
-    let (file_id, offer) = client.group_file_manager().create_send(
-        group_id,
-        filename.to_string(),
-        data.to_vec(),
-    );
+    let (file_id, offer) =
+        client
+            .group_file_manager()
+            .create_send(group_id, filename.to_string(), data.to_vec());
 
     #[derive(serde::Serialize)]
     struct CreateResult {
@@ -1421,4 +1421,60 @@ fn try_decode_32(hex_str: &str) -> Result<[u8; 32], ()> {
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&bytes);
     Ok(arr)
+}
+
+// ── WebRTC Privacy Config ──────────────────────────────────
+
+/// Returns a JSON string with privacy-safe WebRTC configuration.
+/// When `privacy_mode` is true, only relay candidates are permitted.
+#[wasm_bindgen]
+pub fn get_webrtc_privacy_config(privacy_mode: bool) -> String {
+    if privacy_mode {
+        r#"{"iceTransportPolicy":"relay"}"#.to_string()
+    } else {
+        r#"{"iceTransportPolicy":"all"}"#.to_string()
+    }
+}
+
+// ── Bridge Address Exports ───────────────────────────────────
+
+/// Parse a bridge address from QR/text format.
+/// Returns JSON: {"host":"...", "port":N, "front_domain":"...", "fingerprint":"...", "ws_url":"...", "http_url":"..."}
+#[wasm_bindgen]
+pub fn parse_bridge_address(bridge_str: &str) -> Result<String, JsValue> {
+    use parolnet_protocol::BridgeAddress;
+    let addr = BridgeAddress::from_qr_string(bridge_str)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let json = serde_json::json!({
+        "host": addr.host,
+        "port": addr.port,
+        "front_domain": addr.front_domain,
+        "fingerprint": addr.fingerprint.map(hex::encode),
+        "ws_url": addr.ws_url(),
+        "http_url": addr.http_url(),
+    });
+    Ok(json.to_string())
+}
+
+/// Create a bridge address string for QR encoding.
+#[wasm_bindgen]
+pub fn create_bridge_address(
+    host: &str,
+    port: u16,
+    front_domain: Option<String>,
+    fingerprint: Option<String>,
+) -> Result<String, JsValue> {
+    use parolnet_protocol::BridgeAddress;
+    let mut addr = BridgeAddress::new(host.to_string(), port);
+    if let Some(fd) = front_domain {
+        addr = addr.with_front_domain(fd);
+    }
+    if let Some(fp_hex) = fingerprint {
+        let fp_bytes: [u8; 32] = hex::decode(&fp_hex)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?
+            .try_into()
+            .map_err(|_| JsValue::from_str("fingerprint must be 32 bytes"))?;
+        addr = addr.with_fingerprint(fp_bytes);
+    }
+    Ok(addr.to_qr_string())
 }

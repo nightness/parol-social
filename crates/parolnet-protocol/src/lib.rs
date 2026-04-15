@@ -26,7 +26,7 @@ pub mod media;
 pub mod message;
 pub mod padding;
 
-pub use address::PeerId;
+pub use address::{BridgeAddress, PeerId};
 pub use error::ProtocolError;
 
 /// Bucket sizes for message padding (PNP-001 Section 3.6).

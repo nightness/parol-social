@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — PWA UI for Calls, Files & Groups
+- Group management UI: create groups, invite members, remove members, leave group
+- Group chat with per-group message history stored in IndexedDB (`groups` and `group_messages` stores)
+- Group member management modal with add/remove member controls
+- Chats/Groups tab switcher in contact list view
+- Group calls with participant grid (up to 8 participants), mute toggle, group call invitations
+- Group file transfer: send files to all group members with chunked delivery and progress tracking
+- 1:1 file receive flow: incoming file offer accept/decline, chunked receive with progress, download link
+- Incoming call notifications: slide-down banner with accept/decline for both 1:1 and group calls
+- Sender key distribution for encrypted group messaging via `_pn_type: 'sender_key'` messages
+- Structured message routing via `_pn_type` field dispatches file, call, group, and sender key messages
+- IndexedDB schema v4 with `groups` (keyPath: `groupId`) and `group_messages` (indexed by `groupId`, `timestamp`) stores
+
+### Added — Domain Fronting & Bridge Relays
+- `BridgeAddress` type in `parolnet-protocol`: host/port + optional CDN front domain + fingerprint pinning
+- QR-encodable bridge address format with `to_qr_string()`/`from_qr_string()` parsing
+- Relay server bridge mode (`BRIDGE_MODE=true`): unlisted relay that doesn't join public directory
+- X-Forwarded-For trusted proxy support (`TRUSTED_PROXY_IPS`) for rate limiting behind CDN
+- `GET /bridge-info` endpoint returns bridge configuration
+- PWA bridge relay support: `addBridge()`, IndexedDB persistence, priority connection
+- WASM exports: `parse_bridge_address()`, `create_bridge_address()` for QR/text bridge sharing
+
+### Added — WebRTC Privacy Hardening
+- Privacy mode (default ON): `iceTransportPolicy: "relay"` prevents IP leakage via WebRTC
+- ICE candidate filtering: strips host/srflx candidates in privacy mode
+- `GET /turn-credentials` endpoint: time-limited HMAC-SHA1 credentials for TURN relay access
+- Auto-fetch TURN credentials from relay server on startup
+- Settings toggle for WebRTC privacy mode with privacy warning
+- WASM export `get_webrtc_privacy_config()` for privacy-safe WebRTC configuration
+
+### Added — 3-Hop Onion Circuit Support
+- WASM-compatible circuit builder (`parolnet-wasm/src/circuit.rs`): 512-byte relay cell format, X25519 handshake, layered ChaCha20-Poly1305 onion encryption, HKDF key derivation, HMAC key confirmation — all using pure-Rust WASM-compatible deps
+- Relay server binary WebSocket frame handling: CREATE/EXTEND/DATA/DESTROY cell processing, per-circuit state tracking, single-relay MVP mode for 3-hop simulation
+- JS-facing circuit exports: `build_circuit`, `circuit_send`, `circuit_recv`, `circuit_destroy`
+- WebSocket accessor methods on `WasmWebSocket` for circuit builder integration
+
+### Added — WASM WebSocket Transport
+- `WasmWebSocket` in `parolnet-wasm`: browser WebSocket wrapper using `web_sys::WebSocket` with binary send/recv, async `wait_open`, error/close tracking
+- JS exports: `ws_connect`, `ws_wait_open`, `ws_send`, `ws_recv`, `ws_close`, `ws_is_open`
+- Added `wasm-bindgen-futures` workspace dependency
+
+### Added — Relay Federation
+- `POST /directory/push` endpoint: accepts CBOR-encoded descriptors from peer relays with per-IP rate limiting (10/min)
+- Bidirectional directory sync: relays now push their directory to peers after pulling
+- Dynamic peer discovery: new relay URLs discovered from directory entries (capped at 50)
+- `RelayDirectory::merge_descriptors()` convenience method for bulk descriptor merging
+- Push rate limiter with periodic cleanup
+
+### Added — Relay Health & Reputation Scoring
+- `RelayHealth` struct tracking latency EMA, success/failure counts, computed score
+- `record_success()`, `record_failure()` methods on `RelayDirectory`
+- Health-weighted relay selection in `select_random()` and `select_guards()`
+- Minimum health threshold (0.1) filters degraded relays
+
 ### Security — Phase 1-3 Audit Fixes
 
 #### Cryptographic Safety

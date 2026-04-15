@@ -331,10 +331,7 @@ impl GroupFileManager {
 
     /// Get the number of active outgoing transfers.
     pub fn active_send_count(&self) -> usize {
-        self.senders
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .len()
+        self.senders.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// Get the number of active incoming transfers.

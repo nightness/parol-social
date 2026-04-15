@@ -6,7 +6,9 @@
 //! Maximum 8 participants per call (28 pairwise circuits at full mesh).
 
 use parolnet_protocol::address::PeerId;
-use parolnet_protocol::group::{GroupCallSignal, GroupCallSignalType, GroupId, MAX_GROUP_CALL_PARTICIPANTS};
+use parolnet_protocol::group::{
+    GroupCallSignal, GroupCallSignalType, GroupId, MAX_GROUP_CALL_PARTICIPANTS,
+};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -123,11 +125,25 @@ impl GroupCall {
 /// Action returned from processing a group call signal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GroupCallAction {
-    CallStarted { call_id: [u8; 16] },
-    ParticipantJoined { call_id: [u8; 16], peer_id: PeerId },
-    ParticipantLeft { call_id: [u8; 16], peer_id: PeerId },
-    MuteChanged { call_id: [u8; 16], peer_id: PeerId, muted: bool },
-    CallEnded { call_id: [u8; 16] },
+    CallStarted {
+        call_id: [u8; 16],
+    },
+    ParticipantJoined {
+        call_id: [u8; 16],
+        peer_id: PeerId,
+    },
+    ParticipantLeft {
+        call_id: [u8; 16],
+        peer_id: PeerId,
+    },
+    MuteChanged {
+        call_id: [u8; 16],
+        peer_id: PeerId,
+        muted: bool,
+    },
+    CallEnded {
+        call_id: [u8; 16],
+    },
 }
 
 /// Manages all active group calls.
@@ -150,11 +166,7 @@ impl GroupCallManager {
     }
 
     /// Start a new group call.
-    pub fn start_call(
-        &self,
-        group_id: GroupId,
-        initiator: PeerId,
-    ) -> Result<[u8; 16], CoreError> {
+    pub fn start_call(&self, group_id: GroupId, initiator: PeerId) -> Result<[u8; 16], CoreError> {
         let mut call_id = [0u8; 16];
         use rand::RngCore;
         rand::thread_rng().fill_bytes(&mut call_id);
@@ -170,11 +182,7 @@ impl GroupCallManager {
     }
 
     /// Join an existing group call.
-    pub fn join_call(
-        &self,
-        call_id: &[u8; 16],
-        peer_id: PeerId,
-    ) -> Result<(), CoreError> {
+    pub fn join_call(&self, call_id: &[u8; 16], peer_id: PeerId) -> Result<(), CoreError> {
         let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
         let call = calls
             .get_mut(call_id)
@@ -183,11 +191,7 @@ impl GroupCallManager {
     }
 
     /// Leave an existing group call. If no participants remain, the call ends.
-    pub fn leave_call(
-        &self,
-        call_id: &[u8; 16],
-        peer_id: &PeerId,
-    ) -> Result<(), CoreError> {
+    pub fn leave_call(&self, call_id: &[u8; 16], peer_id: &PeerId) -> Result<(), CoreError> {
         let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
         let call = calls
             .get_mut(call_id)
@@ -221,10 +225,7 @@ impl GroupCallManager {
     }
 
     /// Get the list of participants in a group call.
-    pub fn get_participants(
-        &self,
-        call_id: &[u8; 16],
-    ) -> Result<Vec<PeerId>, CoreError> {
+    pub fn get_participants(&self, call_id: &[u8; 16]) -> Result<Vec<PeerId>, CoreError> {
         let calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
         let call = calls
             .get(call_id)
@@ -267,10 +268,7 @@ impl GroupCallManager {
 
     /// Securely wipe all group call state (for panic_wipe).
     pub fn wipe_all(&self) {
-        self.calls
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        self.calls.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// Process an incoming group call signal and return the appropriate action.
@@ -284,9 +282,7 @@ impl GroupCallManager {
                 // Create new call if it doesn't already exist
                 let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
                 if calls.contains_key(&signal.call_id) {
-                    return Err(CoreError::SessionError(
-                        "group call already exists".into(),
-                    ));
+                    return Err(CoreError::SessionError("group call already exists".into()));
                 }
                 let call = GroupCall::new(signal.group_id, signal.call_id, from_peer);
                 let call_id = call.call_id;
@@ -461,10 +457,7 @@ mod tests {
         };
 
         let action = mgr.handle_signal(&signal, peer).unwrap();
-        assert_eq!(
-            action,
-            GroupCallAction::CallStarted { call_id }
-        );
+        assert_eq!(action, GroupCallAction::CallStarted { call_id });
 
         // Call should exist with the peer as participant
         let participants = mgr.get_participants(&call_id).unwrap();

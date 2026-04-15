@@ -35,6 +35,9 @@ pub enum ProtocolError {
     #[error("invalid state transition: {0}")]
     InvalidTransition(String),
 
+    #[error("invalid bridge address: {0}")]
+    InvalidBridgeAddress(String),
+
     #[error("crypto error: {0}")]
     Crypto(#[from] parolnet_crypto::CryptoError),
 }

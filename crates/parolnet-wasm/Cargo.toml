@@ -22,10 +22,15 @@ web-sys = { workspace = true, features = [
     "WebSocket",
     "MessageEvent",
     "BinaryType",
+    "CloseEvent",
+    "ErrorEvent",
+    "Blob",
     "Window",
     "Performance",
 ] }
 js-sys.workspace = true
+wasm-bindgen-futures.workspace = true
+thiserror.workspace = true
 serde-wasm-bindgen.workspace = true
 serde.workspace = true
 hex.workspace = true
@@ -34,9 +39,13 @@ ed25519-dalek.workspace = true
 ciborium.workspace = true
 serde_bytes.workspace = true
 subtle.workspace = true
+x25519-dalek.workspace = true
+hmac.workspace = true
+rand.workspace = true
 getrandom_02.workspace = true
 getrandom_03.workspace = true
 zeroize.workspace = true
+serde_json.workspace = true
 console_error_panic_hook = "0.1"
 
 [dev-dependencies]

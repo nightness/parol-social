@@ -190,7 +190,10 @@ fn test_directory_guard_selection() {
     let ids: Vec<u8> = guards.iter().map(|g| g.identity_key[0]).collect();
     assert!(ids.contains(&2), "relay 2 (10d uptime) should be selected");
     assert!(ids.contains(&3), "relay 3 (30d uptime) should be selected");
-    assert!(!ids.contains(&1), "relay 1 (1d uptime) should not be selected");
+    assert!(
+        !ids.contains(&1),
+        "relay 1 (1d uptime) should not be selected"
+    );
 }
 
 #[test]

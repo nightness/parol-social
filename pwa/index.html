@@ -98,10 +98,16 @@
                 <button onclick="openSettings()" title="Settings">⚙</button>
             </div>
         </header>
+        <div class="list-tabs">
+            <button class="list-tab active" data-list="contacts" onclick="switchListTab('contacts')">Chats</button>
+            <button class="list-tab" data-list="groups" onclick="switchListTab('groups')">Groups</button>
+        </div>
         <div class="search-bar">
-            <input type="text" placeholder="Search contacts..." id="contact-search">
+            <input type="text" placeholder="Search..." id="contact-search">
         </div>
         <div id="contact-list" class="contact-list"></div>
+        <div id="group-list" class="contact-list hidden"></div>
+        <button id="create-group-btn" class="create-group-btn hidden" onclick="showCreateGroupDialog()">+ New Group</button>
         <div id="build-stamp" style="position:absolute;bottom:0;right:8px;font-size:10px;color:#888;z-index:9999;cursor:pointer;user-select:none;-webkit-user-select:none;padding:8px;"></div>
     </div>
 
@@ -155,6 +161,73 @@
         </div>
     </div>
 
+    <!-- Group Chat View -->
+    <div id="view-group-chat" class="view hidden">
+        <header>
+            <button onclick="showView('contacts')">←</button>
+            <h1 id="group-chat-name">Group</h1>
+            <div class="header-actions">
+                <span id="group-member-count" class="member-count-badge"></span>
+                <button onclick="showGroupMembers(currentGroupId)" title="Members">👥</button>
+                <button onclick="startGroupCall(currentGroupId)" title="Group call">📞</button>
+            </div>
+        </header>
+        <div id="group-message-list" class="message-list"></div>
+        <div class="chat-input">
+            <button class="attach-btn" onclick="attachGroupFile()" title="Attach file">📎</button>
+            <input type="text" id="group-message-input" placeholder="Type a message..." dir="auto"
+                   onkeydown="if(event.key==='Enter')sendGroupMessage(currentGroupId)">
+            <button class="send-btn" onclick="sendGroupMessage(currentGroupId)">Send</button>
+            <input type="file" id="group-file-input" style="display:none" onchange="onGroupFileSelected(event)">
+        </div>
+    </div>
+
+    <!-- Create Group Dialog -->
+    <div id="view-create-group" class="view hidden">
+        <header>
+            <button onclick="showView('contacts')">←</button>
+            <h1>Create Group</h1>
+        </header>
+        <div class="create-group-content">
+            <p>Create a new encrypted group chat.</p>
+            <input type="text" id="create-group-name" placeholder="Group name" maxlength="64"
+                   style="width:100%;max-width:400px;padding:12px 16px;background:var(--input-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:15px;outline:none;">
+            <button onclick="createGroup()" style="max-width:400px;">Create Group</button>
+        </div>
+    </div>
+
+    <!-- Group Members Modal -->
+    <div id="group-members-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeGroupMembers()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Group Members</h2>
+                <button onclick="closeGroupMembers()" class="modal-close">✕</button>
+            </div>
+            <div id="group-members-list" class="group-members-list"></div>
+            <div class="modal-footer">
+                <button onclick="showAddMemberDialog()" class="btn-sm">Add Member</button>
+                <button onclick="leaveCurrentGroup()" class="btn-sm danger">Leave Group</button>
+            </div>
+            <div id="add-member-section" class="hidden" style="padding:12px;">
+                <input type="text" id="add-member-input" placeholder="Paste Peer ID..."
+                       style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;outline:none;margin-bottom:8px;">
+                <button onclick="addMemberFromInput()" class="btn-sm">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Incoming Call Notification -->
+    <div id="incoming-call-notification" class="incoming-call-notification hidden">
+        <div class="incoming-call-info">
+            <div id="incoming-call-name" class="incoming-call-name">Incoming Call</div>
+            <div id="incoming-call-label" class="incoming-call-label">Incoming call...</div>
+        </div>
+        <div class="incoming-call-actions">
+            <button class="call-action-btn accept" onclick="acceptIncomingCall()">Accept</button>
+            <button class="call-action-btn decline" onclick="declineIncomingCall()">Decline</button>
+        </div>
+    </div>
+
     <!-- Call Screen -->
     <div id="view-call" class="view hidden">
         <div class="call-screen">
@@ -166,6 +239,22 @@
             <div class="call-controls">
                 <button class="call-btn mute" onclick="toggleMute()">🔇</button>
                 <button class="call-btn hangup" onclick="hangupCall()">End</button>
+                <button class="call-btn camera" onclick="toggleCamera()">📷</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Group Call View -->
+    <div id="view-group-call" class="view hidden">
+        <div class="group-call-screen">
+            <div class="group-call-header">
+                <span id="group-call-name">Group Call</span>
+                <span id="group-call-timer" class="call-timer"></span>
+            </div>
+            <div id="group-call-grid" class="group-call-grid"></div>
+            <div class="call-controls">
+                <button class="call-btn mute" onclick="toggleMute()">🔇</button>
+                <button class="call-btn hangup" onclick="leaveGroupCallUI()">Leave</button>
                 <button class="call-btn camera" onclick="toggleCamera()">📷</button>
             </div>
         </div>
@@ -244,6 +333,21 @@
                         <span id="settings-contact-channels" style="color: #fff;">0</span>
                     </div>
                 </div>
+                <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;">WebRTC Privacy</h3>
+                <div class="setting-row" style="margin-bottom: 8px;">
+                    <span>Relay-only mode</span>
+                    <label style="position:relative;display:inline-block;width:44px;height:24px;">
+                        <input type="checkbox" id="webrtc-privacy-toggle" checked
+                            onchange="setWebRTCPrivacyMode(this.checked)"
+                            style="opacity:0;width:0;height:0;">
+                        <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#444;border-radius:12px;transition:.3s;"></span>
+                    </label>
+                </div>
+                <p style="font-size: 0.8em; opacity: 0.6; margin-bottom: 8px;">
+                    When enabled, WebRTC connections route through TURN relays only. Your IP address is never exposed to peers. Disabling this may improve connection speed but reveals your IP.
+                </p>
+                <p id="webrtc-privacy-warning" style="font-size: 0.8em; color: #ff9500; display: none; margin-bottom: 12px;"></p>
+
                 <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;">Relay Server</h3>
                 <div style="display: flex; gap: 8px; margin-bottom: 4px;">
                     <input type="url" id="custom-relay-input" placeholder="wss://www.parol.social/ws"

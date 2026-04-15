@@ -20,6 +20,7 @@ pub mod pool;
 pub mod relay_node;
 pub mod trust_roots;
 
+pub use directory::RelayHealth;
 pub use error::RelayError;
 
 use async_trait::async_trait;

@@ -4,10 +4,10 @@
 //! messaging, key rotation on member removal, group calls, and group file
 //! transfer across 4 simulated peers.
 
+use parolnet_core::ParolNet;
 use parolnet_core::config::ParolNetConfig;
 use parolnet_core::group::GroupManager;
 use parolnet_core::group_call::GroupCallState;
-use parolnet_core::ParolNet;
 use parolnet_protocol::address::PeerId;
 use parolnet_protocol::group::{GroupId, GroupMetadataPayload, MAX_GROUP_MEMBERS};
 use sha2::{Digest, Sha256};
@@ -136,11 +136,7 @@ impl GroupFixture {
                 }
                 peers[receiver_idx]
                     .group_manager()
-                    .process_sender_key_distribution(
-                        &group_id,
-                        ids[sender_idx],
-                        &dists[sender_idx],
-                    )
+                    .process_sender_key_distribution(&group_id, ids[sender_idx], &dists[sender_idx])
                     .unwrap();
             }
         }
@@ -180,7 +176,11 @@ fn test_sender_key_distribution_and_group_text() {
             .gm(i)
             .decrypt_group_text(&f.group_id, &ids[0], &msg)
             .unwrap();
-        assert_eq!(pt, b"Hello from A!", "Peer {} failed to decrypt A's message", i);
+        assert_eq!(
+            pt, b"Hello from A!",
+            "Peer {} failed to decrypt A's message",
+            i
+        );
     }
 
     // Peer B sends a group text.
@@ -196,7 +196,11 @@ fn test_sender_key_distribution_and_group_text() {
             .gm(i)
             .decrypt_group_text(&f.group_id, &ids[1], &msg2)
             .unwrap();
-        assert_eq!(pt, b"Reply from B!", "Peer {} failed to decrypt B's message", i);
+        assert_eq!(
+            pt, b"Reply from B!",
+            "Peer {} failed to decrypt B's message",
+            i
+        );
     }
 }
 
@@ -274,9 +278,7 @@ fn test_key_rotation_on_member_removal() {
 
     // Peer D (with old keys) CANNOT decrypt the new message.
     // D still has the group in their manager but with the old sender key for A.
-    let result = f
-        .gm(3)
-        .decrypt_group_text(&f.group_id, &ids[0], &post_msg);
+    let result = f.gm(3).decrypt_group_text(&f.group_id, &ids[0], &post_msg);
     assert!(
         result.is_err(),
         "Peer D must NOT be able to decrypt after key rotation"
@@ -347,9 +349,7 @@ fn test_group_file_transfer() {
 
     let gm_a = peer_a.group_manager();
     let id_a = peer_a.peer_id();
-    let (group_id, _) = gm_a
-        .create_group("File Group".into(), id_a, 1000)
-        .unwrap();
+    let (group_id, _) = gm_a.create_group("File Group".into(), id_a, 1000).unwrap();
 
     let file_mgr_a = peer_a.group_file_manager();
     let file_mgr_b = peer_b.group_file_manager();
