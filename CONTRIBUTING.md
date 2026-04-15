@@ -14,7 +14,7 @@ We welcome contributors from all backgrounds, especially those from communities 
 
 ### Repository Structure
 
-ParolNet is a Cargo workspace with 7 crates and a PWA shell:
+ParolNet is a Cargo workspace with 9 crates and a PWA shell:
 
 ```
 crates/
@@ -25,8 +25,10 @@ crates/
   parolnet-relay        Onion routing, circuits
   parolnet-core         Public API: bootstrap, send, recv, panic wipe
   parolnet-wasm         Browser bindings via wasm-bindgen
+  parolnet-relay-server Axum WebSocket relay server
+  parolnet-authority-cli Authority key and relay endorsement CLI
 pwa/                    Installable PWA shell (HTML/JS/manifest)
-specs/                  Protocol specifications PNP-001 through PNP-006
+specs/                  Protocol specifications PNP-001 through PNP-009
 ```
 
 ### Crate Dependency Order
@@ -47,6 +49,9 @@ parolnet-transport  (depends on crypto + protocol, native only)
 parolnet-core  (depends on all above)
 
 parolnet-wasm  (depends on crypto + protocol + core, WASM target only)
+
+parolnet-relay-server  (binary crate for relay deployment)
+parolnet-authority-cli (binary crate for authority operations)
 ```
 
 When adding dependencies, respect this order. `parolnet-crypto` and `parolnet-protocol` must remain WASM-compatible (no tokio, no system libraries).
@@ -101,7 +106,7 @@ All cryptographic code must be pure Rust. No OpenSSL, no system crypto libraries
 
 ## Protocol Specifications
 
-The `specs/` directory contains six formal RFC-style specifications:
+The `specs/` directory contains protocol specifications. They are the design target; [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) records which pieces are actually wired into the current application path.
 
 | Spec | Name |
 |------|------|
@@ -111,8 +116,11 @@ The `specs/` directory contains six formal RFC-style specifications:
 | PNP-004 | Relay Circuit Protocol |
 | PNP-005 | Gossip/Mesh Protocol |
 | PNP-006 | Traffic Shaping Protocol |
+| PNP-007 | Media and File Transfer Protocol |
+| PNP-008 | Relay Federation and Network Resilience |
+| PNP-009 | Group Communication Protocol |
 
-These specs are the source of truth. Code must match them. If you believe a spec needs to change, update the spec document first and get it reviewed, then update the code to match.
+When code intentionally implements only part of a spec, update [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) and avoid user-facing claims that imply the whole spec is live. If you believe a spec needs to change, update the spec document first and get it reviewed, then update the code to match.
 
 ## Submitting a Pull Request
 

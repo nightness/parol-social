@@ -7,13 +7,21 @@
 
 ---
 
+## 0. Scope and Implementation Status
+
+This threat model describes the intended ParolNet protocol architecture. It includes mitigations specified in PNP-001 through PNP-009, some of which are not fully wired into the current PWA/relay application path.
+
+For the current code snapshot, see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md). In particular, the current browser chat path uses encrypted payloads over a direct WebSocket relay and optional WebRTC data channels. It does not yet provide production 3-hop onion routing, HTTP/2 cell framing, or constant-rate cover traffic end to end.
+
+---
+
 ## 1. System Overview
 
-ParolNet is a decentralized, censorship-resistant communication platform designed for users in hostile network environments. It provides end-to-end encrypted messaging with metadata protection, traffic indistinguishability, and offline mesh capabilities.
+ParolNet is a decentralized, censorship-resistant communication platform designed for users in hostile network environments. The implemented prototype provides encrypted messaging and local encrypted storage, while the full protocol design adds stronger metadata protection, traffic indistinguishability, and offline mesh capabilities.
 
 ### 1.1 Crate Architecture
 
-The system is composed of seven Rust crates arranged in a layered dependency hierarchy:
+The system is composed of nine Rust crates. The diagram below shows the main library crates; the workspace also includes `parolnet-relay-server` and `parolnet-authority-cli`.
 
 ```
 +-------------------------------------------------------------------+
@@ -58,6 +66,7 @@ The system is composed of seven Rust crates arranged in a layered dependency hie
 | Traffic Shaping | PNP-006 | TLS fingerprint mimicry, constant-rate padding, DPI evasion |
 | Media Transfer | PNP-007 | Chunked encrypted file transfer |
 | Relay Federation | PNP-008 | Authority-endorsed relays, federated trust model, relay-to-relay directory sync |
+| Group Communication | PNP-009 | Sender keys, group calls, group file transfer |
 
 ### 1.3 Key Design Invariants
 
@@ -327,7 +336,7 @@ The system is composed of seven Rust crates arranged in a layered dependency hie
 - Panic wipe erases all persistent state
 - Decoy mode conceals app identity
 - Encrypted storage at rest for store-and-forward buffers (PNP-005 Section 7.5)
-- No logs, analytics, or telemetry transmitted (PNP-003 Section 7.4)
+- Protocol target: no logs, analytics, or telemetry transmitted during bootstrap (PNP-003 Section 7.4). Current relay/PWA code contains optional client telemetry and analytics endpoints; deployments should disable or remove them for high-risk use.
 
 **Risk**: Endpoint compromise (malware, physical seizure) defeats all network-layer protections. This is the highest-value attack point.
 
@@ -406,7 +415,7 @@ The gossip layer necessarily exposes message metadata (source PeerId, TTL, times
 
 ### 6.7 mDNS/BLE Service Discovery
 
-Local network discovery via mDNS uses the service type `_parolnet._tcp` (PNP-005 Section 5.9, PNP-003 Section 5.6), which unambiguously identifies a ParolNet user to any local network observer. In high-threat environments (e.g., monitored office networks, university campuses in authoritarian states), this is a significant risk. Users MUST be able to disable local discovery entirely.
+The older protocol text specifies mDNS service type `_parolnet._tcp` (PNP-005 Section 5.9, PNP-003 Section 5.6), which would unambiguously identify a ParolNet user to any local network observer. Current code uses obfuscated UDP broadcast discovery instead of mDNS, but local discovery still creates observable network behavior. In high-threat environments (e.g., monitored office networks, university campuses in authoritarian states), users MUST be able to disable local discovery entirely.
 
 ### 6.8 Federated Authority Trust Model
 
@@ -437,7 +446,9 @@ If a session key is compromised, the Double Ratchet restores secrecy after the n
 
 ### 7.3 Metadata Protection
 
-ParolNet protects communication metadata at multiple layers:
+The full protocol design protects communication metadata at multiple layers. In the current PWA path, content encryption is present after a session exists, but relay/WebRTC connection metadata, timing, and volume remain observable.
+
+Design-layer protections:
 - **Who**: No registration, no identifiers beyond cryptographic keys. PeerId = SHA-256(pubkey).
 - **To whom**: Onion routing hides destination from all but the exit relay. Exit relay sees PeerId, not real-world identity.
 - **When**: Timestamps coarsened to 5-minute buckets (PNP-001 Section 3.2). Constant-rate padding obscures activity timing.
@@ -446,7 +457,7 @@ ParolNet protects communication metadata at multiple layers:
 
 ### 7.4 Traffic Indistinguishability
 
-To a passive network observer, ParolNet traffic is designed to be indistinguishable from HTTPS/2 browsing on CDN-hosted websites. This is achieved through:
+To a passive network observer, ParolNet traffic is designed to be indistinguishable from HTTPS/2 browsing on CDN-hosted websites. The current PWA/relay path does not yet provide these properties end to end. The design relies on:
 - TLS ClientHello fingerprint mimicry (PNP-006 Section 5.1)
 - HTTP/2 framing for all protocol data (PNP-006 Section 5.3)
 - Port 443 exclusively (PNP-006 Section 5.2)
@@ -459,18 +470,18 @@ The X3DH handshake does not produce a non-repudiable transcript (PNP-002 Section
 
 ### 7.6 Relay Zero-Trust
 
-The system assumes any individual relay may be adversary-controlled. Security emerges from the requirement that an adversary must compromise all three hops simultaneously to break anonymity (PNP-004 Section 6.1). The E2EE layer (Double Ratchet) is independent of the relay layer, so even a fully compromised relay path cannot read message content.
+The intended relay protocol assumes any individual relay may be adversary-controlled. In the full design, anonymity depends on the requirement that an adversary compromise all three hops simultaneously (PNP-004 Section 6.1). The current browser chat path does not yet use that production 3-hop path, so it should be evaluated as direct relay/WebRTC messaging with E2EE content protection.
 
 ### 7.7 Censorship Resistance
 
-The system is designed to resist censorship through:
+The full system is designed to resist censorship through:
 - No single point of failure or control (decentralized)
-- Traffic indistinguishable from normal browsing (resists DPI-based blocking)
-- Relay probing returns plausible web content (resists active probing)
-- Federated authority-endorsed relay directory with relay-to-relay sync (PNP-008) — any single relay alive keeps the full network reachable
+- Traffic indistinguishable from normal browsing (resists DPI-based blocking; design target)
+- Relay probing returns plausible web content (resists active probing; design target)
+- Federated authority-endorsed relay directory with relay-to-relay sync (PNP-008; partially implemented)
 - Client fallback chain: cached directory → bundled bootstrap → relay discovery
-- Offline mesh capability via mDNS/BLE (survives internet shutdowns)
-- Domain fronting support where available (PNP-006 Section 5.2)
+- Offline mesh capability via local discovery and store-forward paths (partial; current code uses obfuscated UDP broadcast, not mDNS/BLE)
+- Domain fronting support where available (PNP-006 Section 5.2; design target)
 - Encrypted data export/import — if app source is taken down, users export data, download from new source, reimport. Export file is opaque (indistinguishable from random bytes)
 
 ### 7.8 Panic Wipe / Data Destruction

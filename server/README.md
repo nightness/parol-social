@@ -70,6 +70,6 @@ To update the version or release date, edit the static values in `index.html`:
 ## Design Decisions
 
 - **No JavaScript frameworks** — Pure static HTML with inline CSS.
-- **No external dependencies** — Works offline, works from `file://`, works anywhere.
+- **No external dependencies** — Static assets can be opened from many environments. Full PWA behavior, including Service Worker install and offline caching, requires HTTPS or `localhost`; `file://` is limited-use only.
 - **Innocuous appearance** — The page presents as a calculator utility download. No references to encryption, messaging, security, or ParolNet.
 - **Mobile-first** — Responsive layout, max-width 480px, looks good on phones.

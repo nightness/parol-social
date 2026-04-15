@@ -6,6 +6,12 @@
 
 ---
 
+## Implementation Note
+
+This specification describes the media/file-transfer design target. Current code has core/WASM helpers for calls and file transfer, but the PWA UI does not yet send media or file traffic through production 3-hop onion circuits with MediaCall traffic shaping.
+
+---
+
 ## 1. Overview
 
 The ParolNet Media and File Transfer Protocol (PMFTP) extends ParolNet beyond text messaging to support real-time voice calls, video calls, and file transfer. All media and file data is routed through the existing 3-hop onion relay circuits (PNP-004), maintaining the same untrackable guarantees as text messaging. An observer -- whether a network intermediary, a compromised relay, or a state-level adversary performing DPI -- MUST NOT be able to distinguish voice, video, or file transfer traffic from ordinary text messaging or cover traffic.

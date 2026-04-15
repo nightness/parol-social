@@ -6,6 +6,10 @@
 
 ---
 
+## Implementation Note
+
+This document is a traffic-shaping design target. Current code has transport camouflage primitives, but the user-facing PWA/relay path does not yet provide constant-rate cover traffic, HTTP/2-shaped browser relay traffic, or full TLS fingerprint mimicry end to end.
+
 ## 1. Overview
 
 The ParolNet Traffic Shaping Protocol (PTSP) is a behavioral specification, not a wire protocol. It defines how ParolNet nodes MUST shape their network traffic so that, to any observer performing deep packet inspection (DPI) or statistical traffic analysis, the traffic is indistinguishable from a user browsing a CDN-hosted website over HTTP/2 using a mainstream browser.
@@ -147,7 +151,7 @@ The padding interval is the maximum time between consecutive sends (real or padd
 3. **What the observer can determine**: (a) The IP addresses of the communicating nodes (mitigated by relay circuits, PNP-004), (b) the total volume of traffic over long periods (mitigated by bandwidth mode selection), (c) connection duration and timing of establishment/teardown.
 4. **Correlation attacks**: A sophisticated adversary controlling both the network and one or more relays may attempt to correlate traffic entering and exiting the network. Constant-rate padding and dummy traffic increase the difficulty but do not make correlation impossible. This is an inherent limitation documented for transparency.
 5. **Fingerprint diversity**: If all ParolNet nodes use the same browser fingerprint, an adversary could block that fingerprint. Implementations SHOULD support multiple fingerprint profiles (Chrome, Firefox, Edge) and SHOULD distribute them across the node population so that no single fingerprint accounts for more than 50% of ParolNet traffic.
-6. **Local network privacy**: On a LAN, mDNS advertisements (PNP-005 Section 5.9) reveal ParolNet node presence to local observers. In high-threat environments, nodes SHOULD disable mDNS and rely on manual peer configuration or pre-shared peer lists.
+6. **Local network privacy**: Older protocol text specifies mDNS advertisements (PNP-005 Section 5.9), which would reveal ParolNet node presence to local observers. Current code uses obfuscated UDP broadcast discovery instead, but local discovery is still observable network behavior. In high-threat environments, nodes SHOULD disable local discovery and rely on manual peer configuration or pre-shared peer lists.
 
 ## 8. Cross-Protocol Interactions
 

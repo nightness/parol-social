@@ -4,6 +4,8 @@
 
 A secure, decentralized communication platform promoting free expression and open access to information. Designed for citizens in countries with oppressive authoritarian regimes who still have internet access. But usable for secure communication in general.
 
+**Current status:** ParolNet is an active prototype. The repository contains substantial crypto, protocol, relay, mesh, WASM, and PWA code, but the current browser app does not yet deliver every property described in the protocol specifications. Read [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) before evaluating the software for real-world risk.
+
 ---
 
 ## Why ParolNet Exists
@@ -21,15 +23,15 @@ ParolNet is built from the ground up to solve these problems together:
 
 **Your identity is invisible.** There is no registration. No phone number, no email, no username, no account. Your identity is a cryptographic key that exists only on your device. You connect with others by scanning a QR code in person or sharing a passphrase — no server ever learns who you are.
 
-**Your traffic is undetectable.** To anyone watching your internet connection — your ISP, a national firewall, a government monitoring system — ParolNet traffic looks identical to normal web browsing. The same encryption protocols, the same packet sizes, the same traffic patterns. There is nothing to block because there is nothing to distinguish.
+**Traffic camouflage is a design goal.** The protocol specifications define TLS camouflage, fixed-size cells, padding, and cover traffic. The current PWA/relay path uses WebSocket/WebRTC transport and does not yet implement full HTTP/2-shaped constant-rate cover traffic.
 
-**Your conversations are untraceable.** Messages travel through a chain of three volunteer relay nodes, each encrypted in layers like an onion. No single relay knows both who sent a message and who received it. Even if a relay is compromised, your privacy is maintained.
+**Onion-routed conversations are a design goal.** The `parolnet-relay` crate includes 3-hop circuit primitives and onion encryption helpers. The current browser chat path sends encrypted payloads through a direct WebSocket relay or optional WebRTC data channel, not through production 3-hop circuits.
 
-**Your metadata is protected.** It's not enough to encrypt message content — governments map social networks by analyzing who talks to whom, when, and how often. ParolNet pads all messages to fixed sizes, sends constant cover traffic, and uses decoy messages so that even traffic patterns reveal nothing.
+**Metadata protection is partial today.** Message content is end-to-end encrypted after a secure session is established. The current app still exposes relay/WebRTC connection metadata and does not yet provide the full padding, decoy, and constant-rate protections described by PNP-004 and PNP-006.
 
 **Your device is safe if seized.** A single panic button securely erases all keys, messages, and contacts from your device. A decoy mode makes the app appear as a calculator or notepad. Deniable encryption means you cannot be forced to prove what you sent — even to a court.
 
-**You can communicate without internet.** When the government shuts down the internet — as has happened in Iran, Myanmar, Belarus, and elsewhere — ParolNet's mesh networking allows nearby devices to relay messages over Bluetooth and Wi-Fi, forming a local communication network that doesn't depend on any infrastructure.
+**Offline and local mesh support is partial today.** The codebase has store-forward and UDP broadcast discovery primitives. BLE bootstrap and a fully integrated offline browser mesh are not complete.
 
 ---
 
@@ -52,9 +54,9 @@ ParolNet is for anyone who needs to communicate privately in a hostile environme
 | Feature | Signal | Tor | VPN | ParolNet |
 |---------|--------|-----|-----|----------|
 | No phone/email required | No | Yes | No | **Yes** |
-| Traffic looks like normal browsing | No | No | Partially | **Yes** |
-| Metadata protection | Partial | Yes | No | **Yes** |
-| Works without internet | No | No | No | **Yes** (mesh) |
+| Traffic looks like normal browsing | No | No | Partially | Design target |
+| Metadata protection | Partial | Yes | No | Partial today |
+| Works without internet | No | No | No | Partial today |
 | Panic wipe / decoy mode | No | No | No | **Yes** |
 | Decentralized (no company to pressure) | No | Yes | No | **Yes** |
 | End-to-end encrypted | Yes | No* | No | **Yes** |
@@ -64,6 +66,8 @@ ParolNet is for anyone who needs to communicate privately in a hostile environme
 ---
 
 ## Mission Statement — In Your Language
+
+The following mission statements describe the project goal. They are not a statement that the current prototype already provides every protocol property in production use.
 
 ### English
 ParolNet is free, open-source software that protects your right to private communication. No government, corporation, or individual can read your messages, track who you talk to, or shut down the network. Your voice matters. Your privacy is non-negotiable.
@@ -112,7 +116,7 @@ ParolNet, sansur ve gozetim altinda yasayan insanlar icin tasarlanmistir. Kayit 
 
 ## Core Principles
 
-- **Untrackable**: Traffic is indistinguishable from normal HTTPS browsing
+- **Untrackable**: Traffic should be difficult to distinguish from normal HTTPS browsing when the full transport design is implemented
 - **Zero-trust**: Assume the network and all servers are compromised
 - **Decentralized**: No single point of failure or control
 - **Metadata-minimal**: Protect who talks to whom, not just content
@@ -152,7 +156,7 @@ ParolNet, sansur ve gozetim altinda yasayan insanlar icin tasarlanmistir. Kayit 
 
 ## Protocol Specifications
 
-Six formal RFC-style protocol specifications define the system:
+Nine protocol specifications define the design target. Implementation coverage varies; see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 | Spec | Name | Purpose |
 |------|------|---------|
@@ -162,6 +166,9 @@ Six formal RFC-style protocol specifications define the system:
 | [PNP-004](specs/PNP-004-relay-circuit.md) | Relay Circuit Protocol | 3-hop onion routing, 512-byte fixed cells |
 | [PNP-005](specs/PNP-005-gossip-mesh.md) | Gossip/Mesh Protocol | Epidemic propagation, store-and-forward, PoW anti-spam |
 | [PNP-006](specs/PNP-006-traffic-shaping.md) | Traffic Shaping Protocol | DPI evasion, TLS fingerprint mimicry, constant-rate padding |
+| [PNP-007](specs/PNP-007-media-file-transfer.md) | Media and File Transfer | Audio, video, call signaling, file chunks |
+| [PNP-008](specs/PNP-008-relay-federation.md) | Relay Federation | Bootstrap resilience, directory sync, bridge design |
+| [PNP-009](specs/PNP-009-group-communication.md) | Group Communication | Sender keys, group calls, group files |
 
 ## Tech Stack
 
@@ -171,7 +178,7 @@ Six formal RFC-style protocol specifications define the system:
 - **Serialization**: CBOR (RFC 8949) via ciborium
 - **Async**: tokio
 - **WASM**: wasm-bindgen for browser PWA delivery
-- **Relay**: Built-in WebTorrent tracker for WebRTC peer discovery
+- **Relay**: Axum WebSocket relay server with store-forward, directory, and endorsement endpoints
 - **Storage**: AES-256-GCM encrypted IndexedDB with PBKDF2 key derivation
 - **License**: MIT OR Apache-2.0
 
@@ -221,23 +228,23 @@ The `docker-compose.override.yml` file bind-mounts `./pwa` into the running ngin
 ## Security Model
 
 ### What observers see
-To a passive network observer (ISP, national firewall), ParolNet traffic appears as a user maintaining HTTPS/2 connections to CDN-hosted websites with normal browsing patterns.
+In the full protocol design, ParolNet traffic should resemble HTTPS/2 browsing with padding and cover traffic. In the current PWA/relay implementation, observers can see WebSocket and WebRTC connection behavior to relays and peers.
 
 ### What observers cannot determine
-- That the traffic is ParolNet rather than web browsing
-- The identity of communicating parties
+- That the traffic is ParolNet rather than web browsing, once the full transport design is implemented
+- The identity of communicating parties, once 3-hop circuits are used by the application path
 - Message content
-- Which traffic is real vs. cover traffic
+- Which traffic is real vs. cover traffic, once cover traffic is implemented end-to-end
 
 ### Threat model
 - Assumes network is fully compromised (DPI, traffic analysis)
 - Assumes any individual relay may be compromised (zero-trust)
-- Protects against: censorship, surveillance, metadata collection, device seizure (panic wipe + encrypted storage)
+- Design target protects against: censorship, surveillance, metadata collection, device seizure (panic wipe + encrypted storage)
 - Does NOT protect against: global passive adversary with simultaneous control of all relay hops
 
 ## Project Status
 
-**Phase**: Core implementation complete. Crypto primitives (X3DH, Double Ratchet, AEAD), wire format, transport layer, onion routing, gossip mesh, and relay server all implemented with 390+ tests passing. PWA with offline support, encrypted local storage, and decoy mode deployed.
+**Phase**: Active prototype. Crypto/session primitives, wire/protocol types, relay/circuit primitives, gossip/store-forward primitives, authority tooling, relay server endpoints, WASM bindings, and the PWA shell exist. The current PWA message path does not yet use production 3-hop onion routing or full traffic shaping. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 See [ROADMAP.md](ROADMAP.md) for the full development plan.
 See [STRATEGIES.md](STRATEGIES.md) for the adoption and distribution strategy.

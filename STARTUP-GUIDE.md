@@ -2,11 +2,13 @@
 
 How to build and run your own ParolNet network from source.
 
+**Current code status:** this guide describes the relay/PWA network that exists today plus some operational concepts from the protocol design. Before using this for real-world risk, read [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+
 ---
 
 ## 1. What is ParolNet?
 
-ParolNet is encrypted messaging that works even if the government takes down the server. Messages travel through relay nodes. No single relay can read your messages or know who you talk to.
+ParolNet is encrypted messaging infrastructure under active development. The current PWA sends encrypted payloads through a WebSocket relay and optional WebRTC data channels. The protocol design includes 3-hop onion relay circuits so no single relay can know both sides of a conversation, but that full routing path is not yet wired into normal PWA chat.
 
 No tracking. No phone numbers. No registration. No names. Your identity is a cryptographic key that exists only on your device.
 
@@ -32,7 +34,7 @@ No tracking. No phone numbers. No registration. No names. Your identity is a cry
 
 **For hosting the app:**
 
-- Any way to serve static files. A web server (Nginx, Apache), Cloudflare Pages, GitHub Pages, IPFS, or even a USB stick.
+- Any way to serve static files over HTTPS for full PWA behavior. A USB stick or ZIP copy can be used for inspection or limited local use, but Service Worker installation requires HTTPS or `localhost`.
 
 ---
 
@@ -288,10 +290,10 @@ The PWA is just static files: HTML, JavaScript, and a WASM binary. You can host 
 - **Cloudflare Pages:** Upload the `pwa/` directory
 - **GitHub Pages:** Push the `pwa/` directory to a GitHub repository with Pages enabled
 - **IPFS:** `ipfs add -r pwa/` -- decentralized and hard to take down
-- **USB stick:** Copy the `pwa/` directory. Users open `index.html` in their browser.
+- **USB stick:** Copy the `pwa/` directory. Users can open `index.html` in their browser for limited use or inspection, but full installable PWA behavior requires HTTPS or `localhost`.
 - **ZIP file:** `cd pwa && zip -r parolnet-pwa.zip .` -- distribute however you can
 
-**The PWA works offline after the first load.** Once a user opens the app, it installs as a Progressive Web App on their device. If the host disappears, installed copies keep working.
+**The PWA can cache app assets after the first load.** Once a user installs it as a Progressive Web App, cached copies can keep opening if the host disappears. Sending new messages still requires a reachable relay, direct WebRTC connection, or future mesh path.
 
 Users install it by visiting the URL in their browser and clicking "Install" or "Add to Home Screen."
 
@@ -312,7 +314,7 @@ With a 2-of-3 threshold, the network still works. Any 2 of the 3 remaining autho
 Rebuild the PWA with the same public keys (`--pubkeys` must be the same). Re-host it. Users who visit the URL will get the update automatically. The network identity stays the same because the same authority keys are used.
 
 **Relay address changes:**
-Relay addresses are NOT baked into the app (unless you used `--bootstrap-relays`). Relays discover each other through directory sync. Users' apps discover relays through the directory. If you used `--bootstrap-relays`, rebuild the PWA with the new relay URLs.
+Relay addresses are not baked into the app unless you used `--bootstrap-relays`. The current implementation also falls back to same-origin `/ws`. Relay directory sync is simple polling of configured `PEER_RELAY_URLS`, not the full PNP-008 federation design.
 
 ---
 
@@ -348,12 +350,12 @@ Do NOT backup `.key` files together. Each authority holder backs up their own ke
 
 - **The export file is encrypted.** It looks like random data. Safe to carry on a USB stick, send through email, or store in cloud storage. Without the user's password, it is unreadable.
 
-- **All messages are end-to-end encrypted.** Relay operators cannot read them. Even if a relay is compromised, message content stays private.
+- **Messages are end-to-end encrypted after a secure session exists.** Relay operators should not be able to read encrypted message content. The current relay can still observe sender/recipient PeerIds, timing, and message volume.
 
 - **PeerId = SHA-256(public_key).** There are no names, no phone numbers, no email addresses, nothing identifying in the system. Even relay operators do not know who their users are.
 
-- **Messages are padded to fixed sizes.** An observer cannot tell the difference between a short message and a long one.
+- **Padding exists in the protocol library.** The current PWA relay path does not yet apply the full fixed-cell, constant-rate padding design end to end.
 
-- **Cover traffic hides real activity.** The app sends fake messages mixed with real ones. An observer watching the network cannot tell which messages are real.
+- **Cover traffic is a protocol design target.** It is not yet implemented end to end in the current PWA relay path.
 
 - **If your device is seized:** Use the panic wipe feature (if available in your build) to erase all keys and messages instantly.

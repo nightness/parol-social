@@ -100,8 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - All local data (private keys, messages, contacts) can now be encrypted at rest
 - Decoy mode unlock code doubles as encryption passphrase — no separate prompt
-- Protocol specifications (PNP-001 through PNP-006) in `specs/`
-- Rust workspace with 7 crates: crypto, protocol, transport, mesh, relay, core, wasm
+- Protocol specifications (PNP-001 through PNP-009) in `specs/`
+- Rust workspace with 9 crates: crypto, protocol, transport, mesh, relay, core, wasm, relay-server, authority-cli
 - Trait definitions for all core interfaces (AEAD, Transport, Connection, etc.)
 - `IdentityKeyPair` with Ed25519 key generation and PeerId derivation
 - `PeerId` type derived from SHA-256 of Ed25519 public key (no phone/email)

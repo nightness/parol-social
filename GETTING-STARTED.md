@@ -1,6 +1,6 @@
 # Getting Started with ParolNet
 
-ParolNet is a secure, private communication app designed for people who need to speak freely without being tracked. It works like a regular messaging app, but it is built so that no government, company, or individual can read your messages, see who you talk to, or shut down the network.
+ParolNet is a secure, private communication app prototype designed for people who need to speak freely without being tracked. The current code supports encrypted sessions and a calculator-disguised PWA, but it is not yet a production-ready safety tool. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for what is implemented today.
 
 The app disguises itself as a calculator. To anyone looking at your phone, it appears to be a simple calculator app. Only you know the secret code that opens the real messenger inside.
 
@@ -14,11 +14,11 @@ This guide covers two things:
 
 ### What You Need to Know First
 
-- ParolNet looks like a **calculator app** called "Calculator" (or "Calc") on your device. This is intentional -- it protects you if someone checks your phone.
-- You unlock the hidden messenger by typing a secret code on the calculator keypad and pressing the **=** button.
-- The default unlock code is **00000** (five zeros). You should change this to something only you know.
+- ParolNet can be installed with a **calculator** name and icon. Decoy mode must be enabled and configured in the app to require a calculator unlock code.
+- You unlock the hidden messenger by typing your configured secret code on the calculator keypad and pressing the **=** button.
+- Development/no-WASM fallback builds may accept **00000** (five zeros). Do not rely on this default; configure your own code before using decoy mode.
 - **Be careful**: make sure no one is watching when you enter your unlock code. If someone sees you type a code and a messenger appears, the disguise is broken.
-- After you install and open the app once, it works **completely offline**. You do not need the internet to view your messages. If the website where you got the app disappears, your installed copy keeps working.
+- After you install and open the app once, cached app assets and stored local data can remain available offline. Sending new messages still depends on an available relay, WebRTC connection, or future mesh support.
 
 ---
 
@@ -35,7 +35,7 @@ Someone will give you a web address (URL) to open. It may look like a normal web
 3. Tap the **three-dot menu** (top right corner) and select **"Add to Home Screen"** or **"Install App"**.
 4. Confirm the installation. The app appears on your home screen as **"Calculator"**.
 5. Open it from your home screen. You will see a calculator.
-6. Type your unlock code (default: **00000**) and press **=**.
+6. If decoy mode is enabled, type your unlock code and press **=**.
 7. The messenger opens.
 
 #### iPhone or iPad (Safari)
@@ -46,7 +46,7 @@ Someone will give you a web address (URL) to open. It may look like a normal web
 4. Scroll down and tap **"Add to Home Screen"**.
 5. It installs as **"Calculator"**.
 6. Open it from your home screen.
-7. Type your unlock code (default: **00000**) and press **=**.
+7. If decoy mode is enabled, type your unlock code and press **=**.
 8. The messenger opens.
 
 #### Windows, Mac, or Linux (Chrome or Edge)
@@ -56,7 +56,7 @@ Someone will give you a web address (URL) to open. It may look like a normal web
 3. Look for the **install icon** in the address bar (it looks like a monitor with a down arrow), or go to the browser menu and select **"Install ParolNet"** or **"Install app"**.
 4. The app installs as a standalone window.
 5. Open it from your Start menu, Applications folder, or desktop.
-6. Type your unlock code (default: **00000**) and press **=**.
+6. If decoy mode is enabled, type your unlock code and press **=**.
 7. The messenger opens.
 
 ---
@@ -130,8 +130,8 @@ All messages are end-to-end encrypted. No one -- not even the people who built P
 ### If You Lose Internet
 
 - **Your messages are safe.** Everything is encrypted and stored on your device. You can still read old messages offline.
-- **Mesh networking.** If other ParolNet users are nearby (on the same Wi-Fi or using Bluetooth), your device can relay messages through them without using the internet. This works even during a government internet shutdown.
-- **Messages queue up.** If you send a message while offline, it will be delivered automatically when connectivity returns.
+- **Mesh networking.** The codebase has local discovery and store-forward primitives, but the browser app does not yet provide a complete offline mesh over Wi-Fi or Bluetooth.
+- **Messages queue up.** Delivery after reconnect depends on the relay, WebRTC peer, or future mesh path becoming available.
 
 ---
 
@@ -219,7 +219,7 @@ cd parolnet
 # Check that everything compiles
 cargo check --workspace
 
-# Run all tests (299 tests)
+# Run all tests
 cargo test --workspace
 
 # Lint -- must pass with zero warnings
@@ -271,7 +271,7 @@ The Service Worker will not register on non-localhost HTTP connections. To test 
 
 ```
 parolnet/
-├── crates/                        # Rust workspace (7 crates)
+├── crates/                        # Rust workspace (9 crates)
 │   ├── parolnet-crypto/           # Cryptographic primitives (X3DH, Double Ratchet,
 │   │                              #   ChaCha20-Poly1305, HKDF). WASM-compatible.
 │   ├── parolnet-protocol/         # Wire format, CBOR serialization, envelope
@@ -284,7 +284,9 @@ parolnet/
 │   │                              #   directory service.
 │   ├── parolnet-core/             # Public client API: bootstrap, sessions, send/recv,
 │   │                              #   panic wipe, calls, file transfer.
-│   └── parolnet-wasm/             # Browser WASM bindings via wasm-bindgen.
+│   ├── parolnet-wasm/             # Browser WASM bindings via wasm-bindgen.
+│   ├── parolnet-relay-server/     # Axum WebSocket relay server.
+│   └── parolnet-authority-cli/    # Authority key and relay endorsement CLI.
 ├── pwa/                           # Progressive Web App shell
 │   ├── index.html                 # App shell (calculator + messenger views)
 │   ├── app.js                     # Application logic (vanilla JS, zero dependencies)
@@ -299,14 +301,16 @@ parolnet/
 │       ├── calc-ios.svg           # Calculator icon for iOS
 │       ├── calc-android.svg       # Calculator icon for Android
 │       └── calc-windows.svg       # Calculator icon for Windows
-├── specs/                         # Protocol specifications (source of truth)
+├── specs/                         # Protocol specifications (design target)
 │   ├── PNP-001-wire-protocol.md
 │   ├── PNP-002-handshake-protocol.md
 │   ├── PNP-003-bootstrap-protocol.md
 │   ├── PNP-004-relay-circuit.md
 │   ├── PNP-005-gossip-mesh.md
 │   ├── PNP-006-traffic-shaping.md
-│   └── PNP-007-media-file-transfer.md
+│   ├── PNP-007-media-file-transfer.md
+│   ├── PNP-008-relay-federation.md
+│   └── PNP-009-group-communication.md
 ├── Cargo.toml                     # Workspace configuration
 ├── rust-toolchain.toml            # Rust toolchain (stable channel)
 ├── CLAUDE.md                      # AI assistant instructions
@@ -315,6 +319,7 @@ parolnet/
 ├── STRATEGIES.md                  # Adoption and distribution playbook
 ├── ROADMAP.md                     # Development roadmap
 ├── CHANGELOG.md                   # Version history
+├── IMPLEMENTATION_STATUS.md       # Current code vs protocol design target
 └── README.md                      # Project overview
 ```
 
@@ -335,7 +340,9 @@ parolnet-transport  (depends on crypto + protocol, native only)
   v
 parolnet-core  (depends on all above)
 
-parolnet-wasm  (depends on crypto + protocol, WASM target only)
+parolnet-wasm  (depends on crypto + protocol + core, WASM target only)
+parolnet-relay-server  (relay server binary)
+parolnet-authority-cli (authority operations)
 ```
 
 `parolnet-crypto` and `parolnet-protocol` must remain WASM-compatible. They cannot depend on `tokio` or any system-level libraries.
@@ -345,7 +352,7 @@ parolnet-wasm  (depends on crypto + protocol, WASM target only)
 ### Running Tests
 
 ```bash
-# Run all tests (299 tests across the workspace)
+# Run all tests across the workspace
 cargo test --workspace
 
 # Run tests for a specific crate
@@ -393,7 +400,7 @@ zip -r parolnet-pwa.zip .
 # Share parolnet-pwa.zip however you can
 ```
 
-Recipients extract the ZIP and open `index.html` in a browser, then install it as a PWA.
+Recipients extract the ZIP and open `index.html` in a browser. Some browser features, especially Service Worker installation, require HTTPS or `localhost`; a direct `file://` launch is useful for inspection or limited local use, not a complete PWA deployment.
 
 #### 3. IPFS (Censorship-Resistant Hosting)
 
@@ -422,7 +429,7 @@ Host the PWA as a Tor `.onion` site for anonymous access.
 | Command | Purpose |
 |---------|---------|
 | `cargo check --workspace` | Verify all crates compile |
-| `cargo test --workspace` | Run all 299 tests |
+| `cargo test --workspace` | Run all workspace tests |
 | `cargo clippy --workspace` | Lint (must produce zero warnings) |
 | `cargo doc --workspace --no-deps` | Generate API documentation |
 | `cargo doc --workspace --no-deps --open` | Generate and open docs in browser |
@@ -497,4 +504,5 @@ If you are contributing code, these rules are non-negotiable. Every pull request
 - [THREAT_MODEL.md](THREAT_MODEL.md) -- STRIDE security analysis
 - [STRATEGIES.md](STRATEGIES.md) -- Adoption and distribution strategy
 - [ROADMAP.md](ROADMAP.md) -- Development roadmap and milestones
-- [specs/](specs/) -- Protocol specifications (PNP-001 through PNP-007), the source of truth for wire formats and behavior
+- [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) -- What the current code actually implements
+- [specs/](specs/) -- Protocol specifications (PNP-001 through PNP-009), the design target for wire formats and behavior

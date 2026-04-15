@@ -6,9 +6,15 @@
 
 ---
 
+## Implementation Note
+
+This specification describes the gossip/mesh design target. Current code implements gossip envelopes, PoW, deduplication, store-forward primitives, and obfuscated UDP broadcast discovery. It does not currently implement mDNS `_parolnet._tcp.local.` discovery as written below.
+
+---
+
 ## 1. Overview
 
-The ParolNet Gossip/Mesh Protocol (PGMP) defines an epidemic message propagation scheme for decentralized message delivery. It operates in two modes: (a) internet-connected gossip, where nodes probabilistically forward messages to a subset of peers, and (b) local mesh networking, where nodes communicate over LAN (mDNS discovery) or future proximity transports (BLE). The protocol provides store-and-forward semantics for delay-tolerant networking, deduplication via bloom filters, and anti-spam through proof-of-work.
+The ParolNet Gossip/Mesh Protocol (PGMP) defines an epidemic message propagation scheme for decentralized message delivery. It operates in two modes: (a) internet-connected gossip, where nodes probabilistically forward messages to a subset of peers, and (b) local mesh networking, where nodes communicate over LAN discovery or future proximity transports (BLE). The protocol provides store-and-forward semantics for delay-tolerant networking, deduplication via bloom filters, and anti-spam through proof-of-work.
 
 PGMP is the substrate for relay directory distribution (PNP-004 Section 5.6), offline message delivery, and broadcast announcements. It is not intended for real-time chat (use circuits for that); rather, it is optimized for eventual delivery of messages in degraded or partitioned networks.
 

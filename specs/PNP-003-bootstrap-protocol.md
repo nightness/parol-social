@@ -6,6 +6,12 @@
 
 ---
 
+## Implementation Note
+
+This specification describes the bootstrap design target. The current code implements QR bootstrap helpers and WASM bindings, but local discovery is implemented as obfuscated UDP broadcast in `parolnet-mesh`, not as mDNS/BLE. Treat mDNS/BLE requirements below as design text until the spec and implementation are reconciled.
+
+---
+
 ## 1. Overview
 
 The ParolNet Bootstrap Protocol (PBP) defines how two peers establish initial contact with zero pre-existing infrastructure. It covers the out-of-band exchange of identity material, the derivation of a shared authentication secret, and the first authenticated handshake. The protocol is designed so that no data is ever stored on any server, and the entire process can occur over local connectivity (LAN, Bluetooth) or through physical proximity (QR code scanning).

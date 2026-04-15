@@ -6,6 +6,10 @@
 
 ---
 
+## Implementation Note
+
+This document is a protocol design target. The `parolnet-relay` crate contains relay cell, onion encryption, and circuit-building primitives, but the current browser chat path does not yet route normal PWA messages through production 3-hop circuits.
+
 ## 1. Overview
 
 The ParolNet Relay Circuit Protocol (PRCP) defines how a client constructs an onion-routed circuit through a sequence of volunteer relay nodes, such that no single relay learns both the origin and destination of a data flow. The protocol uses fixed-size cells to prevent size-based traffic correlation, incremental circuit construction with per-hop X25519 key agreement, and layered ChaCha20-Poly1305 encryption. Relay nodes are assumed potentially compromised (zero-trust); the security property emerges from the requirement that an adversary must compromise all hops simultaneously to deanonymize a circuit.

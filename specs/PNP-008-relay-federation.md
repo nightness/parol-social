@@ -1,5 +1,9 @@
 # PNP-008: Relay Federation & Network Resilience
 
+## Implementation Note
+
+This document is a phased implementation plan and design target. Current code includes authority keys, endorsed descriptors, `/endorse`, `/directory`, and simple polling-based relay directory sync through configured `PEER_RELAY_URLS`. It does not yet implement the full federation manager, bridge relay design, health/reputation system, or pluggable transports described below.
+
 ## Context
 
 ParolNet relay discovery is gossip-based (no centralized authority) — good foundation. But current design has critical gaps for censorship resistance:

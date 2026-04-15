@@ -6,6 +6,12 @@
 
 ---
 
+## Implementation Note
+
+This specification describes the group-communication design target. Current code includes sender-key primitives and core/WASM group helpers. The current PWA does not yet route group text, group files, or group calls through production 3-hop onion circuits as required below.
+
+---
+
 ## 1. Overview
 
 The ParolNet Group Communication Protocol (PGCP) extends ParolNet to support N-party communication, including group text messaging, group voice/video calls, and group file transfer. Groups enable up to 256 members for text messaging and file transfer, and up to 8 participants for real-time voice and video calls. All group traffic is routed through existing 3-hop onion relay circuits (PNP-004) and is indistinguishable from 1:1 traffic to any observer -- whether a network intermediary, a compromised relay, or a state-level adversary performing DPI.
