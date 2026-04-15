@@ -16,6 +16,13 @@ COPY server/index.html /usr/share/nginx/html/index.html
 COPY server/install.html /usr/share/nginx/html/install.html
 COPY pwa/ /usr/share/nginx/html/pwa/
 
+# Generate build info (no source files modified)
+ARG BUILD_DATE
+ARG BUILD_COMMIT
+ARG BUILD_VERSION
+RUN echo "window.BUILD_INFO={date:'v${BUILD_VERSION} ${BUILD_COMMIT} ${BUILD_DATE}'};" \
+    > /usr/share/nginx/html/pwa/build-info.js
+
 # Relay binary
 COPY --from=builder /build/target/release/parolnet-relay /usr/local/bin/parolnet-relay
 

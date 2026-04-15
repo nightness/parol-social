@@ -29,7 +29,14 @@ echo ""
 
 # Step 2: Rebuild Docker image (multi-stage: compiles relay server + bundles with nginx)
 echo "[2/2] Rebuilding Docker image and restarting..."
-docker compose build --no-cache
+BUILD_DATE="$(date -u '+%Y-%m-%d %H:%M UTC')"
+BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+BUILD_VERSION="$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
+echo "Build: v$BUILD_VERSION $BUILD_COMMIT ($BUILD_DATE)"
+docker compose build --no-cache \
+    --build-arg "BUILD_DATE=$BUILD_DATE" \
+    --build-arg "BUILD_COMMIT=$BUILD_COMMIT" \
+    --build-arg "BUILD_VERSION=$BUILD_VERSION"
 
 # Restart container
 docker compose down

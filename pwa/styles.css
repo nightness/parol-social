@@ -745,7 +745,7 @@ button.success {
 /* ── Desktop Layout ──────────────────────────────────────────── */
 @media (min-width: 768px) {
     .view {
-        max-width: 600px;
+        max-width: 1024px;
         margin: 0 auto;
         left: 0;
         right: 0;

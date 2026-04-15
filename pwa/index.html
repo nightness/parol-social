@@ -253,6 +253,42 @@
         </div>
     </div>
 
+    <div id="build-stamp" style="position:fixed;bottom:4px;right:8px;font-size:10px;color:#888;z-index:9999;cursor:pointer;user-select:none;-webkit-user-select:none;padding:8px;"></div>
+    <script src="build-info.js" onerror=""></script>
+    <script>document.getElementById('build-stamp').textContent=window.BUILD_INFO?BUILD_INFO.date:'no build info';</script>
+    <script>
+    (function(){
+        var stamp = document.getElementById('build-stamp');
+        var pressTimer = null;
+        var fired = false;
+        // Desktop: double-click
+        stamp.addEventListener('dblclick', function(e){
+            e.preventDefault();
+            hardRefresh();
+        });
+        // Mobile + desktop: long-press via pointer events
+        stamp.addEventListener('pointerdown', function(e){
+            fired = false;
+            pressTimer = setTimeout(function(){
+                fired = true;
+                hardRefresh();
+            }, 800);
+        });
+        stamp.addEventListener('pointerup', function(){ clearTimeout(pressTimer); });
+        stamp.addEventListener('pointercancel', function(){ clearTimeout(pressTimer); });
+        stamp.addEventListener('pointermove', function(){ clearTimeout(pressTimer); });
+        // Block context menu on stamp so long-press works on mobile
+        stamp.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+        // Block click after long-press fires
+        stamp.addEventListener('click', function(e){ if(fired){ e.preventDefault(); e.stopPropagation(); } });
+        function hardRefresh(){
+            if('caches' in window) caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)})});
+            if('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){reg.unregister()})});
+            setTimeout(function(){ location.reload(); }, 300);
+        }
+    })();
+    </script>
+
     <script src="qrcode.js"></script>
     <script src="qrdecoder.js"></script>
     <script type="module" src="app.js"></script>

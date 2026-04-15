@@ -1454,7 +1454,7 @@ async function startQRScanner() {
     const statusEl = document.getElementById('qr-scanner-status');
     if (!video) return;
 
-    // Check for BarcodeDetector (Chrome 83+, Safari 16.4+, Android)
+    // Check for BarcodeDetector (Chromium only — NOT available on Safari/iOS)
     const hasBarcodeAPI = 'BarcodeDetector' in window;
 
     try {
@@ -1464,8 +1464,19 @@ async function startQRScanner() {
         video.srcObject = stream;
         await video.play();
 
+        // iOS Safari: video dimensions not ready immediately after play()
+        if (video.videoWidth === 0) {
+            await new Promise(resolve => {
+                video.addEventListener('loadedmetadata', resolve, { once: true });
+                setTimeout(resolve, 2000); // safety timeout
+            });
+        }
+
+        console.log('[QR] path:', hasBarcodeAPI ? 'BarcodeDetector' : 'jsQR',
+                    'videoSize:', video.videoWidth + 'x' + video.videoHeight);
+
         if (hasBarcodeAPI) {
-            // Native QR detection — zero library code needed
+            // Native QR detection (Chromium browsers)
             const detector = new BarcodeDetector({ formats: ['qr_code'] });
             if (statusEl) statusEl.textContent = 'Scanning for QR code...';
 
@@ -1481,9 +1492,9 @@ async function startQRScanner() {
                 } catch (e) {
                     // Frame not ready yet, ignore
                 }
-            }, 250); // Scan 4 times per second
+            }, 250);
         } else if (typeof jsQR === 'function') {
-            // Fallback: jsQR pure JS decoder (works on iOS Safari and all browsers)
+            // jsQR pure JS decoder (Safari, Firefox, all browsers)
             if (statusEl) statusEl.textContent = 'Scanning for QR code...';
             const scanCanvas = document.createElement('canvas');
             const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
@@ -1495,19 +1506,24 @@ async function startQRScanner() {
                 scanCtx.drawImage(video, 0, 0);
                 const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
                 const code = jsQR(imageData.data, scanCanvas.width, scanCanvas.height);
-                if (code && code.data && isValidQRData(code.data)) {
-                    console.log('[QR] jsQR decoded:', code.data.slice(0, 80));
-                    stopQRScanner();
-                    handleScannedQR(code.data);
+                if (code && code.data) {
+                    if (isValidQRData(code.data)) {
+                        console.log('[QR] jsQR decoded:', code.data.slice(0, 80));
+                        stopQRScanner();
+                        handleScannedQR(code.data);
+                    } else {
+                        console.log('[QR] jsQR rejected by validation:', code.data.slice(0, 80));
+                    }
                 }
             }, 250);
         } else {
-            // Neither BarcodeDetector nor JS decoder available — fall back to manual entry
+            // No decoder available — fall back to manual entry
             if (statusEl) {
                 statusEl.innerHTML = 'Your browser doesn\'t support QR scanning.<br>Ask your contact to share their code, then paste it in the <strong>Paste Code</strong> tab.';
             }
         }
     } catch (e) {
+        console.error('[QR] Camera error:', e);
         if (statusEl) {
             statusEl.textContent = 'Camera access denied. Check your browser permissions.';
         }
@@ -1653,10 +1669,28 @@ function renderBootstrapQR() {
     }
 
     // Render QR code on canvas
-    if (canvas && typeof makeQR === 'function' && typeof renderQRToCanvas === 'function') {
+    if (canvas && typeof qrcode === 'function') {
         try {
-            const qr = makeQR(data);
-            renderQRToCanvas(qr, canvas, 2);
+            const qr = qrcode(0, 'M'); // 0 = auto version, M = medium error correction
+            qr.addData(data);
+            qr.make();
+            const moduleCount = qr.getModuleCount();
+            const padding = 4;
+            const totalModules = moduleCount + padding * 2;
+            const moduleSize = Math.floor(Math.min(canvas.width, canvas.height) / totalModules);
+            const offset = Math.floor((canvas.width - totalModules * moduleSize) / 2);
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#000000';
+            for (let r = 0; r < moduleCount; r++)
+                for (let c = 0; c < moduleCount; c++)
+                    if (qr.isDark(r, c))
+                        ctx.fillRect(
+                            offset + (c + padding) * moduleSize,
+                            offset + (r + padding) * moduleSize,
+                            moduleSize, moduleSize
+                        );
         } catch(e) {
             console.error('QR render error:', e);
             const ctx = canvas.getContext('2d');

@@ -191,6 +191,33 @@ wasm-pack build crates/parolnet-wasm
 cargo doc --workspace --no-deps --open
 ```
 
+## Development
+
+### Full deploy (relay server + PWA)
+
+```bash
+./deploy.sh        # Builds WASM, compiles relay, rebuilds Docker image, restarts container
+```
+
+### Live PWA development
+
+For iterating on the PWA without rebuilding the Docker container:
+
+```bash
+# 1. Deploy once to get the container running
+./deploy.sh
+
+# 2. Restart with volume mounts (docker-compose.override.yml binds ./pwa into the container)
+docker compose down && docker compose up -d
+
+# 3. Edit HTML/CSS/JS files — refresh browser to see changes instantly
+
+# 4. If you change Rust/WASM code:
+./build.sh          # Rebuilds WASM only, no Docker rebuild
+```
+
+The `docker-compose.override.yml` file bind-mounts `./pwa` into the running nginx container. It's gitignored and created automatically — remove it when you want production behavior.
+
 ## Security Model
 
 ### What observers see
@@ -210,7 +237,7 @@ To a passive network observer (ISP, national firewall), ParolNet traffic appears
 
 ## Project Status
 
-**Phase**: Core implementation complete. Crypto primitives (X3DH, Double Ratchet, AEAD), wire format, transport layer, onion routing, gossip mesh, and relay server all implemented with 390+ tests passing. PWA with offline support, encrypted local storage, built-in WebRTC tracker, and decoy mode deployed.
+**Phase**: Core implementation complete. Crypto primitives (X3DH, Double Ratchet, AEAD), wire format, transport layer, onion routing, gossip mesh, and relay server all implemented with 390+ tests passing. PWA with offline support, encrypted local storage, and decoy mode deployed.
 
 See [ROADMAP.md](ROADMAP.md) for the full development plan.
 See [STRATEGIES.md](STRATEGIES.md) for the adoption and distribution strategy.
