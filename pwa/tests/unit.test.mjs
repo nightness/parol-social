@@ -1,41 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, randomFillSync } from 'node:crypto';
-
-// ── SHA1 Hex (reimplemented for Node, mirrors app.js sha1Hex) ──
-function sha1Hex(input) {
-    return createHash('sha1').update(input).digest('hex');
-}
+import { randomFillSync } from 'node:crypto';
 
 // ── Tests ──
-
-describe('sha1Hex', () => {
-    test('produces 40-char hex string', () => {
-        const result = sha1Hex('parolnet-mesh-v1');
-        assert.equal(result.length, 40);
-        assert.match(result, /^[0-9a-f]{40}$/);
-    });
-
-    test('mesh hash is deterministic', () => {
-        const a = sha1Hex('parolnet-mesh-v1');
-        const b = sha1Hex('parolnet-mesh-v1');
-        assert.equal(a, b);
-    });
-
-    test('different inputs produce different hashes', () => {
-        const a = sha1Hex('parolnet-mesh-v1');
-        const b = sha1Hex('parolnet-mesh-v2');
-        assert.notEqual(a, b);
-    });
-
-    test('contact hash is symmetric', () => {
-        const idA = 'aaaa'.repeat(16); // 64 chars
-        const idB = 'bbbb'.repeat(16);
-        const sorted1 = [idA, idB].sort().join(':') + ':parolnet-contact';
-        const sorted2 = [idB, idA].sort().join(':') + ':parolnet-contact';
-        assert.equal(sha1Hex(sorted1), sha1Hex(sorted2));
-    });
-});
 
 describe('generateMsgId', () => {
     // Reimplemented from app.js
@@ -155,110 +122,41 @@ describe('message queue', () => {
     });
 });
 
-describe('tracker peer ID derivation', () => {
-    test('first 40 hex chars of 64-char PeerId', () => {
-        const fullPeerId = 'abcdef0123456789'.repeat(4); // 64 chars
-        const trackerPeerId = fullPeerId.slice(0, 40);
-        assert.equal(trackerPeerId.length, 40);
-        assert.equal(trackerPeerId, 'abcdef0123456789'.repeat(2) + 'abcdef01');
-    });
-
-    test('identity verification: first 20 bytes match', () => {
-        const fullPeerId = 'aa'.repeat(32); // 64 hex chars = 32 bytes
-        const trackerPeerId = fullPeerId.slice(0, 40); // first 20 bytes = 40 hex chars
-        assert.equal(fullPeerId.startsWith(trackerPeerId), true);
-    });
-});
-
 describe('connection status logic', () => {
-    test('all connected = online', () => {
-        const hasRelay = true, hasTracker = true, hasWebRTC = true;
+    test('relay connected = online', () => {
+        const hasRelay = true, hasWebRTC = true;
         let status;
-        if ((hasRelay || hasTracker) && hasWebRTC) status = 'online';
-        else if (hasRelay || hasTracker || hasWebRTC) status = 'partial';
+        if (hasRelay) status = 'online';
+        else if (hasWebRTC) status = 'partial';
         else status = 'offline';
         assert.equal(status, 'online');
     });
 
-    test('tracker only = partial', () => {
-        const hasRelay = false, hasTracker = true, hasWebRTC = false;
-        let status;
-        if ((hasRelay || hasTracker) && hasWebRTC) status = 'online';
-        else if (hasRelay || hasTracker || hasWebRTC) status = 'partial';
-        else status = 'offline';
-        assert.equal(status, 'partial');
-    });
-
     test('nothing = offline', () => {
-        const hasRelay = false, hasTracker = false, hasWebRTC = false;
+        const hasRelay = false, hasWebRTC = false;
         let status;
-        if ((hasRelay || hasTracker) && hasWebRTC) status = 'online';
-        else if (hasRelay || hasTracker || hasWebRTC) status = 'partial';
+        if (hasRelay) status = 'online';
+        else if (hasWebRTC) status = 'partial';
         else status = 'offline';
         assert.equal(status, 'offline');
     });
 
     test('WebRTC only = partial', () => {
-        const hasRelay = false, hasTracker = false, hasWebRTC = true;
+        const hasRelay = false, hasWebRTC = true;
         let status;
-        if ((hasRelay || hasTracker) && hasWebRTC) status = 'online';
-        else if (hasRelay || hasTracker || hasWebRTC) status = 'partial';
+        if (hasRelay) status = 'online';
+        else if (hasWebRTC) status = 'partial';
         else status = 'offline';
         assert.equal(status, 'partial');
     });
 
-    test('relay + WebRTC = online', () => {
-        const hasRelay = true, hasTracker = false, hasWebRTC = true;
+    test('relay only = online', () => {
+        const hasRelay = true, hasWebRTC = false;
         let status;
-        if ((hasRelay || hasTracker) && hasWebRTC) status = 'online';
-        else if (hasRelay || hasTracker || hasWebRTC) status = 'partial';
+        if (hasRelay) status = 'online';
+        else if (hasWebRTC) status = 'partial';
         else status = 'offline';
         assert.equal(status, 'online');
-    });
-
-    test('relay only = partial', () => {
-        const hasRelay = true, hasTracker = false, hasWebRTC = false;
-        let status;
-        if ((hasRelay || hasTracker) && hasWebRTC) status = 'online';
-        else if (hasRelay || hasTracker || hasWebRTC) status = 'partial';
-        else status = 'offline';
-        assert.equal(status, 'partial');
-    });
-});
-
-describe('tracker protocol messages', () => {
-    test('announce message format', () => {
-        const msg = {
-            action: 'announce',
-            info_hash: 'a'.repeat(40),
-            peer_id: 'b'.repeat(40),
-            numwant: 5,
-            offers: [{
-                offer_id: 'c'.repeat(20),
-                offer: { type: 'offer', sdp: 'v=0\r\n...' }
-            }]
-        };
-        const json = JSON.stringify(msg);
-        const parsed = JSON.parse(json);
-        assert.equal(parsed.action, 'announce');
-        assert.equal(parsed.info_hash.length, 40);
-        assert.equal(parsed.offers.length, 1);
-        assert.equal(parsed.offers[0].offer.type, 'offer');
-    });
-
-    test('answer message format', () => {
-        const msg = {
-            action: 'announce',
-            info_hash: 'a'.repeat(40),
-            peer_id: 'b'.repeat(40),
-            to_peer_id: 'c'.repeat(40),
-            offer_id: 'd'.repeat(20),
-            answer: { type: 'answer', sdp: 'v=0\r\n...' }
-        };
-        const json = JSON.stringify(msg);
-        const parsed = JSON.parse(json);
-        assert.equal(parsed.to_peer_id.length, 40);
-        assert.equal(parsed.answer.type, 'answer');
     });
 });
 

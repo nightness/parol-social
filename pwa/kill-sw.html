@@ -2,23 +2,35 @@
 <html>
 <head><title>Clearing...</title></head>
 <body style="background:#000;color:#fff;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;">
-<h2>Clearing all cached data...</h2>
+<h2 id="heading">Clearing all cached data...</h2>
 <p id="status">Working...</p>
 <script>
 (async function() {
+    const params = new URLSearchParams(location.search);
+    const isPanic = params.has('panic');
+    const heading = document.getElementById('heading');
     const s = document.getElementById('status');
+
+    // In panic mode, show calculator disguise immediately
+    if (isPanic) {
+        heading.style.display = 'none';
+        s.style.fontSize = '48px';
+        s.style.fontWeight = '300';
+        s.textContent = '0';
+    }
+
     try {
-        // Kill all service workers
+        // Kill all service workers first
         if ('serviceWorker' in navigator) {
             const regs = await navigator.serviceWorker.getRegistrations();
             for (const r of regs) { await r.unregister(); }
-            s.textContent = 'Service workers killed (' + regs.length + ')... ';
+            if (!isPanic) s.textContent = 'Service workers killed (' + regs.length + ')... ';
         }
         // Kill all caches
         if ('caches' in window) {
             const names = await caches.keys();
             for (const n of names) { await caches.delete(n); }
-            s.textContent += 'Caches cleared (' + names.length + ')... ';
+            if (!isPanic) s.textContent += 'Caches cleared (' + names.length + ')... ';
         }
         // Clear storage
         try { localStorage.clear(); } catch(e) {}
@@ -27,12 +39,19 @@
         if (window.indexedDB && indexedDB.databases) {
             const dbs = await indexedDB.databases();
             for (const db of dbs) { indexedDB.deleteDatabase(db.name); }
-            s.textContent += 'IndexedDB cleared... ';
+            if (!isPanic) s.textContent += 'IndexedDB cleared... ';
         }
-        s.textContent = 'Done! Redirecting...';
-        setTimeout(function() { window.location.href = './index.html?mode=calc&t=' + Date.now(); }, 1500);
+
+        if (isPanic) {
+            // Stay on blank calculator screen — everything destroyed
+        } else {
+            s.textContent = 'Done! Redirecting...';
+            setTimeout(function() { window.location.href = './index.html?mode=calc&t=' + Date.now(); }, 1500);
+        }
     } catch(e) {
-        s.textContent = 'Error: ' + e.message + '. Try clearing browser data manually.';
+        if (!isPanic) {
+            s.textContent = 'Error: ' + e.message + '. Try clearing browser data manually.';
+        }
     }
 })();
 </script>

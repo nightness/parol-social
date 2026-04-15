@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Self-hosted WebTorrent-compatible WebSocket tracker endpoint in relay server (`/tracker`)
 - Password-encrypted IndexedDB storage using AES-256-GCM with PBKDF2 key derivation (600k iterations)
 - Unlock screen for encrypted storage (passphrase or calculator keypad in decoy mode)
 - Auto-lock after 5 minutes in background, panic wipe clears in-memory keys
@@ -17,13 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-agnostic time functions for WASM compatibility (`time_compat.rs`)
 
 ### Changed
-- PWA auto-connects to self-hosted tracker first, external trackers as fallback
-- Tracker reconnect capped at 5 attempts per URL with 30s max backoff
+- PWA uses relay-only networking for all peer connectivity
 - Connection dot shows green for relay connection (was orange)
 - Service worker properly skips POST requests in cache handler
 - WASM init uses non-deprecated `{ module_or_path }` form
 
 ### Removed
+- WebTorrent tracker support — relay server handles all peer connectivity
 - Dead tracker URLs (fastcast.nz, most public WSS trackers)
 
 ### Fixed

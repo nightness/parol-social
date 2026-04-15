@@ -1,5 +1,3 @@
-mod tracker;
-
 use async_trait::async_trait;
 use axum::{
     Json, Router,
@@ -423,10 +421,6 @@ async fn main() {
     let stats = Arc::new(analytics::Stats::new());
     let client_stats = Arc::new(ClientStats::new());
 
-    // Initialize WebTorrent-compatible tracker
-    let tracker_state = tracker::new_tracker_state();
-    tracker::spawn_cleanup_task(tracker_state.clone());
-
     // Initialize mesh PeerManager as a gossip supernode
     let our_peer_id = PeerId([0u8; 32]); // Relay's own peer ID (could generate a real one)
     let relay_signing_key = ed25519_dalek::SigningKey::from_bytes(&[0u8; 32]);
@@ -487,15 +481,6 @@ async fn main() {
                     ws.on_upgrade(move |socket| {
                         handle_socket(socket, peers, store, stats, peer_manager)
                     })
-                }
-            }),
-        )
-        .route(
-            "/tracker",
-            get({
-                let ts = tracker_state.clone();
-                move |ws: WebSocketUpgrade| async move {
-                    ws.on_upgrade(move |socket| tracker::handle_tracker_socket(socket, ts))
                 }
             }),
         )
