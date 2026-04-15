@@ -3,7 +3,9 @@
 
 import { CryptoStore } from './crypto-store.js';
 import { exportData, importData, validateExport } from './data-export.js';
+import { RelayClient } from './relay-client.js';
 const cryptoStore = new CryptoStore();
+const relayClient = new RelayClient();
 
 // ── State ───────────────────────────────────────────────────
 let wasm = null;
@@ -565,8 +567,15 @@ async function onWasmReady() {
     // Pre-render QR code so it's ready when user opens Add Contact
     renderBootstrapQR();
 
-    // Start connection manager (relay)
-    connMgr.start();
+    // Discover relays first, then start connection manager
+    relayClient.discover().then(relays => {
+        console.log('[App] Discovered', relays.length, 'relays');
+        connMgr.start();
+        updateConnectionStatus();
+    }).catch(e => {
+        console.warn('[App] Relay discovery failed, using defaults:', e.message);
+        connMgr.start();
+    });
 }
 
 async function attemptUnlock() {
@@ -592,8 +601,13 @@ function onWasmUnavailable() {
     const el = document.getElementById('settings-version');
     if (el) el.textContent = 'dev (no WASM)';
 
-    // Start connection manager even without WASM (plaintext testing)
-    connMgr.start();
+    // Discover relays then start connection manager even without WASM
+    relayClient.discover().then(() => {
+        connMgr.start();
+        updateConnectionStatus();
+    }).catch(() => {
+        connMgr.start();
+    });
 }
 
 // ── Connection Status ─────────────────────────────────────
@@ -1041,6 +1055,16 @@ const connMgr = {
         // Use custom relay URL if set, otherwise default to same-origin
         this.relayUrl = customRelayUrl ||
             (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+
+        // Store discovered relays for fallback reconnection
+        this._discoveredRelays = relayClient.relays.map(url => {
+            let u = url.replace(/\/$/, '');
+            if (u.startsWith('https://')) return 'wss://' + u.slice(8) + '/ws';
+            if (u.startsWith('http://')) return 'ws://' + u.slice(7) + '/ws';
+            return u;
+        });
+        this._currentRelayIndex = 0;
+
         this._connectRelay();
     },
 
@@ -1096,6 +1120,15 @@ const connMgr = {
         if (this.relayReconnectTimer) return;
         this.relayReconnectTimer = setTimeout(() => {
             this.relayReconnectTimer = null;
+            // Try next discovered relay before increasing backoff
+            if (this._discoveredRelays && this._discoveredRelays.length > 1) {
+                this._currentRelayIndex = (this._currentRelayIndex + 1) % this._discoveredRelays.length;
+                const nextUrl = this._discoveredRelays[this._currentRelayIndex];
+                if (nextUrl && nextUrl !== this.relayUrl) {
+                    console.log('[ConnMgr] Trying fallback relay:', nextUrl);
+                    this.relayUrl = nextUrl;
+                }
+            }
             this.relayReconnectDelay = Math.min(this.relayReconnectDelay * 2, 30000);
             this._connectRelay();
         }, this.relayReconnectDelay);
@@ -2206,8 +2239,13 @@ function updateNetworkSettings() {
     }
 
     if (relayStatus) {
-        relayStatus.textContent = connMgr.isRelayConnected() ? 'Connected' : 'Disconnected';
-        relayStatus.style.color = connMgr.isRelayConnected() ? '#4CAF50' : '#f44336';
+        const isConnected = connMgr.isRelayConnected();
+        const knownCount = relayClient.knownRelayCount;
+        const statusText = isConnected
+            ? 'Connected' + (knownCount > 1 ? ' (' + knownCount + ' relays known)' : '')
+            : 'Disconnected' + (knownCount > 0 ? ' (' + knownCount + ' relays known)' : '');
+        relayStatus.textContent = statusText;
+        relayStatus.style.color = isConnected ? '#4CAF50' : '#f44336';
     }
 
     const relayUrlDisplay = document.getElementById('relay-url-display');

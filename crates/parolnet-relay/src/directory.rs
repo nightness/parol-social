@@ -151,6 +151,11 @@ impl RelayDirectory {
         self.descriptors.is_empty()
     }
 
+    /// Return a reference to all known descriptors.
+    pub fn descriptors(&self) -> &HashMap<PeerId, RelayDescriptor> {
+        &self.descriptors
+    }
+
     /// Look up a relay's SocketAddr by PeerId.
     pub fn lookup_addr(&self, peer_id: &PeerId) -> Option<std::net::SocketAddr> {
         self.descriptors.get(peer_id).map(|d| d.addr)

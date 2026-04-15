@@ -12,6 +12,8 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use parolnet_mesh::peer_manager::PeerManager;
 use parolnet_protocol::address::PeerId;
+use parolnet_relay::authority::EndorsedDescriptor;
+use parolnet_relay::directory::{RelayDescriptor, RelayDirectory};
 use parolnet_transport::{Connection, TransportError};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
@@ -456,6 +458,161 @@ fn check_admin_token(headers: &axum::http::HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+/// GET /directory — serve the current relay directory as CBOR-encoded endorsed descriptors.
+///
+/// Returns a CBOR-serialized `Vec<RelayDescriptor>` of all known descriptors.
+/// This is a public endpoint (no auth required) so any relay or client can
+/// discover the full network.
+async fn handle_directory(directory: Arc<Mutex<RelayDirectory>>) -> impl IntoResponse {
+    let dir = directory.lock().await;
+    let descriptors: Vec<&RelayDescriptor> = dir.descriptors().values().collect();
+    let mut cbor_buf = Vec::new();
+    if let Err(e) = ciborium::into_writer(&descriptors, &mut cbor_buf) {
+        tracing::error!(error = %e, "Failed to serialize directory to CBOR");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            [(axum::http::header::CONTENT_TYPE, "application/cbor")],
+            Vec::new(),
+        );
+    }
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/cbor")],
+        cbor_buf,
+    )
+}
+
+/// POST /endorse — accept a CBOR-encoded `EndorsedDescriptor`, verify authority
+/// endorsements meet threshold, then add to directory.
+async fn handle_endorse(
+    directory: Arc<Mutex<RelayDirectory>>,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    let endorsed: EndorsedDescriptor = match ciborium::from_reader(body.as_ref()) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(error = %e, "Invalid CBOR in /endorse request");
+            return StatusCode::BAD_REQUEST;
+        }
+    };
+    let mut dir = directory.lock().await;
+    match dir.handle_endorsed_descriptor(endorsed) {
+        Ok(()) => {
+            tracing::info!("Accepted endorsed descriptor via /endorse");
+            StatusCode::OK
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Rejected endorsed descriptor");
+            StatusCode::FORBIDDEN
+        }
+    }
+}
+
+/// Background task: periodically pull `/directory` from peer relays and merge.
+///
+/// Discovers peer addresses from the local directory, then fetches each
+/// peer's directory and merges endorsed descriptors via gossip rules.
+async fn relay_directory_sync(
+    directory: Arc<Mutex<RelayDirectory>>,
+    our_peer_id: PeerId,
+    peer_relay_urls: Arc<Mutex<Vec<String>>>,
+) {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to create HTTP client for directory sync");
+            return;
+        }
+    };
+
+    let mut interval = tokio::time::interval(Duration::from_secs(60));
+    loop {
+        interval.tick().await;
+
+        // Collect peer relay URLs to sync from
+        let urls: Vec<String> = {
+            let known_urls = peer_relay_urls.lock().await;
+            known_urls.clone()
+        };
+
+        if urls.is_empty() {
+            tracing::debug!("No peer relay URLs configured for directory sync");
+            continue;
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        for url in &urls {
+            let directory_url = format!("{}/directory", url.trim_end_matches('/'));
+            match client.get(&directory_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.bytes().await {
+                        Ok(body) => {
+                            let descriptors: Vec<RelayDescriptor> =
+                                match ciborium::from_reader(body.as_ref()) {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            url = %directory_url,
+                                            error = %e,
+                                            "Failed to parse CBOR from peer relay"
+                                        );
+                                        continue;
+                                    }
+                                };
+                            let mut dir = directory.lock().await;
+                            let mut merged = 0usize;
+                            for desc in descriptors {
+                                // Skip our own descriptor
+                                if desc.peer_id == our_peer_id {
+                                    continue;
+                                }
+                                if dir.handle_gossip_descriptor(desc, now) {
+                                    merged += 1;
+                                }
+                            }
+                            if merged > 0 {
+                                tracing::info!(
+                                    url = %directory_url,
+                                    merged,
+                                    "Merged descriptors from peer relay"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::debug!(
+                                url = %directory_url,
+                                error = %e,
+                                "Failed to read response body from peer relay"
+                            );
+                        }
+                    }
+                }
+                Ok(resp) => {
+                    tracing::debug!(
+                        url = %directory_url,
+                        status = %resp.status(),
+                        "Peer relay returned non-success status"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        url = %directory_url,
+                        error = %e,
+                        "Failed to reach peer relay"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// GET /peers — returns JSON list of currently connected peer IDs.
 /// Requires ADMIN_TOKEN authentication. Returns 404 if ADMIN_TOKEN is not set,
 /// 403 if the token is missing or invalid.
@@ -521,6 +678,24 @@ async fn main() {
     let store = Arc::new(Mutex::new(RelayMessageStore::new()));
     let stats = Arc::new(analytics::Stats::new());
     let client_stats = Arc::new(ClientStats::new());
+    let directory: Arc<Mutex<RelayDirectory>> = Arc::new(Mutex::new(RelayDirectory::new()));
+
+    // Parse peer relay URLs from PEER_RELAY_URLS env var (comma-separated)
+    let peer_relay_urls: Arc<Mutex<Vec<String>>> = {
+        let urls: Vec<String> = std::env::var("PEER_RELAY_URLS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !urls.is_empty() {
+            info!(
+                "Configured {} peer relay URLs for directory sync",
+                urls.len()
+            );
+        }
+        Arc::new(Mutex::new(urls))
+    };
 
     let conn_rate_limiter: ConnRateLimiter = Arc::new(RateLimiter::new(
         WS_CONN_RATE_LIMIT,
@@ -601,6 +776,13 @@ async fn main() {
         });
     }
 
+    // Spawn relay-to-relay directory sync (every 60s)
+    {
+        let dir = directory.clone();
+        let urls = peer_relay_urls.clone();
+        tokio::spawn(relay_directory_sync(dir, our_peer_id, urls));
+    }
+
     // Determine whether the /stats endpoint should be active
     #[cfg(feature = "analytics")]
     let analytics_enabled = std::env::var("PAROLNET_ANALYTICS").unwrap_or_default() == "1";
@@ -665,6 +847,26 @@ async fn main() {
                 move |body: Json<TelemetryBatch>| {
                     let client_stats = client_stats.clone();
                     async move { handle_telemetry(client_stats, body).await }
+                }
+            }),
+        )
+        .route(
+            "/directory",
+            get({
+                let directory = directory.clone();
+                move || {
+                    let directory = directory.clone();
+                    async move { handle_directory(directory).await }
+                }
+            }),
+        )
+        .route(
+            "/endorse",
+            post({
+                let directory = directory.clone();
+                move |body: axum::body::Bytes| {
+                    let directory = directory.clone();
+                    async move { handle_endorse(directory, body).await }
                 }
             }),
         )

@@ -59,6 +59,7 @@ const ASSETS_TO_CACHE = [
     './pkg/parolnet_wasm.js',
     './pkg/parolnet_wasm_bg.wasm',
     './network-config.js',
+    './relay-client.js',
 ];
 
 // ── Install: cache all assets ──────────────────────────────────
