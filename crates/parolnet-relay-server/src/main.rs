@@ -24,6 +24,59 @@ use tracing::info;
 
 type PeerMap = Arc<Mutex<HashMap<String, mpsc::UnboundedSender<String>>>>;
 
+/// Per-IP WebSocket connection rate limiter.
+/// Max 10 new connections per minute per IP address.
+const WS_CONN_RATE_LIMIT: u32 = 10;
+const WS_CONN_RATE_WINDOW_SECS: u64 = 60;
+
+/// Per-peer message rate limiter.
+/// Max 100 messages per minute per connected peer.
+const MSG_RATE_LIMIT: u32 = 100;
+const MSG_RATE_WINDOW_SECS: u64 = 60;
+
+/// In-memory rate limiter tracking (window_start, count) per key.
+struct RateLimiter<K: std::hash::Hash + Eq> {
+    limits: std::sync::Mutex<HashMap<K, (std::time::Instant, u32)>>,
+    max_count: u32,
+    window: Duration,
+}
+
+impl<K: std::hash::Hash + Eq + Clone> RateLimiter<K> {
+    fn new(max_count: u32, window_secs: u64) -> Self {
+        Self {
+            limits: std::sync::Mutex::new(HashMap::new()),
+            max_count,
+            window: Duration::from_secs(window_secs),
+        }
+    }
+
+    /// Check if a key is rate-limited. Increments the counter.
+    /// Returns true if the request should be rejected.
+    fn is_limited(&self, key: &K) -> bool {
+        let mut limits = self.limits.lock().unwrap();
+        let now = std::time::Instant::now();
+        let entry = limits.entry(key.clone()).or_insert((now, 0));
+
+        if now.duration_since(entry.0) >= self.window {
+            *entry = (now, 1);
+            return false;
+        }
+
+        entry.1 += 1;
+        entry.1 > self.max_count
+    }
+
+    /// Periodically clean up expired entries.
+    fn cleanup(&self) {
+        let mut limits = self.limits.lock().unwrap();
+        let now = std::time::Instant::now();
+        limits.retain(|_, (start, _)| now.duration_since(*start) < self.window);
+    }
+}
+
+type ConnRateLimiter = Arc<RateLimiter<std::net::IpAddr>>;
+type MsgRateLimiter = Arc<RateLimiter<String>>;
+
 /// Maximum number of buffered messages per offline peer.
 const MAX_STORED_MESSAGES_PER_PEER: usize = 256;
 /// Maximum total size of buffered messages per peer (4 MB).
@@ -383,19 +436,62 @@ async fn handle_telemetry(
     StatusCode::OK
 }
 
+/// Validate the admin token from the Authorization header.
+/// Returns true if the ADMIN_TOKEN env var is set and the request
+/// includes a matching `Authorization: Bearer <token>` header.
+fn check_admin_token(headers: &axum::http::HeaderMap) -> bool {
+    let Some(expected) = std::env::var("ADMIN_TOKEN").ok().filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|token| token == expected)
+        .unwrap_or(false)
+}
+
 /// GET /peers — returns JSON list of currently connected peer IDs.
-async fn handle_peers(peers: PeerMap) -> Json<Vec<String>> {
+/// Requires ADMIN_TOKEN authentication. Returns 404 if ADMIN_TOKEN is not set,
+/// 403 if the token is missing or invalid.
+async fn handle_peers(
+    headers: axum::http::HeaderMap,
+    peers: PeerMap,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    if std::env::var("ADMIN_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if !check_admin_token(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let peer_list = peers.lock().await;
     let peer_ids: Vec<String> = peer_list.keys().cloned().collect();
-    Json(peer_ids)
+    Ok(Json(peer_ids))
 }
 
 /// GET /bootstrap?exclude=<peer_id> — returns up to 20 known peer IDs,
 /// excluding the optionally specified peer.
+/// Requires ADMIN_TOKEN authentication. Returns 404 if ADMIN_TOKEN is not set,
+/// 403 if the token is missing or invalid.
 async fn handle_bootstrap(
+    headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
     peers: PeerMap,
-) -> Json<Vec<String>> {
+) -> Result<Json<Vec<String>>, StatusCode> {
+    if std::env::var("ADMIN_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if !check_admin_token(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let peer_list = peers.lock().await;
     let exclude = params.get("exclude").cloned().unwrap_or_default();
     let known: Vec<String> = peer_list
@@ -404,7 +500,7 @@ async fn handle_bootstrap(
         .take(20)
         .cloned()
         .collect();
-    Json(known)
+    Ok(Json(known))
 }
 
 #[tokio::main]
@@ -420,6 +516,27 @@ async fn main() {
     let store = Arc::new(Mutex::new(RelayMessageStore::new()));
     let stats = Arc::new(analytics::Stats::new());
     let client_stats = Arc::new(ClientStats::new());
+
+    let conn_rate_limiter: ConnRateLimiter = Arc::new(RateLimiter::new(
+        WS_CONN_RATE_LIMIT,
+        WS_CONN_RATE_WINDOW_SECS,
+    ));
+    let msg_rate_limiter: MsgRateLimiter =
+        Arc::new(RateLimiter::new(MSG_RATE_LIMIT, MSG_RATE_WINDOW_SECS));
+
+    // Spawn periodic rate limiter cleanup (every 5 minutes)
+    {
+        let conn_rl = conn_rate_limiter.clone();
+        let msg_rl = msg_rate_limiter.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                conn_rl.cleanup();
+                msg_rl.cleanup();
+            }
+        });
+    }
 
     // Initialize mesh PeerManager as a gossip supernode
     let our_peer_id = PeerId([0u8; 32]); // Relay's own peer ID (could generate a real one)
@@ -477,10 +594,19 @@ async fn main() {
                 let store = store.clone();
                 let stats = stats.clone();
                 let peer_manager = peer_manager.clone();
-                move |ws: WebSocketUpgrade| async move {
+                let conn_rl = conn_rate_limiter.clone();
+                let msg_rl = msg_rate_limiter.clone();
+                move |ws: WebSocketUpgrade,
+                      connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>| async move {
+                    // Per-IP connection rate limiting
+                    let client_ip = connect_info.0.ip();
+                    if conn_rl.is_limited(&client_ip) {
+                        return StatusCode::TOO_MANY_REQUESTS.into_response();
+                    }
                     ws.on_upgrade(move |socket| {
-                        handle_socket(socket, peers, store, stats, peer_manager)
+                        handle_socket(socket, peers, store, stats, peer_manager, msg_rl)
                     })
+                    .into_response()
                 }
             }),
         )
@@ -489,9 +615,9 @@ async fn main() {
             "/peers",
             get({
                 let peers = peers.clone();
-                move || {
+                move |headers: axum::http::HeaderMap| {
                     let peers = peers.clone();
-                    async move { handle_peers(peers).await }
+                    async move { handle_peers(headers, peers).await }
                 }
             }),
         )
@@ -499,9 +625,9 @@ async fn main() {
             "/bootstrap",
             get({
                 let peers = peers.clone();
-                move |query: Query<HashMap<String, String>>| {
+                move |headers: axum::http::HeaderMap, query: Query<HashMap<String, String>>| {
                     let peers = peers.clone();
-                    async move { handle_bootstrap(query, peers).await }
+                    async move { handle_bootstrap(headers, query, peers).await }
                 }
             }),
         )
@@ -555,6 +681,7 @@ async fn main() {
     info!("ParolNet relay listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -618,6 +745,7 @@ async fn handle_socket(
     store: Arc<Mutex<RelayMessageStore>>,
     stats: Arc<analytics::Stats>,
     peer_manager: Arc<PeerManager>,
+    msg_rate_limiter: MsgRateLimiter,
 ) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -674,6 +802,21 @@ async fn handle_socket(
             );
             continue;
         };
+
+        // Per-peer message rate limiting
+        if let Some(ref pid) = my_peer_id
+            && msg_rate_limiter.is_limited(pid)
+        {
+            let _ = tx.send(
+                serde_json::to_string(&OutgoingMessage {
+                    msg_type: "error".into(),
+                    message: Some("rate limited".into()),
+                    ..Default::default()
+                })
+                .unwrap(),
+            );
+            continue;
+        }
 
         match incoming.msg_type.as_str() {
             "register" => {

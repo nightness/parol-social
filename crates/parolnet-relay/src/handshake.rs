@@ -6,6 +6,7 @@
 use crate::error::RelayError;
 use crate::onion::HopKeys;
 use crate::{CELL_PAYLOAD_SIZE, CellType, RelayCell};
+use parolnet_protocol::address::PeerId;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 /// Circuit handshake utilities for CREATE/CREATED and EXTEND/EXTENDED cells.
@@ -85,56 +86,51 @@ impl CircuitHandshake {
 
     /// Client side: create an EXTEND cell to be sent through an existing circuit.
     ///
-    /// Contains the target relay's socket address (length-prefixed) + our ephemeral
-    /// X25519 public key at a fixed offset.
-    pub fn extend_cell(
-        circuit_id: u32,
-        target_addr: std::net::SocketAddr,
-    ) -> (RelayCell, StaticSecret) {
+    /// Contains the target relay's PeerId (32 bytes) + our ephemeral
+    /// X25519 public key. The relay node maps PeerId to SocketAddr from
+    /// its local directory.
+    pub fn extend_cell(circuit_id: u32, target_peer: PeerId) -> (RelayCell, StaticSecret) {
         let secret = StaticSecret::random_from_rng(rand::thread_rng());
         let public = PublicKey::from(&secret);
 
         let mut payload = [0u8; CELL_PAYLOAD_SIZE];
-        // Encode target address as length-prefixed string
-        let addr_str = target_addr.to_string();
-        let addr_bytes = addr_str.as_bytes();
-        let addr_len = addr_bytes.len().min(128);
-        payload[0] = addr_len as u8;
-        payload[1..1 + addr_len].copy_from_slice(&addr_bytes[..addr_len]);
-        // Public key at fixed offset 129
-        payload[129..161].copy_from_slice(public.as_bytes());
+        // PeerId at offset 0..32
+        payload[..32].copy_from_slice(&target_peer.0);
+        // Public key at offset 32..64
+        payload[32..64].copy_from_slice(public.as_bytes());
 
         let cell = RelayCell {
             circuit_id,
             cell_type: CellType::Extend,
             payload,
-            payload_len: 161,
+            payload_len: 64,
         };
         (cell, secret)
     }
 
-    /// Relay side: parse an EXTEND cell to get target address and client's public key.
-    pub fn parse_extend(cell: &RelayCell) -> Result<(std::net::SocketAddr, [u8; 32]), RelayError> {
+    /// Relay side: parse an EXTEND cell to get target PeerId and client's public key.
+    ///
+    /// The relay node maps the returned PeerId to a SocketAddr from its
+    /// local relay directory.
+    pub fn parse_extend(cell: &RelayCell) -> Result<(PeerId, [u8; 32]), RelayError> {
         if cell.cell_type != CellType::Extend {
             return Err(RelayError::CellError("expected EXTEND cell".into()));
         }
 
-        let addr_len = cell.payload[0] as usize;
-        if addr_len == 0 || addr_len > 128 {
+        if (cell.payload_len as usize) < 64 {
             return Err(RelayError::CellError(
-                "invalid address length in EXTEND".into(),
+                "EXTEND cell payload too short".into(),
             ));
         }
-        let addr_str = std::str::from_utf8(&cell.payload[1..1 + addr_len])
-            .map_err(|_| RelayError::CellError("invalid UTF-8 in EXTEND address".into()))?;
-        let addr: std::net::SocketAddr = addr_str
-            .parse()
-            .map_err(|_| RelayError::CellError("invalid socket address in EXTEND".into()))?;
+
+        let mut peer_id_bytes = [0u8; 32];
+        peer_id_bytes.copy_from_slice(&cell.payload[..32]);
+        let target_peer = PeerId(peer_id_bytes);
 
         let mut pub_key = [0u8; 32];
-        pub_key.copy_from_slice(&cell.payload[129..161]);
+        pub_key.copy_from_slice(&cell.payload[32..64]);
 
-        Ok((addr, pub_key))
+        Ok((target_peer, pub_key))
     }
 
     /// Create an EXTENDED cell (relay response to EXTEND, wrapping the next hop's
@@ -209,35 +205,25 @@ mod tests {
     #[test]
     fn test_extend_parse_roundtrip() {
         let circuit_id = 99;
-        let target: std::net::SocketAddr = "192.168.1.100:9001".parse().unwrap();
+        let target_peer = PeerId([0xAB; 32]);
 
-        let (extend_cell, _secret) = CircuitHandshake::extend_cell(circuit_id, target);
+        let (extend_cell, _secret) = CircuitHandshake::extend_cell(circuit_id, target_peer);
         assert_eq!(extend_cell.cell_type, CellType::Extend);
 
-        let (parsed_addr, parsed_key) = CircuitHandshake::parse_extend(&extend_cell).unwrap();
-        assert_eq!(parsed_addr, target);
+        let (parsed_peer, parsed_key) = CircuitHandshake::parse_extend(&extend_cell).unwrap();
+        assert_eq!(parsed_peer, target_peer);
 
         // The public key should be non-zero (derived from a random secret)
         assert_ne!(parsed_key, [0u8; 32]);
     }
 
     #[test]
-    fn test_extend_ipv6_roundtrip() {
-        let circuit_id = 100;
-        let target: std::net::SocketAddr = "[::1]:9001".parse().unwrap();
-
-        let (extend_cell, _secret) = CircuitHandshake::extend_cell(circuit_id, target);
-        let (parsed_addr, _) = CircuitHandshake::parse_extend(&extend_cell).unwrap();
-        assert_eq!(parsed_addr, target);
-    }
-
-    #[test]
     fn test_extended_roundtrip() {
         let circuit_id = 55;
-        let target: std::net::SocketAddr = "10.0.0.1:443".parse().unwrap();
+        let target_peer = PeerId([0xCD; 32]);
 
         // Client creates EXTEND
-        let (_extend_cell, client_secret) = CircuitHandshake::extend_cell(circuit_id, target);
+        let (_extend_cell, client_secret) = CircuitHandshake::extend_cell(circuit_id, target_peer);
 
         // Next-hop relay does CREATE/CREATED internally, gives us its public key
         let relay_secret = StaticSecret::random_from_rng(&mut rand::thread_rng());

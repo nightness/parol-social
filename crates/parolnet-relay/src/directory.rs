@@ -23,6 +23,32 @@ pub struct RelayDescriptor {
     pub uptime_secs: u64,
     pub timestamp: u64,
     pub signature: [u8; 64],
+    /// Estimated bandwidth in bytes/sec for weighted relay selection.
+    pub bandwidth_estimate: u64,
+}
+
+/// Extract the /16 subnet prefix from a SocketAddr.
+///
+/// For IPv4, returns the first two octets. For IPv6-mapped IPv4, extracts
+/// the embedded IPv4 address. For native IPv6, returns the first two bytes
+/// of the address.
+fn subnet_prefix(addr: &std::net::SocketAddr) -> [u8; 2] {
+    match addr.ip() {
+        std::net::IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            [octets[0], octets[1]]
+        }
+        std::net::IpAddr::V6(ip) => {
+            // Check for IPv4-mapped IPv6 (::ffff:a.b.c.d)
+            if let Some(v4) = ip.to_ipv4_mapped() {
+                let octets = v4.octets();
+                [octets[0], octets[1]]
+            } else {
+                let octets = ip.octets();
+                [octets[0], octets[1]]
+            }
+        }
+    }
 }
 
 impl RelayDescriptor {
@@ -46,6 +72,7 @@ impl RelayDescriptor {
         buf.push(self.bandwidth_class);
         buf.extend_from_slice(&self.uptime_secs.to_be_bytes());
         buf.extend_from_slice(&self.timestamp.to_be_bytes());
+        buf.extend_from_slice(&self.bandwidth_estimate.to_be_bytes());
         buf
     }
 
@@ -96,6 +123,11 @@ impl RelayDirectory {
         self.descriptors.is_empty()
     }
 
+    /// Look up a relay's SocketAddr by PeerId.
+    pub fn lookup_addr(&self, peer_id: &PeerId) -> Option<std::net::SocketAddr> {
+        self.descriptors.get(peer_id).map(|d| d.addr)
+    }
+
     /// Remove stale descriptors older than `max_age_secs`.
     pub fn prune_stale(&mut self, now: u64) {
         self.descriptors
@@ -104,8 +136,8 @@ impl RelayDirectory {
 
     /// Select guard nodes (PNP-004 Section 5.7).
     ///
-    /// Guards are selected from relays with uptime > 7 days.
-    /// The guard set is stable for 30+ days.
+    /// Guards are selected from relays with uptime > 7 days using
+    /// bandwidth-weighted random selection. The guard set is stable for 30+ days.
     pub fn select_guards(&mut self, count: usize) -> Vec<RelayInfo> {
         // If we already have enough guards, return them
         if self.guards.len() >= count {
@@ -118,18 +150,48 @@ impl RelayDirectory {
                 .collect();
         }
 
-        // Select new guards: prefer high-uptime relays
+        // Select new guards: prefer high-uptime relays with bandwidth weighting
         let seven_days = 7 * 24 * 3600;
-        let mut candidates: Vec<_> = self
+        let candidates: Vec<_> = self
             .descriptors
             .values()
             .filter(|d| d.uptime_secs >= seven_days)
             .collect();
 
-        // Sort by uptime (most stable first)
-        candidates.sort_by(|a, b| b.uptime_secs.cmp(&a.uptime_secs));
+        if candidates.is_empty() {
+            return Vec::new();
+        }
 
-        self.guards = candidates.iter().take(count).map(|d| d.peer_id).collect();
+        // Bandwidth-weighted random selection
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let mut selected = Vec::new();
+        let mut selected_ids: Vec<PeerId> = Vec::new();
+
+        for _ in 0..count {
+            let remaining: Vec<_> = candidates
+                .iter()
+                .filter(|d| !selected_ids.contains(&d.peer_id))
+                .collect();
+            if remaining.is_empty() {
+                break;
+            }
+
+            let total_weight: u64 = remaining.iter().map(|d| d.bandwidth_estimate.max(1)).sum();
+            let mut pick = rng.gen_range(0..total_weight);
+
+            for desc in &remaining {
+                let weight = desc.bandwidth_estimate.max(1);
+                if pick < weight {
+                    selected_ids.push(desc.peer_id);
+                    selected.push(desc.peer_id);
+                    break;
+                }
+                pick -= weight;
+            }
+        }
+
+        self.guards = selected;
 
         self.guards
             .iter()
@@ -140,9 +202,18 @@ impl RelayDirectory {
 
     /// Select a random relay excluding the given PeerIds (PNP-004 Section 5.7).
     ///
-    /// Enforces /16 IPv4 subnet diversity.
+    /// Enforces /16 IPv4 subnet diversity: candidates that share a /16
+    /// prefix with any excluded peer are deprioritized. If no diverse
+    /// candidates exist, falls back to random selection.
     pub fn select_random(&self, exclude: &[PeerId]) -> Option<RelayInfo> {
         use rand::seq::SliceRandom;
+
+        // Collect /16 prefixes of excluded peers
+        let excluded_subnets: Vec<[u8; 2]> = exclude
+            .iter()
+            .filter_map(|pid| self.descriptors.get(pid))
+            .map(|d| subnet_prefix(&d.addr))
+            .collect();
 
         let candidates: Vec<_> = self
             .descriptors
@@ -150,9 +221,23 @@ impl RelayDirectory {
             .filter(|d| !exclude.contains(&d.peer_id))
             .collect();
 
-        candidates
-            .choose(&mut rand::thread_rng())
-            .map(|d| d.to_relay_info())
+        if candidates.is_empty() {
+            return None;
+        }
+
+        // Prefer candidates from diverse /16 subnets
+        let diverse: Vec<_> = candidates
+            .iter()
+            .filter(|d| !excluded_subnets.contains(&subnet_prefix(&d.addr)))
+            .collect();
+
+        let mut rng = rand::thread_rng();
+        if !diverse.is_empty() {
+            diverse.choose(&mut rng).map(|d| d.to_relay_info())
+        } else {
+            // Fall back to any candidate if no diverse ones exist
+            candidates.choose(&mut rng).map(|d| d.to_relay_info())
+        }
     }
 
     /// Create a signed relay descriptor for this node.
@@ -178,6 +263,7 @@ impl RelayDirectory {
             uptime_secs,
             timestamp: now,
             signature: [0u8; 64],
+            bandwidth_estimate: 1000,
         };
         let sig = signing_key.sign(&desc.signable_bytes());
         desc.signature = sig.to_bytes();

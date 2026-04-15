@@ -57,10 +57,12 @@ pub trait GossipProtocol: Send + Sync {
 /// Action to take after receiving a gossip message.
 #[derive(Debug)]
 pub enum GossipAction {
-    /// Relay to these specific peers.
-    Forward(Vec<PeerId>),
+    /// Relay to these specific peers after applying the specified jitter delay.
+    Forward { peers: Vec<PeerId>, jitter_ms: u64 },
     /// Message is for us — deliver to application layer.
     Deliver,
     /// Already seen or expired — drop silently.
     Drop,
+    /// Source peer exceeded the per-peer rate limit.
+    RateLimited,
 }

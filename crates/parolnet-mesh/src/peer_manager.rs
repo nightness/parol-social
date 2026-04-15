@@ -107,8 +107,9 @@ impl PeerManager {
                     .map_err(|e| MeshError::ValidationFailed(format!("CBOR decode: {e}")))?;
                 Ok(Some(gossip_env.payload))
             }
-            Ok(crate::GossipAction::Forward(_)) => Ok(None),
+            Ok(crate::GossipAction::Forward { .. }) => Ok(None),
             Ok(crate::GossipAction::Drop) => Ok(None),
+            Ok(crate::GossipAction::RateLimited) => Ok(None),
             Err(e) => Err(e),
         }
     }

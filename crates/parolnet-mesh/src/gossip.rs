@@ -6,10 +6,11 @@ use async_trait::async_trait;
 use parolnet_protocol::address::PeerId;
 use parolnet_protocol::envelope::Envelope;
 use parolnet_protocol::gossip::{GossipEnvelope, GossipPayloadType};
+use rand::Rng;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
 /// Default gossip fanout (number of peers to forward to).
@@ -18,6 +19,12 @@ pub const DEFAULT_FANOUT: usize = 3;
 pub const DEFAULT_TTL: u8 = 7;
 /// Default expiry duration in seconds.
 pub const DEFAULT_EXPIRY_SECS: u64 = 86400;
+/// Maximum messages per source peer per rate-limit window (PNP-005 Section 6.4).
+pub const RATE_LIMIT_MAX_MESSAGES: u32 = 10;
+/// Rate-limit window duration in seconds.
+pub const RATE_LIMIT_WINDOW_SECS: u64 = 60;
+/// Maximum allowed clock skew for future timestamps (seconds).
+pub const MAX_FUTURE_SKEW_SECS: u64 = 300;
 
 /// 1024-bit bloom filter for seen-peer deduplication (PNP-005 Section 3.3).
 #[derive(Clone)]
@@ -208,6 +215,8 @@ pub struct StandardGossip {
     pub dedup: DedupFilter,
     pub default_difficulty: u8,
     pub pool: Arc<ConnectionPool>,
+    /// Per-PeerId rate limiting: (window_start, message_count).
+    rate_limits: Mutex<HashMap<PeerId, (Instant, u32)>>,
 }
 
 impl StandardGossip {
@@ -222,7 +231,27 @@ impl StandardGossip {
             dedup: DedupFilter::new(),
             default_difficulty: 16,
             pool,
+            rate_limits: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Check and update the per-source rate limit.
+    /// Returns true if the source has exceeded the rate limit.
+    fn is_rate_limited(&self, source: &PeerId) -> bool {
+        let mut limits = self.rate_limits.lock().unwrap();
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(RATE_LIMIT_WINDOW_SECS);
+
+        let entry = limits.entry(*source).or_insert((now, 0));
+
+        // Reset window if expired
+        if now.duration_since(entry.0) >= window {
+            *entry = (now, 1);
+            return false;
+        }
+
+        entry.1 += 1;
+        entry.1 > RATE_LIMIT_MAX_MESSAGES
     }
 
     /// Get the current unix timestamp in seconds.
@@ -324,7 +353,13 @@ impl StandardGossip {
             .message_id()
             .ok_or_else(|| MeshError::ValidationFailed("invalid message_id length".into()))?;
 
-        // 3. Check expiry
+        // 3. Per-source rate limiting (PNP-005 Section 6.4)
+        if self.is_rate_limited(&gossip_env.src) {
+            warn!(peer = %gossip_env.src, "rate limited: too many gossip messages");
+            return Ok(GossipAction::RateLimited);
+        }
+
+        // 4. Check expiry
         let now = Self::now_secs();
         if gossip_env.is_expired(now) {
             // Penalize sender for expired message
@@ -334,7 +369,18 @@ impl StandardGossip {
             return Err(MeshError::MessageExpired);
         }
 
-        // 4. Check dedup
+        // 4b. Reject future timestamps (beyond MAX_FUTURE_SKEW_SECS)
+        if gossip_env.ts > now + MAX_FUTURE_SKEW_SECS {
+            warn!(
+                peer = %gossip_env.src,
+                ts = gossip_env.ts,
+                now = now,
+                "gossip message has future timestamp"
+            );
+            return Ok(GossipAction::Drop);
+        }
+
+        // 5. Check dedup
         if self.dedup.is_seen(&message_id) {
             self.pool
                 .update_score(&gossip_env.src, |s| s.penalize_duplicate())
@@ -458,7 +504,12 @@ impl StandardGossip {
             // No peers to forward to, but message is not for us
             Ok(GossipAction::Drop)
         } else {
-            Ok(GossipAction::Forward(forwarded_to))
+            // Apply 0-200ms random jitter before forwarding (PNP-005 Section 5.2 step 4)
+            let jitter_ms = rand::rngs::OsRng.gen_range(0..200);
+            Ok(GossipAction::Forward {
+                peers: forwarded_to,
+                jitter_ms,
+            })
         }
     }
 

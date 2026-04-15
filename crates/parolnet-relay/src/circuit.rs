@@ -55,6 +55,14 @@ impl EstablishedCircuit {
     pub fn wrap_data(&self, data: &[u8]) -> Result<Vec<u8>, RelayError> {
         let hop_keys = self.hop_keys.lock().unwrap();
         let counters = self.forward_counters.lock().unwrap();
+
+        // Check for counter overflow before encrypting
+        for c in counters.iter() {
+            if *c == u32::MAX {
+                return Err(RelayError::NonceOverflow);
+            }
+        }
+
         let result = onion::onion_encrypt(data, &hop_keys, &counters)?;
         drop(counters);
         drop(hop_keys);
@@ -72,6 +80,14 @@ impl EstablishedCircuit {
     pub fn unwrap_data(&self, data: &[u8]) -> Result<Vec<u8>, RelayError> {
         let hop_keys = self.hop_keys.lock().unwrap();
         let counters = self.backward_counters.lock().unwrap();
+
+        // Check for counter overflow before decrypting
+        for c in counters.iter() {
+            if *c == u32::MAX {
+                return Err(RelayError::NonceOverflow);
+            }
+        }
+
         let result = onion::onion_decrypt(data, &hop_keys, &counters)?;
         drop(counters);
         drop(hop_keys);
@@ -162,8 +178,8 @@ impl Circuit for EstablishedCircuit {
     async fn extend(&self, hop: &RelayInfo) -> Result<(), RelayError> {
         let conn = self.guard()?;
 
-        // Create an EXTEND cell targeting the new hop
-        let (extend_cell, our_secret) = CircuitHandshake::extend_cell(self.circuit_id, hop.addr);
+        // Create an EXTEND cell targeting the new hop by PeerId
+        let (extend_cell, our_secret) = CircuitHandshake::extend_cell(self.circuit_id, hop.peer_id);
 
         // Wrap the EXTEND cell payload in onion layers for existing hops
         // so it can traverse the circuit to the last hop
@@ -302,7 +318,7 @@ impl StandardCircuitBuilder {
 
         // Steps 2-3: EXTEND to each subsequent hop
         for hop in &hops[1..] {
-            let (extend_cell, ext_secret) = CircuitHandshake::extend_cell(circuit_id, hop.addr);
+            let (extend_cell, ext_secret) = CircuitHandshake::extend_cell(circuit_id, hop.peer_id);
 
             // Wrap EXTEND payload through existing hops
             let partial = EstablishedCircuit::from_hop_keys(hop_keys.clone(), circuit_id);

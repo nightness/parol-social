@@ -91,7 +91,13 @@ pub fn generate_qr_payload(
     Ok(generate_qr_payload_with_ratchet(identity_key, relay_hint)?.payload_bytes)
 }
 
+/// Maximum age of a QR code payload before it is rejected (30 minutes).
+const QR_MAX_AGE_SECS: u64 = 1800;
+
 /// Parse a scanned QR code payload from CBOR bytes.
+///
+/// Validates the timestamp: QR codes older than 30 minutes are rejected
+/// to prevent replay of intercepted codes.
 pub fn parse_qr_payload(data: &[u8]) -> Result<QrPayload, CoreError> {
     let payload: QrPayload = ciborium::from_reader(data)
         .map_err(|e| CoreError::BootstrapFailed(format!("CBOR decode: {e}")))?;
@@ -114,6 +120,16 @@ pub fn parse_qr_payload(data: &[u8]) -> Result<QrPayload, CoreError> {
         return Err(CoreError::BootstrapFailed(
             "ratchet key must be 32 bytes".into(),
         ));
+    }
+
+    // Reject QR codes older than 30 minutes
+    let now_secs = crate::now_epoch_secs();
+    if payload.ts > 0 && now_secs.saturating_sub(payload.ts) > QR_MAX_AGE_SECS {
+        return Err(CoreError::BootstrapFailed(format!(
+            "QR code expired: created {} seconds ago (max {})",
+            now_secs.saturating_sub(payload.ts),
+            QR_MAX_AGE_SECS
+        )));
     }
 
     Ok(payload)

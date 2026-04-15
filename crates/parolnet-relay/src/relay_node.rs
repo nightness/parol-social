@@ -1,5 +1,6 @@
 //! Relay node behavior (PNP-004 Section 5.5).
 
+use crate::directory::RelayDirectory;
 use crate::handshake::CircuitHandshake;
 use crate::onion::{self, HopKeys};
 use crate::{CELL_PAYLOAD_SIZE, CellType, RelayAction, RelayCell, RelayError, RelayNode};
@@ -31,6 +32,8 @@ struct CircuitEntry {
 pub struct StandardRelayNode {
     /// Circuit table: circuit_id -> circuit entry.
     circuits: Mutex<HashMap<u32, CircuitEntry>>,
+    /// Local relay directory for resolving PeerId -> SocketAddr.
+    directory: Mutex<RelayDirectory>,
 }
 
 impl Default for StandardRelayNode {
@@ -43,7 +46,21 @@ impl StandardRelayNode {
     pub fn new() -> Self {
         Self {
             circuits: Mutex::new(HashMap::new()),
+            directory: Mutex::new(RelayDirectory::new()),
         }
+    }
+
+    /// Create a relay node with an existing directory.
+    pub fn with_directory(directory: RelayDirectory) -> Self {
+        Self {
+            circuits: Mutex::new(HashMap::new()),
+            directory: Mutex::new(directory),
+        }
+    }
+
+    /// Get a mutable reference to the relay directory.
+    pub fn directory(&self) -> &Mutex<RelayDirectory> {
+        &self.directory
     }
 
     /// Register a circuit after handling a CREATE cell.
@@ -166,11 +183,19 @@ impl RelayNode for StandardRelayNode {
             }
 
             CellType::Extend => {
-                // Parse EXTEND to get target address and client's ephemeral key.
-                // The current relay must connect to target_addr, send a CREATE
-                // on behalf of the client, and relay the CREATED back as EXTENDED.
-                // For now, forward the cell so the caller can handle transport.
-                let (target_addr, _client_pub) = CircuitHandshake::parse_extend(&cell)?;
+                // Parse EXTEND to get target PeerId and client's ephemeral key.
+                // Resolve PeerId to SocketAddr from local directory.
+                let (target_peer, _client_pub) = CircuitHandshake::parse_extend(&cell)?;
+
+                // Look up the target peer's address in our directory
+                let directory = self.directory.lock().unwrap();
+                let target_addr = directory.lookup_addr(&target_peer).ok_or_else(|| {
+                    RelayError::CellError(format!(
+                        "unknown relay PeerId in EXTEND: {}",
+                        hex::encode(target_peer.0)
+                    ))
+                })?;
+
                 Ok(RelayAction::Forward {
                     next_hop: target_addr,
                     cell: cell.clone(),

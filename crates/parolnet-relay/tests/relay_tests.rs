@@ -161,6 +161,7 @@ fn make_descriptor(id: u8, uptime_days: u64) -> RelayDescriptor {
         uptime_secs: uptime_days * 86400,
         timestamp: 1700000000,
         signature: [0; 64],
+        bandwidth_estimate: 1000,
     }
 }
 
