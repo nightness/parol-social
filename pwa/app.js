@@ -2,6 +2,7 @@
 // Zero-dependency vanilla JS messaging app with calculator decoy mode.
 
 import { CryptoStore } from './crypto-store.js';
+import { exportData, importData, validateExport } from './data-export.js';
 const cryptoStore = new CryptoStore();
 
 // ── State ───────────────────────────────────────────────────
@@ -2039,6 +2040,118 @@ async function migrateToEncrypted() {
     }
 }
 
+// ── Data Export/Import ─────────────────────────────────────
+async function handleExportData() {
+    const password = prompt('Enter a password to encrypt your export:');
+    if (!password || password.length < 4) {
+        showToast('Password must be at least 4 characters');
+        return;
+    }
+    const confirm = prompt('Confirm password:');
+    if (password !== confirm) {
+        showToast('Passwords do not match');
+        return;
+    }
+
+    try {
+        showToast('Exporting data...');
+
+        // Gather all store data (raw — includes encrypted records as-is)
+        const stores = {};
+        for (const storeName of ['contacts', 'messages', 'settings', 'crypto_meta']) {
+            stores[storeName] = await dbGetAllRaw(storeName);
+        }
+
+        // Get identity key
+        let identity = null;
+        try {
+            if (wasm && wasm.export_secret_key) {
+                identity = wasm.export_secret_key();
+            }
+        } catch (e) {
+            console.warn('Could not export identity key:', e);
+        }
+
+        const encrypted = await exportData({ stores, identity }, password);
+
+        // Trigger download
+        const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'parolnet-backup.bin';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('Export complete!');
+    } catch (e) {
+        showToast('Export failed: ' + e.message);
+    }
+}
+
+async function handleImportData() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.bin,*/*';
+
+    input.onchange = async () => {
+        const file = input.files[0];
+        if (!file) return;
+
+        const password = prompt('Enter the export password:');
+        if (!password) return;
+
+        try {
+            showToast('Reading file...');
+            const arrayBuffer = await file.arrayBuffer();
+            const encrypted = new Uint8Array(arrayBuffer);
+
+            // Validate first
+            const info = await validateExport(encrypted, password);
+            const proceed = confirm(
+                `This will replace ALL current data.\n\n` +
+                `Export contains:\n` +
+                `- ${info.contactCount} contacts\n` +
+                `- ${info.messageCount} messages\n` +
+                `- Identity key: ${info.hasIdentity ? 'Yes' : 'No'}\n\n` +
+                `Continue?`
+            );
+            if (!proceed) return;
+
+            showToast('Importing data...');
+            const data = await importData(encrypted, password);
+
+            // Clear existing stores and write imported data
+            for (const [storeName, records] of Object.entries(data.stores)) {
+                await dbClear(storeName);
+                for (const record of records) {
+                    await dbPutRaw(storeName, record);
+                }
+            }
+
+            // Restore identity key
+            if (data.identity && wasm && wasm.initialize_from_key) {
+                try {
+                    wasm.initialize_from_key(data.identity);
+                    await dbPut('settings', { key: 'identity_secret', value: data.identity });
+                } catch (e) {
+                    console.warn('Could not restore identity key:', e);
+                    showToast('Warning: Identity key restore failed');
+                }
+            }
+
+            showToast('Import complete! Reloading...');
+            setTimeout(() => location.reload(), 1500);
+        } catch (e) {
+            showToast('Import failed: ' + e.message);
+        }
+    };
+
+    input.click();
+}
+
 // ── Network Settings ───────────────────────────────────────
 async function setCustomRelay() {
     const input = document.getElementById('custom-relay-input');
@@ -2315,4 +2428,6 @@ window.requestNotificationPermission = requestNotificationPermission;
 window.copyBootstrapCode = copyBootstrapCode;
 window.attemptUnlock = attemptUnlock;
 window.enableEncryption = enableEncryption;
+window.handleExportData = handleExportData;
+window.handleImportData = handleImportData;
 window.currentPeerId = null;

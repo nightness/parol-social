@@ -43,6 +43,7 @@ const ASSETS_TO_CACHE = [
     './calculator.css',
     './app.js',
     './crypto-store.js',
+    './data-export.js',
     './qrcode.js',
     './qrdecoder.js',
     './manifest.json',
