@@ -6,6 +6,7 @@
 
 use crate::traits::TrafficShaper;
 use rand::Rng;
+use rand::rngs::OsRng;
 use std::time::Duration;
 
 /// Bandwidth modes (PNP-006 Section 3).
@@ -59,7 +60,9 @@ impl TrafficShaper for StandardShaper {
     fn delay_before_send(&self) -> Duration {
         let base = self.mode.padding_interval();
         let jitter_max = self.mode.jitter_max();
-        let jitter_ms = rand::thread_rng().gen_range(0..=jitter_max.as_millis() as u64);
+        // Use OsRng (CSPRNG) for security-sensitive jitter — predictable jitter
+        // patterns could leak traffic timing information to a network observer.
+        let jitter_ms = OsRng.gen_range(0..=jitter_max.as_millis() as u64);
         base + Duration::from_millis(jitter_ms)
     }
 
@@ -69,7 +72,9 @@ impl TrafficShaper for StandardShaper {
 
     fn shape(&self, messages: Vec<Vec<u8>>) -> Vec<(Duration, Vec<u8>)> {
         let base_interval = self.mode.padding_interval();
-        let mut rng = rand::thread_rng();
+        // Use OsRng (CSPRNG) — traffic shaping jitter is security-sensitive
+        // because predictable patterns aid traffic analysis attacks.
+        let mut rng = OsRng;
         let mut result = Vec::with_capacity(messages.len());
 
         // Burst smoothing: if more than 32 messages, allow 2x rate for first batch

@@ -110,16 +110,37 @@ impl FingerprintProfile {
 
     /// Build a rustls ClientConfig that approximates this fingerprint.
     ///
+    /// Applies cipher suite ordering from the profile to the CryptoProvider,
+    /// reordering rustls's default suites to match the browser fingerprint.
+    ///
     /// Limitations:
-    /// - Extension ordering is controlled by rustls internally
+    /// - Extension ordering is controlled by rustls internally and cannot be
+    ///   customized (would require a utls-equivalent library for Rust)
     /// - Some Chrome/Firefox extensions (e.g., GREASE, compressed_certificate)
     ///   are not available in rustls
-    /// - For full mimicry, a custom TLS implementation would be needed
+    /// - Supported groups ordering is not fully controllable via the public API
+    /// - For full ClientHello mimicry, a custom TLS implementation or a
+    ///   utls-equivalent Rust crate would be needed
+    ///
+    /// TODO: When a Rust utls-equivalent becomes available, replace this with
+    /// full ClientHello construction including extension ordering, GREASE values,
+    /// and padding extension.
     pub fn build_client_config(&self) -> Result<rustls::ClientConfig, Box<dyn std::error::Error>> {
         let mut root_store = rustls::RootCertStore::empty();
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-        let mut config = rustls::ClientConfig::builder()
+        // Get the default crypto provider and reorder cipher suites to match
+        // the browser fingerprint profile.
+        let default_provider = rustls::crypto::aws_lc_rs::default_provider();
+        let reordered_suites = self.reorder_cipher_suites(&default_provider.cipher_suites);
+
+        let provider = rustls::crypto::CryptoProvider {
+            cipher_suites: reordered_suites,
+            ..default_provider
+        };
+
+        let mut config = rustls::ClientConfig::builder_with_provider(provider.into())
+            .with_safe_default_protocol_versions()?
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
@@ -131,5 +152,42 @@ impl FingerprintProfile {
             .collect();
 
         Ok(config)
+    }
+
+    /// Reorder the given cipher suites to match this profile's cipher_suites order.
+    ///
+    /// Suites present in the profile are placed first (in profile order),
+    /// followed by any remaining suites from the provider that aren't in the
+    /// profile (preserving their original order).
+    fn reorder_cipher_suites(
+        &self,
+        available: &[rustls::SupportedCipherSuite],
+    ) -> Vec<rustls::SupportedCipherSuite> {
+        let mut result = Vec::with_capacity(available.len());
+
+        // First: add suites in profile order
+        for &profile_id in &self.cipher_suites {
+            if let Some(&suite) = available
+                .iter()
+                .find(|s| u16::from(s.suite()) == profile_id)
+                && !result
+                    .iter()
+                    .any(|r: &rustls::SupportedCipherSuite| u16::from(r.suite()) == profile_id)
+            {
+                result.push(suite);
+            }
+        }
+
+        // Then: add any remaining suites not in the profile
+        for &suite in available {
+            if !result
+                .iter()
+                .any(|r| u16::from(r.suite()) == u16::from(suite.suite()))
+            {
+                result.push(suite);
+            }
+        }
+
+        result
     }
 }

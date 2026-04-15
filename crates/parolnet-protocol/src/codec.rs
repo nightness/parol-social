@@ -100,6 +100,10 @@ pub fn encode_header(header: &CleartextHeader) -> Result<Vec<u8>, ProtocolError>
 const MAX_HEADER_SIZE: usize = 512;
 
 /// Deserialize a cleartext header from CBOR bytes.
+///
+/// Logs a warning if the timestamp is not properly coarsened (divisible by 300).
+/// Non-coarsened timestamps are not rejected for backwards compatibility, but
+/// they indicate a non-compliant sender that may be leaking timing information.
 pub fn decode_header(bytes: &[u8]) -> Result<CleartextHeader, ProtocolError> {
     if bytes.len() > MAX_HEADER_SIZE {
         return Err(ProtocolError::CborDecode(format!(
@@ -117,6 +121,17 @@ pub fn decode_header(bytes: &[u8]) -> Result<CleartextHeader, ProtocolError> {
             expected: 1,
             got: wire.version,
         });
+    }
+
+    // Warn if timestamp is not coarsened (not divisible by 300).
+    // Don't reject — backwards compatibility — but the sender is non-compliant
+    // and may be leaking precise timing information.
+    if !wire.timestamp.is_multiple_of(300) {
+        tracing::warn!(
+            timestamp = wire.timestamp,
+            "received header with non-coarsened timestamp (not divisible by 300); \
+             sender may be leaking timing information"
+        );
     }
 
     wire.try_into()

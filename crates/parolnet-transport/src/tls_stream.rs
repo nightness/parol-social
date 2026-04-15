@@ -14,21 +14,37 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio_rustls::{TlsAcceptor, TlsConnector, client, server};
 
+/// Default SNI hostname used when none is configured.
+pub const DEFAULT_SNI: &str = "cdn.jsdelivr.net";
+
 /// TLS stream transport using rustls directly over TCP.
 pub struct TlsTransport {
     client_config: Arc<rustls::ClientConfig>,
     server_config: Option<Arc<rustls::ServerConfig>>,
+    /// SNI hostname sent in the TLS ClientHello. Should look like a plausible
+    /// CDN or popular website to avoid DPI fingerprinting. Each deployment
+    /// should configure a unique, plausible SNI rather than sharing a default.
+    sni: String,
 }
 
 impl TlsTransport {
     /// Create a client-only TLS transport with the given fingerprint profile.
     pub fn client(profile: &FingerprintProfile) -> Result<Self, TransportError> {
+        Self::client_with_sni(profile, DEFAULT_SNI.to_string())
+    }
+
+    /// Create a client-only TLS transport with a custom SNI hostname.
+    pub fn client_with_sni(
+        profile: &FingerprintProfile,
+        sni: String,
+    ) -> Result<Self, TransportError> {
         let config = profile
             .build_client_config()
             .map_err(|e| TransportError::TlsHandshakeFailed(e.to_string()))?;
         Ok(Self {
             client_config: Arc::new(config),
             server_config: None,
+            sni,
         })
     }
 
@@ -37,12 +53,22 @@ impl TlsTransport {
         profile: &FingerprintProfile,
         server_config: rustls::ServerConfig,
     ) -> Result<Self, TransportError> {
+        Self::with_server_config_and_sni(profile, server_config, DEFAULT_SNI.to_string())
+    }
+
+    /// Create a TLS transport with both client and server capabilities and a custom SNI.
+    pub fn with_server_config_and_sni(
+        profile: &FingerprintProfile,
+        server_config: rustls::ServerConfig,
+        sni: String,
+    ) -> Result<Self, TransportError> {
         let client_config = profile
             .build_client_config()
             .map_err(|e| TransportError::TlsHandshakeFailed(e.to_string()))?;
         Ok(Self {
             client_config: Arc::new(client_config),
             server_config: Some(Arc::new(server_config)),
+            sni,
         })
     }
 
@@ -54,10 +80,25 @@ impl TlsTransport {
         client_config: rustls::ClientConfig,
         server_config: rustls::ServerConfig,
     ) -> Self {
+        Self::with_configs_and_sni(client_config, server_config, DEFAULT_SNI.to_string())
+    }
+
+    /// Create a TLS transport with explicit client and server configs and a custom SNI.
+    pub fn with_configs_and_sni(
+        client_config: rustls::ClientConfig,
+        server_config: rustls::ServerConfig,
+        sni: String,
+    ) -> Self {
         Self {
             client_config: Arc::new(client_config),
             server_config: Some(Arc::new(server_config)),
+            sni,
         }
+    }
+
+    /// Get the configured SNI hostname.
+    pub fn sni(&self) -> &str {
+        &self.sni
     }
 }
 
@@ -197,8 +238,8 @@ impl Transport for TlsTransport {
         let tcp_stream = TcpStream::connect(addr).await?;
         let connector = TlsConnector::from(self.client_config.clone());
 
-        // Use a plausible SNI hostname
-        let server_name = rustls::pki_types::ServerName::try_from("www.example.com")
+        // Use the configured SNI hostname (should look like a plausible CDN)
+        let server_name = rustls::pki_types::ServerName::try_from(self.sni.as_str())
             .map_err(|e| TransportError::TlsHandshakeFailed(e.to_string()))?
             .to_owned();
 

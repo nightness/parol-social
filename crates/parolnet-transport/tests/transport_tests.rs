@@ -314,13 +314,13 @@ fn test_bandwidth_modes_are_distinct() {
 
 // ── Helper: build TlsTransport with self-signed cert ──────────────
 
-/// Generate a self-signed cert for "www.example.com" (matching the
-/// hardcoded SNI in TlsTransport::connect) and return a TlsTransport
-/// configured to trust it.
+/// Generate a self-signed cert for the default SNI hostname and return a
+/// TlsTransport configured to trust it.
 fn build_test_tls_transport() -> TlsTransport {
-    let rcgen::CertifiedKey { cert, key_pair } =
-        rcgen::generate_simple_self_signed(vec!["www.example.com".to_string()])
-            .expect("generate self-signed cert");
+    let rcgen::CertifiedKey { cert, key_pair } = rcgen::generate_simple_self_signed(vec![
+        parolnet_transport::tls_stream::DEFAULT_SNI.to_string(),
+    ])
+    .expect("generate self-signed cert");
 
     let cert_der = cert.der().clone();
     let key_der = key_pair.serialize_der();

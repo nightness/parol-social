@@ -368,7 +368,12 @@ impl StandardGossip {
         }
 
         // 6. Verify Ed25519 signature
-        {
+        //
+        // For anonymous envelopes (UserMessage types where sender identity is
+        // inside the encrypted payload), relays cannot verify the signature
+        // because the sender's public key is not in the cleartext envelope.
+        // The recipient will verify using the sender key from the decrypted payload.
+        if !gossip_env.is_anonymous() {
             // Verify src_pubkey matches the claimed src PeerId
             let pubkey_hash: [u8; 32] = Sha256::digest(&gossip_env.src_pubkey).into();
             if pubkey_hash != gossip_env.src.0 {

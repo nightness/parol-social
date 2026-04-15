@@ -13,6 +13,25 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 
+/// Configuration for WebSocket transport.
+#[derive(Clone, Debug, Default)]
+pub struct WebSocketConfig {
+    /// Whether to use TLS (wss://) instead of plain WebSocket (ws://).
+    ///
+    /// When true, connections use `wss://` URLs and the listener should be
+    /// wrapped with TLS. This is critical for DPI evasion — plain WebSocket
+    /// frames are trivially detectable by network observers.
+    ///
+    /// TODO: Wire up TLS for the listener side. Currently `tokio-tungstenite`'s
+    /// `connect_async` supports `wss://` URLs for client connections (via the
+    /// `MaybeTlsStream` type), but the server listener needs to wrap the TCP
+    /// acceptor with `tokio-rustls` before upgrading to WebSocket. This requires:
+    /// 1. Accept TLS on the TCP socket using `TlsAcceptor`
+    /// 2. Pass the `TlsStream<TcpStream>` to `tokio_tungstenite::accept_async`
+    /// 3. Update the `ServerWebSocketStream` type alias accordingly
+    pub use_tls: bool,
+}
+
 /// A WebSocket connection wrapping a tokio_tungstenite stream.
 ///
 /// Supports both client connections (via `connect`) and server-side

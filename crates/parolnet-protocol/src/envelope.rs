@@ -20,6 +20,31 @@ pub struct CleartextHeader {
 }
 
 impl CleartextHeader {
+    /// Create a new CleartextHeader with an automatically coarsened timestamp.
+    ///
+    /// The timestamp is rounded down to the nearest 5-minute (300s) boundary
+    /// to prevent timing correlation attacks. This is the preferred constructor
+    /// and should be used instead of setting fields directly.
+    pub fn new(
+        version: u8,
+        msg_type: u8,
+        dest_peer_id: PeerId,
+        message_id: [u8; 16],
+        unix_secs: u64,
+        ttl: u8,
+        source_hint: Option<PeerId>,
+    ) -> Self {
+        Self {
+            version,
+            msg_type,
+            dest_peer_id,
+            message_id,
+            timestamp: Self::coarsen_timestamp(unix_secs),
+            ttl_and_hops: (ttl as u16) << 8,
+            source_hint,
+        }
+    }
+
     pub fn ttl(&self) -> u8 {
         (self.ttl_and_hops >> 8) as u8
     }
@@ -36,6 +61,11 @@ impl CleartextHeader {
     /// Create a coarsened timestamp from current time.
     pub fn coarsen_timestamp(unix_secs: u64) -> u64 {
         (unix_secs / 300) * 300
+    }
+
+    /// Check whether the timestamp is properly coarsened (divisible by 300).
+    pub fn is_timestamp_coarsened(&self) -> bool {
+        self.timestamp.is_multiple_of(300)
     }
 }
 

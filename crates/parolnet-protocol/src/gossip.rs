@@ -153,10 +153,21 @@ impl GossipEnvelope {
     }
 
     /// Check basic structural validity.
+    ///
+    /// Anonymous envelopes (used for UserMessage types) are allowed to have
+    /// an empty `src_pubkey`. In that case, `src` must be zeroed.
     pub fn is_valid_structure(&self) -> bool {
+        let pubkey_valid = if self.is_anonymous() {
+            // Anonymous: src must be zeroed, src_pubkey must be empty
+            self.src == PeerId([0u8; 32]) && self.src_pubkey.is_empty()
+        } else {
+            // Non-anonymous: src_pubkey must be 32 bytes
+            self.src_pubkey.len() == 32
+        };
+
         self.v == 1
             && self.id.len() == 32
-            && self.src_pubkey.len() == 32
+            && pubkey_valid
             && self.pow.len() == 8
             && self.sig.len() == 64
             && self.seen.len() == 128
@@ -169,7 +180,31 @@ impl GossipEnvelope {
         now_secs >= self.exp
     }
 
+    /// Create an anonymous envelope suitable for UserMessage payloads.
+    ///
+    /// For UserMessage types, sender identity should be inside the encrypted
+    /// payload body, not in the cleartext envelope. This prevents relays from
+    /// learning who is communicating with whom.
+    ///
+    /// The `src` is set to `PeerId([0u8; 32])` and `src_pubkey` to empty vec.
+    /// The recipient verifies the signature using the sender key extracted from
+    /// the decrypted payload.
+    pub fn make_anonymous(&mut self) {
+        self.src = PeerId([0u8; 32]);
+        self.src_pubkey = vec![];
+    }
+
+    /// Returns true if this is an anonymous envelope (zeroed src, empty pubkey).
+    pub fn is_anonymous(&self) -> bool {
+        self.src == PeerId([0u8; 32]) && self.src_pubkey.is_empty()
+    }
+
     /// Bytes to sign/verify (everything except the signature field).
+    ///
+    /// Excludes `hops` and `seen` because these fields are modified by relays
+    /// during gossip propagation (hops is incremented, seen bloom filter is
+    /// updated). Including them would cause signature verification to fail
+    /// after the first relay hop.
     pub fn signable_bytes(&self) -> Vec<u8> {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
@@ -180,8 +215,8 @@ impl GossipEnvelope {
         hasher.update(self.ts.to_be_bytes());
         hasher.update(self.exp.to_be_bytes());
         hasher.update([self.ttl]);
-        hasher.update([self.hops]);
-        hasher.update(&self.seen);
+        // NOTE: hops and seen are intentionally excluded — they are modified
+        // by relays after the sender signs the envelope.
         hasher.update(&self.pow);
         hasher.update([self.payload_type]);
         hasher.update(&self.payload);
