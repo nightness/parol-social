@@ -58,6 +58,7 @@ const ASSETS_TO_CACHE = [
     './icons/calc-512.png',
     './pkg/parolnet_wasm.js',
     './pkg/parolnet_wasm_bg.wasm',
+    './network-config.js',
 ];
 
 // ── Install: cache all assets ──────────────────────────────────
