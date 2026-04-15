@@ -18,6 +18,7 @@
 //! - Panic wipe (clear all in-memory state)
 
 pub mod bindings;
+pub mod federation;
 pub mod storage;
 pub mod websocket;
 
@@ -696,6 +697,75 @@ pub fn compute_sas(
 
     parolnet_core::bootstrap::compute_sas(&bs, &ik_a, &ik_b, &ek_a, &ek_b)
         .map_err(|e| JsError::new(&format!("{e}")))
+}
+
+// ── Federation / Directory Verification ────────────────────
+
+/// Verify a CBOR-encoded SignedDirectory against hardcoded authority pubkeys.
+/// Returns a JSON object with `{ valid: true, relay_count: N, timestamp: T }` on success,
+/// or throws on deserialization/verification error.
+#[wasm_bindgen]
+pub fn verify_directory(cbor_bytes: &[u8]) -> Result<JsValue, JsError> {
+    let dir: federation::SignedDirectory = ciborium::from_reader(cbor_bytes)
+        .map_err(|e| JsError::new(&format!("CBOR decode failed: {e}")))?;
+
+    let valid = dir
+        .verify(federation::AUTHORITY_PUBKEYS)
+        .map_err(|e| JsError::new(&format!("verification error: {e}")))?;
+
+    #[derive(serde::Serialize)]
+    struct DirectoryResult {
+        valid: bool,
+        relay_count: usize,
+        timestamp: u64,
+    }
+
+    let result = DirectoryResult {
+        valid,
+        relay_count: dir.descriptors.len(),
+        timestamp: dir.timestamp,
+    };
+
+    serde_wasm_bindgen::to_value(&result).map_err(|e| JsError::new(&format!("serialize: {e}")))
+}
+
+/// Verify a single CBOR-encoded EndorsedDescriptor meets the authority threshold.
+/// `now_secs` is the current Unix timestamp (use `Date.now() / 1000` in JS).
+/// Returns true if enough valid authority endorsements exist.
+#[wasm_bindgen]
+pub fn verify_endorsed_descriptor(cbor_bytes: &[u8], now_secs: u64) -> Result<bool, JsError> {
+    let desc: federation::EndorsedDescriptor = ciborium::from_reader(cbor_bytes)
+        .map_err(|e| JsError::new(&format!("CBOR decode failed: {e}")))?;
+
+    desc.verify_threshold(
+        federation::AUTHORITY_PUBKEYS,
+        federation::AUTHORITY_THRESHOLD,
+        now_secs,
+    )
+    .map_err(|e| JsError::new(&format!("verification error: {e}")))
+}
+
+/// Get the network identity as a hex string.
+/// network_id = SHA-256(sorted authority pubkeys).
+#[wasm_bindgen]
+pub fn get_network_id() -> String {
+    hex::encode(federation::network_id())
+}
+
+/// Get authority public keys as a JSON array of hex strings.
+#[wasm_bindgen]
+pub fn get_authority_pubkeys() -> JsValue {
+    let keys: Vec<String> = federation::AUTHORITY_PUBKEYS
+        .iter()
+        .map(hex::encode)
+        .collect();
+    serde_wasm_bindgen::to_value(&keys).unwrap_or(JsValue::NULL)
+}
+
+/// Get the authority endorsement threshold.
+#[wasm_bindgen]
+pub fn get_authority_threshold() -> usize {
+    federation::AUTHORITY_THRESHOLD
 }
 
 /// Emergency: wipe all state from memory.
