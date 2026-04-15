@@ -4,6 +4,36 @@
 
 const CACHE_NAME = 'parolnet-v6';
 
+// ── SRI hashes for critical resources ─────────────────────────
+// SHA-256 hashes of critical cached resources. On cache hit for these files,
+// the service worker verifies the cached content hasn't been tampered with.
+// If the hash doesn't match, the resource is re-fetched from the network.
+// Regenerate these hashes whenever the corresponding files change.
+const RESOURCE_HASHES = {
+    'app.js':          '688c3749c593c760227864c8555bb37529abcea621f60262ba2a81887a711ba0',
+    'styles.css':      '59ff36998eaba6795e7c67861f2b2f5700c0028b03dc04538b2a0e8c5831ff65',
+    'crypto-store.js': '2aba63c04e985c4d9d3aeb969d3321eb9cb9c7e86e3d8519cdc7f4d722b0a45f',
+    'index.html':      '9b8b284fc8795c82858ef0506df433d7b203b835f502b7f49017114bf3441f8a',
+};
+
+// Compute SHA-256 hex digest of an ArrayBuffer.
+async function sha256Hex(buffer) {
+    const hashBuf = await crypto.subtle.digest('SHA-256', buffer);
+    const bytes = new Uint8Array(hashBuf);
+    let hex = '';
+    for (let i = 0; i < bytes.length; i++) {
+        hex += bytes[i].toString(16).padStart(2, '0');
+    }
+    return hex;
+}
+
+// Extract the filename from a request URL for hash lookup.
+function getResourceName(url) {
+    const path = new URL(url).pathname;
+    const parts = path.split('/');
+    return parts[parts.length - 1];
+}
+
 // All assets that must be cached for offline operation.
 // The app is fully self-contained — zero external dependencies.
 const ASSETS_TO_CACHE = [
@@ -41,7 +71,10 @@ self.addEventListener('install', event => {
                     console.warn('[SW] Some assets not cached:', err.message);
                 });
             })
-            .then(() => self.skipWaiting())
+            // NOTE: skipWaiting() intentionally removed from install handler.
+            // A compromised SW update should NOT immediately take control.
+            // Users get the new SW on next visit. Explicit skipWaiting is
+            // still available via message handler for manual updates.
     );
 });
 
@@ -81,19 +114,49 @@ self.addEventListener('fetch', event => {
 
     event.respondWith(
         caches.match(event.request)
-            .then(cachedResponse => {
+            .then(async cachedResponse => {
                 if (cachedResponse) {
-                    // Cache hit — return cached version
+                    // Cache hit — verify integrity for critical resources
+                    const resourceName = getResourceName(event.request.url);
+                    const expectedHash = RESOURCE_HASHES[resourceName];
+
+                    if (expectedHash) {
+                        // Clone before reading body (body can only be consumed once)
+                        const clone = cachedResponse.clone();
+                        try {
+                            const buf = await clone.arrayBuffer();
+                            const actualHash = await sha256Hex(buf);
+                            if (actualHash !== expectedHash) {
+                                console.warn('[SW] Integrity mismatch for', resourceName, '— refetching from network');
+                                // Hash mismatch: cached resource may be tampered with.
+                                // Attempt to fetch a fresh copy from network.
+                                try {
+                                    const freshResponse = await fetch(event.request);
+                                    if (freshResponse && freshResponse.ok) {
+                                        const freshClone = freshResponse.clone();
+                                        const cache = await caches.open(CACHE_NAME);
+                                        await cache.put(event.request, freshClone);
+                                        return freshResponse;
+                                    }
+                                } catch {
+                                    // Network unavailable — return cached even if tampered,
+                                    // better than nothing for offline use
+                                }
+                            }
+                        } catch {
+                            // If integrity check itself fails, fall through to cached
+                        }
+                    }
+
                     // Also update cache in background (stale-while-revalidate)
-                    const fetchPromise = fetch(event.request)
+                    fetch(event.request)
                         .then(networkResponse => {
                             if (networkResponse && networkResponse.ok) {
-                                const clone = networkResponse.clone();
+                                const netClone = networkResponse.clone();
                                 caches.open(CACHE_NAME).then(cache => {
-                                    cache.put(event.request, clone);
+                                    cache.put(event.request, netClone);
                                 });
                             }
-                            return networkResponse;
                         })
                         .catch(() => {
                             // Network failed, but we have cache — that's fine

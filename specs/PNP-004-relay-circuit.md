@@ -89,13 +89,12 @@ The EXTEND payload is encrypted under all preceding hop keys (onion layers). Whe
 Offset  Length  Field
 ------  ------  -----
 0       32      PeerId of next relay (SHA-256 of its Ed25519 public key)
-32      6       Next relay address hint: 4 bytes IPv4 or 16 bytes IPv6 + 2 bytes port
-38      32      Client ephemeral X25519 public key (for next hop)
-70      N       CBOR-encoded handshake extensions (optional)
-70+N    ...     Random padding
+32      32      Client ephemeral X25519 public key (for next hop)
+64      N       CBOR-encoded handshake extensions (optional)
+64+N    ...     Random padding
 ```
 
-The relay receiving EXTEND MUST look up the specified PeerId, open a TLS connection to it (if not already connected), allocate a new CID on that connection, and send a CREATE cell on behalf of the OP. It MUST NOT log, store, or forward the OP's identity.
+The relay receiving EXTEND MUST look up the specified PeerId in its local relay directory to resolve the network address. This prevents the originator from embedding IP addresses in EXTEND cells, which would leak topology information to intermediate relays if the cell were compromised. The relay MUST open a TLS connection to the resolved address (if not already connected), allocate a new CID on that connection, and send a CREATE cell on behalf of the OP. It MUST NOT log, store, or forward the OP's identity. If the PeerId is not found in the local directory, the relay MUST respond with a DESTROY cell (reason: protocol error).
 
 ### 3.6 EXTENDED Payload
 

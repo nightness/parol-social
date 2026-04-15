@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security — Phase 1-3 Audit Fixes
+
+#### Cryptographic Safety
+- KDF (`hkdf_sha256`) now returns `Zeroizing<Vec<u8>>`; all callers use `Deref` transparently
+- Manual `Drop` impls for `SignedPreKey`, `OneTimePreKeyPair`, `DoubleRatchetSession` zeroize skipped fields (public key bytes, `skipped_keys` HashMap)
+- X3DH: intermediate `key_bytes` zeroized after `StaticSecret` construction
+- Core session manager: drain + explicit drop for session map during panic wipe
+- WASM: `Drop` impl zeroizes `PendingBootstrap` secrets
+
+#### Remote DoS Prevention
+- TLS stream: `MAX_FRAME_SIZE` (64 KiB) guard on `recv()`
+- CBOR codec: `MAX_HEADER_SIZE` (512 B) guard before decode
+- Gossip: `MAX_ENVELOPE_SIZE` + `is_valid_structure()` on inbound envelopes
+- Relay cells: `payload_len ≤ CELL_PAYLOAD_SIZE` enforced in `from_bytes()`
+- Relay server: per-IP connection rate limiting and per-peer message rate limiting
+- Relay server: rate limiter cleanup task (every 5 minutes)
+- Gossip: per-PeerId rate limiting (10 msgs/60s) with `RateLimited` action
+- Gossip: reject messages with future timestamps (>300s clock skew)
+
+#### Protocol Privacy
+- Gossip `signable_bytes()` excludes relay-modified fields (`hops`, `seen`) — prevents signature invalidation during forwarding
+- Anonymous gossip envelopes supported for `UserMessage` types (omit `src`/`src_pubkey`)
+- `CleartextHeader` constructor enforces timestamp coarsening — prevents timing correlation
+- Relay CREATED cells include HMAC-SHA256 key confirmation (constant-time verify)
+- `PaddingStrategy::pad()` returns `Result` with `MessageTooLarge` error instead of silent truncation
+
+#### Transport Obfuscation
+- TLS fingerprint cipher suites applied to `ClientConfig` (was declaration-only)
+- SNI configurable per-connection, removed hardcoded `www.example.com`
+- `OsRng` used for traffic shaping jitter (was non-cryptographic RNG)
+- TLS config option added to WebSocket transport
+
+#### Relay Hardening
+- `/16` subnet diversity enforcement in relay path selection
+- Bandwidth-weighted random guard selection
+- EXTEND cells use `PeerId` instead of `SocketAddr` — prevents IP leakage to intermediate relays
+- Counter overflow checks (`u32::MAX`) before encrypt/decrypt operations
+- Auth-gated `/peers` and `/bootstrap` admin endpoints with bearer token
+- QR code timestamp validation with 30-minute expiry window
+
+#### Mesh & Discovery Hardening
+- UDP discovery encrypted with HMAC-SHA256 time-based tags and HKDF XOR-masked PeerIds
+- Gossip forwarding jitter (0–200ms) to prevent timing correlation attacks
+
+#### PWA Security
+- Removed plaintext message fallback — require encryption or show error
+- Replaced `new Function()` calculator eval with safe recursive-descent parser (XSS fix)
+- Added strict Content Security Policy header
+- Replaced `innerHTML` XSS vector in relay URL display with DOM APIs
+- Removed `isHtml` flag from message rendering, use safe DOM construction
+- Removed privacy-leaking telemetry events (`message_sent`/`received`, session)
+- Removed `decoy_enabled` from localStorage — derive from WASM only
+- Service worker: SRI hash verification for cached critical resources (`app.js`, `styles.css`, `crypto-store.js`, `index.html`)
+- Service worker: removed `skipWaiting()` from install handler — compromised SW updates no longer immediately take control
+- STUN/TURN servers configurable via IndexedDB settings (IP leak warning documented)
+- Panic wipe code configurable via IndexedDB settings (was hardcoded)
+
+#### Defense in Depth
+- Relay server uses real Ed25519 keypair (env `RELAY_SECRET_KEY` or ephemeral)
+- Challenge-response auth for peer registration (nonce + Ed25519 signature)
+
+### Breaking Changes
+- `PaddingStrategy::pad()` signature changed from `Vec<u8>` to `Result<Vec<u8>, PaddingError>`
+- `hkdf_sha256` return type changed from `Result<Vec<u8>>` to `Result<Zeroizing<Vec<u8>>>`
+- EXTEND cell format changed from `SocketAddr` to `PeerId`
+- Relay CREATED cell now includes HMAC field (32 bytes)
+- Gossip `signable_bytes()` no longer includes `hops` and `seen` fields — existing signatures incompatible
+
 ### Added
 - Password-encrypted IndexedDB storage using AES-256-GCM with PBKDF2 key derivation (600k iterations)
 - Unlock screen for encrypted storage (passphrase or calculator keypad in decoy mode)

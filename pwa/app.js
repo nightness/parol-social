@@ -124,6 +124,39 @@ let calcDisplay = '0';
 let calcExpression = '';
 let calcBuffer = '';
 
+// Configurable panic (kill) code — defaults to 999999.
+// Users can change this in settings; stored in IndexedDB.
+const DEFAULT_PANIC_CODE = '999999';
+let panicCode = DEFAULT_PANIC_CODE;
+
+async function loadPanicCode() {
+    try {
+        const saved = await dbGet('settings', 'panic_code');
+        if (saved && saved.value && /^\d{4,10}$/.test(saved.value)) {
+            panicCode = saved.value;
+        }
+    } catch (e) {
+        console.warn('[Panic] Failed to load custom panic code:', e);
+    }
+}
+
+async function setPanicCode(code) {
+    if (!/^\d{4,10}$/.test(code)) {
+        showToast('Panic code must be 4-10 digits');
+        return false;
+    }
+    panicCode = code;
+    await dbPut('settings', { key: 'panic_code', value: code });
+    showToast('Panic code updated');
+    return true;
+}
+
+async function resetPanicCode() {
+    panicCode = DEFAULT_PANIC_CODE;
+    try { await dbDelete('settings', 'panic_code'); } catch(e) {}
+    showToast('Panic code reset to default');
+}
+
 async function calcPress(key) {
     if (key === 'C') {
         calcDisplay = '0';
@@ -131,7 +164,7 @@ async function calcPress(key) {
         calcBuffer = '';
     } else if (key === '=') {
         // Check unlock code BEFORE showing result
-        if (calcBuffer === '999999') {
+        if (calcBuffer === panicCode) {
             // PANIC WIPE — immediate, no confirmation
             executePanicWipe();
             return;
@@ -758,17 +791,66 @@ function sendToRelay(toPeerId, payload) {
 // ── WebRTC Peer Connections ────────────────────────────────
 const rtcConnections = {}; // peerId -> { pc: RTCPeerConnection, dc: RTCDataChannel, status: 'connecting'|'open'|'closed' }
 
-const RTC_CONFIG = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-};
+// WARNING: Public STUN servers leak your real IP address to the STUN provider.
+// In high-threat environments, consider using a self-hosted STUN/TURN server
+// or disabling WebRTC entirely and relying on relay-only connectivity.
+// STUN requests reveal your public IP even behind a VPN if WebRTC is active.
+const DEFAULT_STUN_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+];
+
+// Configurable STUN/TURN servers. Loaded from IndexedDB at startup.
+// Users can override these in settings to use self-hosted servers.
+let customIceServers = null;
+
+function getRtcConfig() {
+    return {
+        iceServers: customIceServers || DEFAULT_STUN_SERVERS
+    };
+}
+
+async function loadCustomStunServers() {
+    try {
+        const saved = await dbGet('settings', 'custom_stun_servers');
+        if (saved && saved.value) {
+            customIceServers = JSON.parse(saved.value);
+        }
+    } catch (e) {
+        console.warn('[WebRTC] Failed to load custom STUN servers:', e);
+    }
+}
+
+async function setCustomStunServers(serversJson) {
+    try {
+        const servers = JSON.parse(serversJson);
+        if (!Array.isArray(servers) || servers.length === 0) {
+            throw new Error('Expected a non-empty array of ICE servers');
+        }
+        // Basic validation: each entry should have a urls property
+        for (const s of servers) {
+            if (!s.urls && !s.url) {
+                throw new Error('Each ICE server entry must have a "urls" property');
+            }
+        }
+        customIceServers = servers;
+        await dbPut('settings', { key: 'custom_stun_servers', value: JSON.stringify(servers) });
+        showToast('Custom STUN/TURN servers saved');
+    } catch (e) {
+        showToast('Invalid ICE server config: ' + e.message);
+    }
+}
+
+async function clearCustomStunServers() {
+    customIceServers = null;
+    try { await dbDelete('settings', 'custom_stun_servers'); } catch(e) {}
+    showToast('STUN/TURN servers reset to defaults');
+}
 
 async function initWebRTC(peerId, isInitiator) {
     if (rtcConnections[peerId] && rtcConnections[peerId].status === 'open') return;
 
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(getRtcConfig());
     rtcConnections[peerId] = { pc, dc: null, status: 'connecting' };
 
     // ICE candidate handling
@@ -2159,6 +2241,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add(`platform-${platform}`);
     registerServiceWorker();
     showToast('Starting ParolNet...', 2000);
+    // Load user-configurable settings from IndexedDB early
+    loadPanicCode().catch(() => {});
+    loadCustomStunServers().catch(() => {});
     loadWasm();
 
     // If stuck on loading for 15 seconds, show recovery buttons

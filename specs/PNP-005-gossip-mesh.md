@@ -40,7 +40,7 @@ CBOR Map {
   "hops":  uint,          ; Number of hops traversed so far (informational)
   "seen":  bytes(128),    ; Bloom filter (1024-bit) of PeerIds that have seen this message
   "pow":   bytes(8),      ; Proof-of-work nonce (see Section 5.6)
-  "sig":   bytes(64),     ; Ed25519 signature by src over all fields except "sig" and "seen"
+  "sig":   bytes(64),     ; Ed25519 signature by src over all fields except "sig", "seen", and "hops"
   "type":  uint,          ; Payload type (see Section 3.2)
   "pay":   bytes          ; Payload (type-dependent, max 65536 bytes)
 }
@@ -69,7 +69,7 @@ h_k(PeerId) = (SHA-256(k || PeerId) mod 1024)   for k in {0, 1, 2}
 
 where `k` is a single byte and `||` denotes concatenation. The bloom filter is mutable: each forwarding node inserts its own PeerId before relaying. This allows downstream nodes to probabilistically avoid sending the message back to nodes that have already seen it.
 
-The bloom filter is NOT covered by the signature (the "sig" field signs all fields except "sig" and "seen"). This is intentional: the bloom filter is updated at each hop.
+The bloom filter and hop count are NOT covered by the signature (the "sig" field signs all fields except "sig", "seen", and "hops"). This is intentional: the bloom filter is updated and the hop counter is incremented at each relay hop. Including these relay-modified fields would cause signature verification to fail after the first hop.
 
 ### 3.4 Proof-of-Work Format
 
@@ -86,6 +86,21 @@ SHA-256(challenge || nonce) has at least D leading zero bits
 ```
 
 where D is the current difficulty (default: 16, meaning approximately 65536 hash operations). The difficulty MAY be adjusted by network consensus propagated via RELAY_DESCRIPTOR payloads.
+
+### 3.5 Anonymous Envelopes
+
+For USER_MESSAGE payloads (type 0x02), the sender identity SHOULD be moved inside the encrypted payload body rather than being exposed in the cleartext gossip envelope. This prevents relay nodes from learning who is communicating with whom.
+
+An anonymous envelope is constructed as follows:
+
+1. Set the "src" field to 32 zero bytes: `PeerId([0x00; 32])`.
+2. Set "src_pubkey" to an empty byte string.
+3. The actual sender PeerId and public key MUST be included inside the encrypted "pay" field so the recipient can verify authenticity after decryption.
+4. The "sig" field MUST still contain a valid Ed25519 signature, but the signature is computed over the zeroed src and empty pubkey fields. The recipient verifies the signature using the sender's key extracted from the decrypted payload.
+
+Anonymous envelopes MUST only be used for USER_MESSAGE types. RELAY_DESCRIPTOR, PEER_ANNOUNCEMENT, GROUP_METADATA, and REVOCATION messages MUST include a valid non-zero "src" and "src_pubkey" for relay-level verification.
+
+Validation rules (Section 5.1) MUST accept anonymous envelopes: if "src" is all zeros and "src_pubkey" is empty, the node SHOULD skip signature verification at the gossip layer (since the signing key is not available) and defer verification to the application layer after decryption.
 
 ## 4. State Machine
 
@@ -178,7 +193,7 @@ Upon receiving a gossip message, a node MUST perform the following checks in ord
    a. The peer from which the message was received.
    b. Peers whose PeerId is probably present in the "seen" bloom filter.
 3. If fewer than F eligible peers are available, the node MUST forward to all eligible peers.
-4. The node SHOULD add random jitter (0-200ms) before forwarding to each peer to prevent timing correlation.
+4. The node MUST add random jitter (0-200ms, uniformly distributed) before forwarding to each peer to prevent timing correlation. The jitter delay MUST be generated from a cryptographically secure random source and applied independently per forwarding peer.
 
 ### 5.3 TTL and Expiry Rules
 
@@ -253,10 +268,11 @@ When two peers (re)connect, they MUST perform set reconciliation to determine wh
 4. **Bloom filter manipulation**: The "seen" bloom filter is unsigned and mutable. A malicious relay could clear it to cause message re-propagation (amplification) or stuff it to suppress forwarding. Nodes SHOULD rate-limit messages per source PeerId (maximum 10 messages per minute per source) regardless of bloom filter state.
 5. **Replay attacks**: Message IDs include the origination timestamp. Nodes MUST reject messages with timestamps more than 300 seconds in the future (clock skew tolerance) or past the expiry.
 6. **Store-and-forward privacy**: Buffered messages are stored encrypted (the application payload is always E2EE at a higher layer). The gossip metadata (src, TTL, etc.) is visible to the storing node. This is an acceptable tradeoff for delay-tolerant delivery.
+7. **Per-source rate limiting**: Nodes MUST enforce per-PeerId rate limiting on incoming gossip messages (maximum 10 messages per 60 seconds per source PeerId). Messages exceeding this rate MUST be silently dropped. This mitigates flooding attacks regardless of bloom filter state.
 
 ## 7. Privacy Considerations
 
-1. **Source correlation**: The "src" field reveals the originator's PeerId. For user messages (type 0x02), the "src" SHOULD be a purpose-specific pseudonymous PeerId, not the node's primary identity. The application layer MUST provide this separation.
+1. **Source correlation**: The "src" field reveals the originator's PeerId. For user messages (type 0x02), implementations SHOULD use anonymous envelopes (Section 3.5) to omit the sender identity from the cleartext gossip layer entirely. As a fallback, the "src" SHOULD be a purpose-specific pseudonymous PeerId, not the node's primary identity.
 2. **Timing analysis**: Forwarding jitter (Section 5.2 step 4) provides limited timing protection. For stronger anonymity, messages SHOULD be injected into relay circuits (PNP-004) before entering the gossip layer.
 3. **Bloom filter leakage**: The "seen" bloom filter reveals which nodes have handled a message. This is a privacy-utility tradeoff. Nodes operating in high-threat environments MAY set a "privacy" flag in their PEER_ANNOUNCEMENT indicating that their PeerId should NOT be inserted into seen filters by forwarding peers.
 4. **Message accumulation**: A global passive adversary observing many peers could reconstruct message propagation paths. Traffic shaping (PNP-006) and circuit-based delivery (PNP-004) mitigate this for high-sensitivity messages.
