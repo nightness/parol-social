@@ -186,9 +186,11 @@ fn test_directory_guard_selection() {
 
     let guards = dir.select_guards(2);
     assert_eq!(guards.len(), 2);
-    // Should prefer highest uptime
-    assert_eq!(guards[0].identity_key[0], 3);
-    assert_eq!(guards[1].identity_key[0], 2);
+    // Both selected guards must have uptime >= 7 days (relays 2 and 3 qualify, relay 1 does not)
+    let ids: Vec<u8> = guards.iter().map(|g| g.identity_key[0]).collect();
+    assert!(ids.contains(&2), "relay 2 (10d uptime) should be selected");
+    assert!(ids.contains(&3), "relay 3 (30d uptime) should be selected");
+    assert!(!ids.contains(&1), "relay 1 (1d uptime) should not be selected");
 }
 
 #[test]

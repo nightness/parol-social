@@ -36,6 +36,9 @@ pub enum CryptoError {
     #[error("message key exhausted or already used")]
     MessageKeyExhausted,
 
+    #[error("sender key error: {reason}")]
+    SenderKeyError { reason: String },
+
     #[error("not implemented: {feature}")]
     NotImplemented { feature: String },
 }

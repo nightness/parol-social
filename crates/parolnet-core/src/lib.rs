@@ -22,6 +22,8 @@ pub mod decoy;
 pub mod error;
 pub mod ffi;
 pub mod file_transfer;
+pub mod group;
+pub mod group_call;
 pub mod panic;
 pub mod session;
 #[cfg(feature = "native")]
@@ -48,6 +50,10 @@ pub struct ParolNet {
     config: ParolNetConfig,
     /// Decoy mode state.
     decoy_state: decoy::DecoyState,
+    /// Group manager.
+    group_manager: Arc<group::GroupManager>,
+    /// Group call manager.
+    group_call_manager: Arc<group_call::GroupCallManager>,
 }
 
 impl ParolNet {
@@ -66,6 +72,8 @@ impl ParolNet {
                 decoy::DecoyState::Normal
             },
             config,
+            group_manager: Arc::new(group::GroupManager::new()),
+            group_call_manager: Arc::new(group_call::GroupCallManager::new()),
         }
     }
 
@@ -83,6 +91,8 @@ impl ParolNet {
                 decoy::DecoyState::Normal
             },
             config,
+            group_manager: Arc::new(group::GroupManager::new()),
+            group_call_manager: Arc::new(group_call::GroupCallManager::new()),
         }
     }
 
@@ -213,6 +223,12 @@ impl ParolNet {
         // Wipe all sessions
         self.sessions.wipe_all();
 
+        // Wipe all group state
+        self.group_manager.wipe_all();
+
+        // Wipe all group call state
+        self.group_call_manager.wipe_all();
+
         // Wipe storage
         panic::execute_panic_wipe(self.config.storage_path.as_deref())?;
 
@@ -232,6 +248,16 @@ impl ParolNet {
     /// Check if decoy mode is active.
     pub fn is_decoy_mode(&self) -> bool {
         self.decoy_state == decoy::DecoyState::Active
+    }
+
+    /// Get a reference to the group manager.
+    pub fn group_manager(&self) -> &group::GroupManager {
+        &self.group_manager
+    }
+
+    /// Get a reference to the group call manager.
+    pub fn group_call_manager(&self) -> &group_call::GroupCallManager {
+        &self.group_call_manager
     }
 
     /// Get the number of active sessions.

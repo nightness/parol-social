@@ -387,8 +387,31 @@ fn test_new_message_types() {
     assert_eq!(MessageType::FileControl as u8, 0x0A);
     assert_eq!(MessageType::CallSignal as u8, 0x0B);
 
+    // Group message types
+    assert_eq!(MessageType::from_u8(0x0C), Some(MessageType::GroupText));
+    assert_eq!(
+        MessageType::from_u8(0x0D),
+        Some(MessageType::GroupCallSignal)
+    );
+    assert_eq!(
+        MessageType::from_u8(0x0E),
+        Some(MessageType::GroupFileOffer)
+    );
+    assert_eq!(
+        MessageType::from_u8(0x0F),
+        Some(MessageType::GroupFileChunk)
+    );
+    assert_eq!(
+        MessageType::from_u8(0x10),
+        Some(MessageType::GroupFileControl)
+    );
+    assert_eq!(
+        MessageType::from_u8(0x11),
+        Some(MessageType::SenderKeyDistribution)
+    );
+
     // Invalid codes still return None
-    assert!(MessageType::from_u8(0x0C).is_none());
+    assert!(MessageType::from_u8(0x12).is_none());
     assert!(MessageType::from_u8(0x00).is_none());
 }
 

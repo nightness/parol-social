@@ -17,6 +17,12 @@ pub enum MessageType {
     FileChunk = 0x09,
     FileControl = 0x0A,
     CallSignal = 0x0B,
+    GroupText = 0x0C,
+    GroupCallSignal = 0x0D,
+    GroupFileOffer = 0x0E,
+    GroupFileChunk = 0x0F,
+    GroupFileControl = 0x10,
+    SenderKeyDistribution = 0x11,
 }
 
 impl MessageType {
@@ -33,6 +39,12 @@ impl MessageType {
             0x09 => Some(Self::FileChunk),
             0x0A => Some(Self::FileControl),
             0x0B => Some(Self::CallSignal),
+            0x0C => Some(Self::GroupText),
+            0x0D => Some(Self::GroupCallSignal),
+            0x0E => Some(Self::GroupFileOffer),
+            0x0F => Some(Self::GroupFileChunk),
+            0x10 => Some(Self::GroupFileControl),
+            0x11 => Some(Self::SenderKeyDistribution),
             _ => None,
         }
     }
@@ -67,5 +79,12 @@ impl MessageFlags {
     }
     pub fn set_final_fragment(&mut self) {
         self.0 |= 0x08;
+    }
+
+    pub fn is_group(self) -> bool {
+        self.0 & 0x10 != 0
+    }
+    pub fn set_group(&mut self) {
+        self.0 |= 0x10;
     }
 }

@@ -20,6 +20,7 @@ pub mod double_ratchet;
 pub mod error;
 pub mod identity;
 pub mod kdf;
+pub mod sender_key;
 pub mod wipe;
 pub mod x3dh;
 

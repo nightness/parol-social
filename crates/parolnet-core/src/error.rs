@@ -20,6 +20,18 @@ pub enum CoreError {
     #[error("protocol error: {0}")]
     Protocol(#[from] parolnet_protocol::ProtocolError),
 
+    #[error("group error: {0}")]
+    GroupError(String),
+
+    #[error("not a group admin")]
+    NotGroupAdmin,
+
+    #[error("group not found")]
+    GroupNotFound,
+
+    #[error("group is full")]
+    GroupFull,
+
     #[cfg(feature = "native")]
     #[error("transport error: {0}")]
     Transport(#[from] parolnet_transport::TransportError),
@@ -45,6 +57,10 @@ impl CoreError {
             CoreError::WipeFailed(_) => "wipe failed",
             CoreError::Crypto(_) => "crypto error",
             CoreError::Protocol(_) => "protocol error",
+            CoreError::GroupError(_) => "group error",
+            CoreError::NotGroupAdmin => "not group admin",
+            CoreError::GroupNotFound => "group not found",
+            CoreError::GroupFull => "group full",
             #[cfg(feature = "native")]
             CoreError::Transport(_) => "transport error",
             #[cfg(feature = "native")]
