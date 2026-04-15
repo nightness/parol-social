@@ -32,6 +32,7 @@ parolnet-crypto.workspace = true
 x25519-dalek.workspace = true
 ciborium.workspace = true
 reqwest.workspace = true
+rustls.workspace = true
 hmac.workspace = true
 sha1.workspace = true
 base64.workspace = true

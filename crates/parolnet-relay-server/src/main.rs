@@ -903,6 +903,9 @@ async fn handle_bootstrap(
 
 #[tokio::main]
 async fn main() {
+    // Install rustls crypto provider for reqwest TLS support
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     tracing_subscriber::fmt::init();
 
     let port: u16 = std::env::var("RELAY_PORT")
