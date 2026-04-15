@@ -458,7 +458,7 @@ async function onWasmReady() {
         // Need to unlock before proceeding
         // If decoy mode is active, the calculator keypad handles unlock
         // Otherwise show the unlock view
-        const decoyEnabled = localStorage.getItem('decoy_enabled') === 'true';
+        const decoyEnabled = wasm && wasm.is_decoy_enabled && wasm.is_decoy_enabled();
         if (!decoyEnabled) {
             showView('unlock');
             document.getElementById('loading-status').textContent = 'Encrypted — enter passphrase';
@@ -697,7 +697,7 @@ function onIncomingMessage(fromPeerId, payload) {
         return;
     }
 
-    telemetry.track('message_received');
+    // Privacy: message_received telemetry removed — leaks activity metadata
 
     // Attempt decryption if payload is encrypted
     let messageText = payload;
@@ -827,7 +827,7 @@ function setupDataChannel(peerId, dc) {
         try {
             dc.send(JSON.stringify({ type: 'identity', peerId: window._peerId }));
         } catch(e) {}
-        telemetry.track('webrtc_connect_success');
+        // Privacy: webrtc_connect_success telemetry removed — leaks activity metadata
         rtcConnections[peerId].status = 'open';
         updatePeerConnectionUI(peerId, 'direct');
         flushMessageQueue();
@@ -1276,7 +1276,7 @@ async function sendMessage() {
         }
     }
 
-    telemetry.track('message_sent');
+    // Privacy: message_sent telemetry removed — leaks activity metadata
     input.value = '';
     input.focus();
 
@@ -1303,11 +1303,20 @@ function appendMessage(msg) {
 
     const div = document.createElement('div');
     div.className = `message ${msg.direction}`;
-    if (msg.isHtml) {
-        div.innerHTML = `<div class="message-bubble">${msg.content}</div><div class="message-time">${formatTime(msg.timestamp)}</div>`;
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble';
+    if (msg.domContent) {
+        // Pre-built DOM node (e.g. file transfer UI)
+        bubble.appendChild(msg.domContent);
     } else {
-        div.innerHTML = `<div class="message-bubble" dir="auto">${escapeHtml(msg.content)}</div><div class="message-time">${formatTime(msg.timestamp)}</div>`;
+        bubble.setAttribute('dir', 'auto');
+        bubble.textContent = msg.content;
     }
+    const time = document.createElement('div');
+    time.className = 'message-time';
+    time.textContent = formatTime(msg.timestamp);
+    div.appendChild(bubble);
+    div.appendChild(time);
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 }
@@ -1456,16 +1465,32 @@ function onFileSelected(event) {
 
     // Show in chat with progress
     const msgId = 'file-' + Date.now();
+    const fileTransferEl = document.createElement('div');
+    fileTransferEl.id = msgId;
+    fileTransferEl.className = 'file-transfer';
+    const fileNameEl = document.createElement('div');
+    fileNameEl.className = 'file-name';
+    fileNameEl.textContent = '\ud83d\udcce ' + file.name;
+    const fileSizeEl = document.createElement('div');
+    fileSizeEl.className = 'file-size';
+    fileSizeEl.textContent = formatSize(file.size);
+    const progressEl = document.createElement('div');
+    progressEl.className = 'file-progress';
+    const progressBar = document.createElement('div');
+    progressBar.className = 'file-progress-bar';
+    progressBar.style.width = '0%';
+    progressEl.appendChild(progressBar);
+    const statusEl = document.createElement('div');
+    statusEl.className = 'file-status';
+    statusEl.textContent = 'Preparing...';
+    fileTransferEl.appendChild(fileNameEl);
+    fileTransferEl.appendChild(fileSizeEl);
+    fileTransferEl.appendChild(progressEl);
+    fileTransferEl.appendChild(statusEl);
     appendMessage({
         direction: 'sent',
-        content: `<div id="${msgId}" class="file-transfer">
-            <div class="file-name">\ud83d\udcce ${escapeHtml(file.name)}</div>
-            <div class="file-size">${formatSize(file.size)}</div>
-            <div class="file-progress"><div class="file-progress-bar" style="width:0%"></div></div>
-            <div class="file-status">Preparing...</div>
-        </div>`,
-        timestamp: Date.now(),
-        isHtml: true
+        domContent: fileTransferEl,
+        timestamp: Date.now()
     });
 
     file.arrayBuffer().then(buffer => {
@@ -1623,7 +1648,7 @@ function handleScannedQR(data) {
             peerId = result.peer_id;
             bootstrapSecret = result.bootstrap_secret;
             sessionEstablished = true;
-            telemetry.track('session_established');
+            // Privacy: session_established telemetry removed — leaks activity metadata
             console.log('[QR] Session established with:', peerId.slice(0, 8));
         } catch(e) {
             console.warn('[QR] process_scanned_qr failed:', e);
@@ -1994,8 +2019,15 @@ function updateNetworkSettings() {
     if (relayUrlDisplay) {
         dbGet('settings', 'custom_relay_url').then(saved => {
             if (saved && saved.value) {
-                relayUrlDisplay.innerHTML = 'Current: ' + saved.value +
-                    ' <a href="#" onclick="clearCustomRelay(); return false;" style="color: #f44;">Reset</a>';
+                relayUrlDisplay.textContent = '';
+                const text = document.createTextNode('Current: ' + saved.value + ' ');
+                const link = document.createElement('a');
+                link.href = '#';
+                link.style.color = '#f44';
+                link.textContent = 'Reset';
+                link.addEventListener('click', (e) => { e.preventDefault(); clearCustomRelay(); });
+                relayUrlDisplay.appendChild(text);
+                relayUrlDisplay.appendChild(link);
             } else {
                 relayUrlDisplay.textContent = 'Default: ' + (connMgr.relayUrl || 'same origin');
             }
@@ -2017,12 +2049,9 @@ function enableDecoyMode() {
         wasm.set_unlock_code(code);
     }
 
-    // Store preference locally as fallback
-    try {
-        localStorage.setItem('decoy_enabled', 'true');
-    } catch {
-        // storage may be unavailable
-    }
+    // Privacy: decoy_enabled is no longer stored in localStorage — it would
+    // reveal to an adversary inspecting storage that decoy mode is active.
+    // Decoy state is derived solely from WASM at runtime.
 
     // Swap manifest to calculator
     const manifestLink = document.getElementById('manifest-link');
@@ -2166,7 +2195,7 @@ document.addEventListener('visibilitychange', () => {
         window._lockTimer = setTimeout(() => {
             cryptoStore.lock();
             // If decoy mode, show calculator; otherwise show unlock
-            const decoyEnabled = localStorage.getItem('decoy_enabled') === 'true';
+            const decoyEnabled = wasm && wasm.is_decoy_enabled && wasm.is_decoy_enabled();
             if (decoyEnabled) {
                 showView('calculator');
             } else if (cryptoStore.isEnabled()) {
