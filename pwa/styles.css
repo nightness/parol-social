@@ -374,11 +374,10 @@ header button:hover {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 8px;
     background: var(--bg2);
     border-top: 1px solid var(--border);
     flex-shrink: 0;
-    min-height: var(--input-height);
 }
 
 .chat-input input[type="text"] {
@@ -781,17 +780,9 @@ button.success {
         padding-top: env(safe-area-inset-top);
     }
 
-    .chat-input {
-        margin-bottom: env(safe-area-inset-bottom);
-    }
-
-    .call-controls {
-        bottom: calc(40px + env(safe-area-inset-bottom));
-    }
-
-    #view-loading,
     .view {
         padding-left: env(safe-area-inset-left);
         padding-right: env(safe-area-inset-right);
+        padding-bottom: env(safe-area-inset-bottom);
     }
 }
