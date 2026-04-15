@@ -755,6 +755,10 @@ button.success {
     .message {
         max-width: 60%;
     }
+
+    .chat-input {
+        padding-bottom: 12px;
+    }
 }
 
 /* ── Mobile Adjustments ──────────────────────────────────────── */
