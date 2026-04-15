@@ -9,6 +9,7 @@ members = [
     "crates/parolnet-core",
     "crates/parolnet-wasm",
     "crates/parolnet-relay-server",
+    "crates/parolnet-authority-cli",
 ]
 
 [workspace.package]

@@ -1,0 +1,24 @@
+[package]
+name = "parolnet-authority-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "CLI tool for network operators to manage authority keys and endorse relays"
+
+[[bin]]
+name = "parolnet-authority"
+path = "src/main.rs"
+
+[dependencies]
+parolnet-relay = { path = "../parolnet-relay" }
+parolnet-protocol = { path = "../parolnet-protocol" }
+parolnet-crypto = { path = "../parolnet-crypto" }
+clap = { version = "4", features = ["derive"] }
+ed25519-dalek = { workspace = true }
+ciborium = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+zeroize = { workspace = true }
