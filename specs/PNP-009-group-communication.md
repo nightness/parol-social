@@ -351,6 +351,17 @@ GroupCallEnd = {
   "type"     : "end_call",
   "call_id"  : bstr(16)
 }
+
+GroupCallScreenShareStart = {
+  "type"     : "screen_share_start",
+  "call_id"  : bstr(16),
+  "config"   : VideoConfig           -- Encoding parameters for the screen share stream
+}
+
+GroupCallScreenShareStop = {
+  "type"     : "screen_share_stop",
+  "call_id"  : bstr(16)
+}
 ```
 
 ### 9.4 Call Flow
@@ -369,6 +380,28 @@ A participant MAY join an in-progress call at any time by sending GroupCallJoin 
 ### 9.6 Participant Limit
 
 Implementations MUST enforce a maximum of 8 participants per group call. If a 9th participant attempts to join, their GroupCallJoin MUST be rejected by existing participants.
+
+### 9.7 Screen Sharing
+
+#### 9.7.1 Single Sharer Policy
+
+At most one participant MAY share their screen at any given time during a group call. This constraint prevents bandwidth explosion in the full-mesh topology (N-1 screen share streams per sharer, multiplied by concurrent sharers).
+
+1. A participant wishing to share their screen MUST send `GroupCallScreenShareStart` to all other participants.
+2. If another participant is already sharing (tracked locally by prior receipt of their `GroupCallScreenShareStart` without a subsequent `GroupCallScreenShareStop`), the new request MUST be rejected locally. Implementations SHOULD notify the user that another participant is currently sharing.
+3. The one-stream-per-user rule from PNP-007 Section 6.7.2 applies: the sharer's camera video MUST be paused while screen sharing is active.
+
+#### 9.7.2 Screen Share Flow
+
+1. The sharer sends `GroupCallScreenShareStart` (with `VideoConfig`) to all current participants via pairwise GROUP_CALL_SIGNAL messages.
+2. All participants update their local state to reflect that this peer is now the active screen sharer.
+3. The sharer's subsequent video frames carry `MediaSource = Screen` (0x01) in the encrypted payload (PNP-007 Section 6.7.1).
+4. When the sharer stops, they send `GroupCallScreenShareStop` to all participants and resume camera video.
+5. If the sharer leaves the call while screen sharing, other participants MUST treat the departure as an implicit screen share stop.
+
+#### 9.7.3 SRTP
+
+Screen share frames in group calls reuse the pairwise video SRTP context for each pair, following PNP-007 Section 6.7.5. No additional SRTP context is needed.
 
 ## 10. Group File Transfer
 
@@ -471,21 +504,25 @@ Group membership is hidden from non-members and from the network:
 
 Group calls deliberately avoid sender keys for media encryption. Real-time media streams use pairwise SRTP keyed from Double Ratchet sessions (Section 9.1). This preserves post-compromise security: if a participant's key material is compromised and later recovered, the Double Ratchet's DH ratchet ensures that future media sessions are secure.
 
-### 11.6 Replay Protection
+### 11.6 Screen Share Indistinguishability
+
+Screen sharing in group calls uses the same `VIDEO` (0x08) message type and pairwise SRTP contexts as camera video (Section 9.7.3, PNP-007 Section 6.7). The `MediaSource` field is inside the encrypted payload. Network observers and relay nodes cannot determine whether a participant is sharing their screen or transmitting camera video. The single-sharer policy (Section 9.7.1) and one-stream-per-user rule (PNP-007 Section 6.7.2) ensure that screen sharing does not alter observable traffic patterns.
+
+### 11.7 Replay Protection
 
 The monotonically increasing chain index (Section 5.8) provides replay protection for sender key messages. Implementations MUST track processed chain indices per sender and reject duplicates. For group operations, the monotonic version field (Section 6.4) provides equivalent protection.
 
-### 11.7 Memory Exhaustion Mitigation
+### 11.8 Memory Exhaustion Mitigation
 
 The MAX_SKIP limit of 1000 (Section 5.7) prevents an attacker from forcing a recipient to derive and store an unbounded number of skipped message keys. An attacker who sends a message with chain_index far ahead of the expected index cannot force more than 1000 key derivations.
 
-### 11.8 Zeroization
+### 11.9 Zeroization
 
 All sender key state -- including chain keys, message keys, signing private keys, and skipped message keys -- MUST implement `Zeroize` and `ZeroizeOnDrop` (from the `zeroize` crate). When a sender key is rotated or a member leaves a group, the old key material MUST be zeroized immediately.
 
 The `panic_wipe` handler (PNP-001 Section 7) MUST clear all group state, including all sender key chains, group metadata, and buffered file transfer state.
 
-### 11.9 Group Size Limits
+### 11.10 Group Size Limits
 
 Group size limits prevent resource exhaustion:
 
@@ -652,6 +689,8 @@ Implementations conforming to this specification MUST:
 16. Use constant-time hash comparison for file integrity verification (Section 10.5).
 17. Set the group message flag (0x10) on all group messages (Section 3.2).
 18. Route all group traffic through 3-hop onion circuits (PNP-004).
+19. Enforce single-sharer policy for group call screen sharing (Section 9.7.1).
+20. Pause camera video during screen sharing per the one-stream-per-user rule (PNP-007 Section 6.7.2).
 
 ### 13.2 SHOULD Requirements
 

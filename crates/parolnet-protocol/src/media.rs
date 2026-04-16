@@ -18,6 +18,18 @@ pub enum VideoCodec {
     VP9 = 0x02,
 }
 
+/// Identifies the source of a video stream (PNP-007 Section 6.7.1).
+///
+/// Carried inside the encrypted payload — never visible to relays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum MediaSource {
+    /// Webcam capture (default).
+    Camera = 0x00,
+    /// Screen/window/tab capture.
+    Screen = 0x01,
+}
+
 /// Call signaling messages (PNP-007 Section 4).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum CallSignalMessage {
@@ -31,6 +43,13 @@ pub enum CallSignalMessage {
     Hangup { call_id: [u8; 16] },
     /// Toggle mute status.
     Mute { call_id: [u8; 16], muted: bool },
+    /// Start screen sharing (PNP-007 Section 6.7.4).
+    ScreenShareStart {
+        call_id: [u8; 16],
+        config: VideoConfig,
+    },
+    /// Stop screen sharing (PNP-007 Section 6.7.4).
+    ScreenShareStop { call_id: [u8; 16] },
 }
 
 /// Call state machine states (PNP-007 Section 4).
@@ -62,6 +81,19 @@ impl Default for VideoConfig {
             bitrate_kbps: 200,
             keyframe_interval: 60, // 2 seconds at 30fps
             codec: VideoCodec::VP8,
+        }
+    }
+}
+
+impl VideoConfig {
+    /// Configuration optimized for screen sharing (PNP-007 Section 6.7.3).
+    pub fn screen_share() -> Self {
+        Self {
+            width: 1280,
+            height: 720,
+            bitrate_kbps: 800,
+            keyframe_interval: 45, // 3 seconds at 15fps
+            codec: VideoCodec::VP9,
         }
     }
 }

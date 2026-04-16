@@ -4,7 +4,7 @@
 //! This module handles fragmentation of encoded video frames across
 //! multiple relay cells, and reassembly on the receiving end.
 
-use parolnet_protocol::media::VideoCodec;
+use parolnet_protocol::media::{MediaSource, VideoCodec};
 
 /// A compressed video frame (produced by WebCodecs in browser).
 #[derive(Clone, Debug)]
@@ -14,6 +14,8 @@ pub struct VideoFrame {
     pub height: u16,
     pub is_keyframe: bool,
     pub timestamp: u32,
+    /// Whether this frame is camera or screen capture (PNP-007 Section 6.7.1).
+    pub source: MediaSource,
     pub data: Vec<u8>,
 }
 
@@ -25,6 +27,8 @@ pub struct VideoFragment {
     pub total_fragments: u16,
     pub is_keyframe: bool,
     pub timestamp: u32,
+    /// Whether this fragment is camera or screen capture (PNP-007 Section 6.7.1).
+    pub source: MediaSource,
     pub data: Vec<u8>,
 }
 
@@ -40,6 +44,7 @@ pub fn fragment_video_frame(frame: &VideoFrame, frame_id: u32) -> Vec<VideoFragm
             total_fragments: 1,
             is_keyframe: frame.is_keyframe,
             timestamp: frame.timestamp,
+            source: frame.source,
             data: vec![],
         }];
     }
@@ -56,6 +61,7 @@ pub fn fragment_video_frame(frame: &VideoFrame, frame_id: u32) -> Vec<VideoFragm
             total_fragments: total,
             is_keyframe: frame.is_keyframe && i == 0,
             timestamp: frame.timestamp,
+            source: frame.source,
             data: chunk.to_vec(),
         })
         .collect()
@@ -80,6 +86,7 @@ pub fn reassemble_video_frame(
     let frame_id = fragments[0].frame_id;
     let is_keyframe = fragments.iter().any(|f| f.is_keyframe);
     let timestamp = fragments[0].timestamp;
+    let source = fragments[0].source;
 
     // Verify we have all fragments
     if fragments.len() as u16 != total {
@@ -112,6 +119,7 @@ pub fn reassemble_video_frame(
         height,
         is_keyframe,
         timestamp,
+        source,
         data,
     })
 }

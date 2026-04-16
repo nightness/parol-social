@@ -4,7 +4,9 @@
 //! IDLE -> OFFERING -> RINGING -> ACTIVE -> ENDED
 
 use parolnet_protocol::address::PeerId;
-use parolnet_protocol::media::{AudioCodec, CallSignalMessage, CallState, VideoConfig};
+use parolnet_protocol::media::{
+    AudioCodec, CallSignalMessage, CallState, MediaSource, VideoConfig,
+};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -33,6 +35,12 @@ pub struct Call {
     pub audio_codec: Option<AudioCodec>,
     pub video_config: Option<VideoConfig>,
     pub muted: bool,
+    /// Local user is screen sharing.
+    pub screen_sharing: bool,
+    /// Remote peer is screen sharing.
+    pub peer_screen_sharing: bool,
+    /// Current video source (camera pauses during screen share).
+    pub video_source: MediaSource,
     pub created_at: u64,
     pub started_at: Option<u64>,
 }
@@ -47,6 +55,9 @@ impl Call {
             audio_codec: None,
             video_config: None,
             muted: false,
+            screen_sharing: false,
+            peer_screen_sharing: false,
+            video_source: MediaSource::Camera,
             created_at: now_ms(),
             started_at: None,
         }
@@ -61,6 +72,9 @@ impl Call {
             audio_codec: None,
             video_config: None,
             muted: false,
+            screen_sharing: false,
+            peer_screen_sharing: false,
+            video_source: MediaSource::Camera,
             created_at: now_ms(),
             started_at: None,
         }
@@ -131,6 +145,32 @@ impl Call {
                     ));
                 }
                 self.muted = *muted;
+                Ok(())
+            }
+
+            CallSignalMessage::ScreenShareStart { call_id, .. } => {
+                if *call_id != self.call_id {
+                    return Err(crate::CoreError::SessionError("call_id mismatch".into()));
+                }
+                if self.state != CallState::Active {
+                    return Err(crate::CoreError::SessionError(
+                        "can only start screen share in active calls".into(),
+                    ));
+                }
+                self.peer_screen_sharing = true;
+                Ok(())
+            }
+
+            CallSignalMessage::ScreenShareStop { call_id } => {
+                if *call_id != self.call_id {
+                    return Err(crate::CoreError::SessionError("call_id mismatch".into()));
+                }
+                if self.state != CallState::Active {
+                    return Err(crate::CoreError::SessionError(
+                        "can only stop screen share in active calls".into(),
+                    ));
+                }
+                self.peer_screen_sharing = false;
                 Ok(())
             }
 
@@ -248,6 +288,56 @@ impl CallManager {
         }
         call.muted = muted;
         Ok(())
+    }
+
+    /// Start screen sharing on an active call (pauses camera).
+    pub fn start_screen_share(&self, call_id: &[u8; 16]) -> Result<(), crate::CoreError> {
+        let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let call = calls
+            .get_mut(call_id)
+            .ok_or(crate::CoreError::SessionError("call not found".into()))?;
+        if call.state != CallState::Active {
+            return Err(crate::CoreError::SessionError(
+                "can only screen share in active calls".into(),
+            ));
+        }
+        call.screen_sharing = true;
+        call.video_source = MediaSource::Screen;
+        Ok(())
+    }
+
+    /// Stop screen sharing on an active call (resumes camera).
+    pub fn stop_screen_share(&self, call_id: &[u8; 16]) -> Result<(), crate::CoreError> {
+        let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let call = calls
+            .get_mut(call_id)
+            .ok_or(crate::CoreError::SessionError("call not found".into()))?;
+        if call.state != CallState::Active {
+            return Err(crate::CoreError::SessionError(
+                "can only stop screen share in active calls".into(),
+            ));
+        }
+        call.screen_sharing = false;
+        call.video_source = MediaSource::Camera;
+        Ok(())
+    }
+
+    /// Check if local user is screen sharing on a call.
+    pub fn is_screen_sharing(&self, call_id: &[u8; 16]) -> Result<bool, crate::CoreError> {
+        let calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let call = calls
+            .get(call_id)
+            .ok_or(crate::CoreError::SessionError("call not found".into()))?;
+        Ok(call.screen_sharing)
+    }
+
+    /// Check if remote peer is screen sharing on a call.
+    pub fn is_peer_screen_sharing(&self, call_id: &[u8; 16]) -> Result<bool, crate::CoreError> {
+        let calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let call = calls
+            .get(call_id)
+            .ok_or(crate::CoreError::SessionError("call not found".into()))?;
+        Ok(call.peer_screen_sharing)
     }
 
     /// Get a call's state.

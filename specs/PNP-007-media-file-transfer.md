@@ -323,6 +323,69 @@ KeyframeRequest = {
 2. Audio and video streams MUST use separate SRTP contexts with independent key material, sequence counters, and rollover counters.
 3. SSRC values for audio and video MUST be distinct within the same call.
 
+### 6.7 Screen Sharing
+
+#### 6.7.1 Media Source Identifier
+
+Each video frame carries a `MediaSource` field inside the encrypted payload that identifies the capture source:
+
+```
+MediaSource = uint8
+  0x00 = Camera     -- Default, webcam capture
+  0x01 = Screen     -- Screen/window/tab capture
+```
+
+The `MediaSource` field is part of the encrypted payload content and MUST NOT appear in the cleartext header. Relay nodes MUST NOT be able to distinguish screen share traffic from camera video traffic. Screen share frames use the same `VIDEO` (0x08) message type as camera frames.
+
+#### 6.7.2 One Video Stream Per User
+
+A participant MUST NOT send camera video and screen share video simultaneously. When screen sharing begins, camera video MUST be paused. When screen sharing ends, camera video MUST resume. This constraint ensures:
+
+1. Traffic volume remains within MediaCall mode bandwidth limits (Section 8).
+2. No additional SRTP context is needed -- screen share reuses the video SRTP context (`"pmftp-srtp-video-v1"`, Section 6.6).
+3. The traffic profile remains indistinguishable from a camera-only call.
+
+#### 6.7.3 Encoding Parameters
+
+| Parameter | Low Mode | Normal Mode |
+|-----------|----------|-------------|
+| Resolution | 960x540 | 1280x720 |
+| Frame Rate | 5 fps | 15 fps |
+| Bitrate | 300-500 kbps | 500-1500 kbps |
+| Keyframe Interval | Every 3 s (15 frames at 5fps) | Every 3 s (45 frames at 15fps) |
+| Preferred Codec | VP9 | VP9 |
+
+1. VP9 is preferred for screen share content because it handles sharp edges and text better than VP8.
+2. Mode selection MUST be adaptive based on measured circuit bandwidth, following the same hysteresis rules as camera video (Section 6.3).
+3. If available bandwidth drops below 300 kbps, the encoder MUST switch to Low Mode.
+4. If available bandwidth exceeds 600 kbps, the encoder MAY switch to Normal Mode.
+
+#### 6.7.4 Signaling
+
+Screen share start and stop are signaled via CALL_SIGNAL (0x0B) messages:
+
+```
+ScreenShareStart = {
+  "type"    : "screen_share_start",
+  "call_id" : bstr(16),
+  "config"  : VideoConfig          -- Encoding parameters for the screen share stream
+}
+
+ScreenShareStop = {
+  "type"    : "screen_share_stop",
+  "call_id" : bstr(16)
+}
+```
+
+1. `ScreenShareStart` MUST only be sent when the call is in ACTIVE state.
+2. Upon receiving `ScreenShareStart`, the receiver MUST prepare to render incoming video frames as screen share content (typically in a larger viewport).
+3. Upon receiving `ScreenShareStop`, the receiver MUST expect subsequent video frames to be camera video.
+4. If the screen capture source is terminated by the operating system or browser (e.g., the user clicks the browser's "Stop sharing" button), the sender MUST send `ScreenShareStop` and resume camera video.
+
+#### 6.7.5 SRTP
+
+Screen share frames reuse the video SRTP context established with HKDF info string `"pmftp-srtp-video-v1"` (Section 6.6). Since only one video stream is active at a time (Section 6.7.2), the SSRC and sequence number space are shared between camera and screen share. When switching sources, the SRTP sequence counter continues incrementing without reset.
+
 ## 7. File Transfer Protocol
 
 ### 7.1 File Offer
@@ -479,6 +542,8 @@ After a call ends (Hangup sent or received), the circuit MUST NOT immediately dr
 6. **Codec fingerprinting**: Different codecs produce characteristic frame size distributions. Opus frames at 16 kHz mono are typically 40-80 bytes; Codec2 at 3200 bps is exactly 8 bytes. To prevent codec identification by frame size, all audio frames MUST be padded to the same size before SRTP encryption. The padding size SHOULD be 80 bytes (the upper bound of typical Opus frame sizes).
 
 7. **SRTP replay protection**: SRTP provides native replay protection via the ROC (Rollover Counter) and sequence number. Implementations MUST enable SRTP replay protection and MUST maintain the replay window per RFC 3711 Section 3.3.2.
+
+8. **Screen share indistinguishability**: Screen share frames use the same `VIDEO` (0x08) message type and the same SRTP context as camera video (Section 6.7). The `MediaSource` field is carried inside the encrypted payload. Relay nodes and network observers MUST NOT be able to determine whether a participant is sharing their screen or transmitting camera video. The one-stream-per-user rule (Section 6.7.2) ensures that screen sharing does not alter the observable traffic volume profile.
 
 ## 10. Privacy Considerations
 

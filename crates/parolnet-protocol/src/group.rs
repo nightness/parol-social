@@ -109,6 +109,12 @@ pub enum GroupCallSignalType {
     Leave,
     Mute { muted: bool },
     EndCall,
+    /// Start screen sharing (PNP-009 Section 9.7).
+    ScreenShareStart {
+        config: crate::media::VideoConfig,
+    },
+    /// Stop screen sharing (PNP-009 Section 9.7).
+    ScreenShareStop,
 }
 
 /// A signaling message for group calls.

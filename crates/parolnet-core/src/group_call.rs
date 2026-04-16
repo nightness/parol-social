@@ -20,6 +20,7 @@ pub struct GroupCallParticipant {
     pub peer_id: PeerId,
     pub joined_at: u64,
     pub muted: bool,
+    pub screen_sharing: bool,
 }
 
 /// State of a group call.
@@ -38,6 +39,8 @@ pub struct GroupCall {
     pub initiator: PeerId,
     pub participants: HashMap<PeerId, GroupCallParticipant>,
     pub state: GroupCallState,
+    /// The peer currently sharing their screen (only one at a time).
+    pub screen_sharer: Option<PeerId>,
     pub created_at: u64,
     pub max_participants: u8,
 }
@@ -53,6 +56,7 @@ impl GroupCall {
                 peer_id: initiator,
                 joined_at: now,
                 muted: false,
+                screen_sharing: false,
             },
         );
 
@@ -62,6 +66,7 @@ impl GroupCall {
             initiator,
             participants,
             state: GroupCallState::Active,
+            screen_sharer: None,
             created_at: now,
             max_participants: MAX_GROUP_CALL_PARTICIPANTS,
         }
@@ -83,6 +88,7 @@ impl GroupCall {
                 peer_id,
                 joined_at: crate::now_epoch_ms(),
                 muted: false,
+                screen_sharing: false,
             },
         );
         Ok(())
@@ -91,6 +97,9 @@ impl GroupCall {
     /// Remove a participant from the call. If no participants remain, the call ends.
     pub fn remove_participant(&mut self, peer_id: &PeerId) {
         self.participants.remove(peer_id);
+        if self.screen_sharer.as_ref() == Some(peer_id) {
+            self.screen_sharer = None;
+        }
         if self.participants.is_empty() {
             self.state = GroupCallState::Ended;
         }
@@ -120,6 +129,37 @@ impl GroupCall {
     pub fn is_full(&self) -> bool {
         self.participants.len() >= self.max_participants as usize
     }
+
+    /// Start screen sharing for a participant. Enforces single-sharer policy.
+    pub fn start_screen_share(&mut self, peer_id: &PeerId) -> Result<(), CoreError> {
+        if !self.is_participant(peer_id) {
+            return Err(CoreError::SessionError("participant not in call".into()));
+        }
+        if self.screen_sharer.is_some() {
+            return Err(CoreError::SessionError(
+                "another participant is already sharing".into(),
+            ));
+        }
+        self.screen_sharer = Some(*peer_id);
+        if let Some(p) = self.participants.get_mut(peer_id) {
+            p.screen_sharing = true;
+        }
+        Ok(())
+    }
+
+    /// Stop screen sharing for a participant.
+    pub fn stop_screen_share(&mut self, peer_id: &PeerId) -> Result<(), CoreError> {
+        if self.screen_sharer.as_ref() != Some(peer_id) {
+            return Err(CoreError::SessionError(
+                "participant is not sharing".into(),
+            ));
+        }
+        self.screen_sharer = None;
+        if let Some(p) = self.participants.get_mut(peer_id) {
+            p.screen_sharing = false;
+        }
+        Ok(())
+    }
 }
 
 /// Action returned from processing a group call signal.
@@ -143,6 +183,14 @@ pub enum GroupCallAction {
     },
     CallEnded {
         call_id: [u8; 16],
+    },
+    ScreenShareStarted {
+        call_id: [u8; 16],
+        peer_id: PeerId,
+    },
+    ScreenShareStopped {
+        call_id: [u8; 16],
+        peer_id: PeerId,
     },
 }
 
@@ -331,6 +379,28 @@ impl GroupCallManager {
                 call.state = GroupCallState::Ended;
                 Ok(GroupCallAction::CallEnded {
                     call_id: signal.call_id,
+                })
+            }
+            GroupCallSignalType::ScreenShareStart { .. } => {
+                let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+                let call = calls
+                    .get_mut(&signal.call_id)
+                    .ok_or_else(|| CoreError::SessionError("group call not found".into()))?;
+                call.start_screen_share(&from_peer)?;
+                Ok(GroupCallAction::ScreenShareStarted {
+                    call_id: signal.call_id,
+                    peer_id: from_peer,
+                })
+            }
+            GroupCallSignalType::ScreenShareStop => {
+                let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+                let call = calls
+                    .get_mut(&signal.call_id)
+                    .ok_or_else(|| CoreError::SessionError("group call not found".into()))?;
+                call.stop_screen_share(&from_peer)?;
+                Ok(GroupCallAction::ScreenShareStopped {
+                    call_id: signal.call_id,
+                    peer_id: from_peer,
                 })
             }
         }

@@ -536,7 +536,7 @@ fn test_audio_config_low_bandwidth() {
 #[test]
 fn test_video_fragment_small_frame() {
     use parolnet_core::video::{VideoFrame, fragment_video_frame, reassemble_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     let frame = VideoFrame {
         codec: VideoCodec::VP8,
@@ -544,6 +544,7 @@ fn test_video_fragment_small_frame() {
         height: 240,
         is_keyframe: true,
         timestamp: 1000,
+        source: MediaSource::Camera,
         data: vec![0xAB; 200], // fits in one fragment
     };
 
@@ -563,7 +564,7 @@ fn test_video_fragment_large_frame() {
     use parolnet_core::video::{
         MAX_FRAGMENT_SIZE, VideoFrame, fragment_video_frame, reassemble_video_frame,
     };
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     // 10KB frame -- should split into ceil(10000/440) = 23 fragments
     let frame = VideoFrame {
@@ -572,6 +573,7 @@ fn test_video_fragment_large_frame() {
         height: 480,
         is_keyframe: false,
         timestamp: 2000,
+        source: MediaSource::Camera,
         data: vec![0xCD; 10_000],
     };
 
@@ -594,7 +596,7 @@ fn test_video_fragment_large_frame() {
 #[test]
 fn test_video_fragment_empty_frame() {
     use parolnet_core::video::{VideoFrame, fragment_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     let frame = VideoFrame {
         codec: VideoCodec::VP9,
@@ -602,6 +604,7 @@ fn test_video_fragment_empty_frame() {
         height: 240,
         is_keyframe: false,
         timestamp: 0,
+        source: MediaSource::Camera,
         data: vec![],
     };
 
@@ -613,7 +616,7 @@ fn test_video_fragment_empty_frame() {
 #[test]
 fn test_video_reassemble_missing_fragment() {
     use parolnet_core::video::{VideoFragment, reassemble_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     // Only provide fragment 0 of 3
     let mut fragments = vec![VideoFragment {
@@ -622,6 +625,7 @@ fn test_video_reassemble_missing_fragment() {
         total_fragments: 3,
         is_keyframe: true,
         timestamp: 100,
+        source: MediaSource::Camera,
         data: vec![0xAB; 100],
     }];
 
@@ -1190,7 +1194,7 @@ fn test_audio_frame_struct() {
 #[test]
 fn test_video_fragment_exact_boundary() {
     use parolnet_core::video::{MAX_FRAGMENT_SIZE, VideoFrame, fragment_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     // Data exactly MAX_FRAGMENT_SIZE -- should be 1 fragment
     let frame = VideoFrame {
@@ -1199,6 +1203,7 @@ fn test_video_fragment_exact_boundary() {
         height: 240,
         is_keyframe: false,
         timestamp: 0,
+        source: MediaSource::Camera,
         data: vec![0xAB; MAX_FRAGMENT_SIZE],
     };
     let frags = fragment_video_frame(&frame, 1);
@@ -1211,6 +1216,7 @@ fn test_video_fragment_exact_boundary() {
         height: 240,
         is_keyframe: false,
         timestamp: 0,
+        source: MediaSource::Camera,
         data: vec![0xAB; MAX_FRAGMENT_SIZE + 1],
     };
     let frags2 = fragment_video_frame(&frame2, 2);
@@ -1222,7 +1228,7 @@ fn test_video_fragment_exact_boundary() {
 #[test]
 fn test_video_fragment_keyframe_only_on_first() {
     use parolnet_core::video::{VideoFrame, fragment_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     let frame = VideoFrame {
         codec: VideoCodec::VP9,
@@ -1230,6 +1236,7 @@ fn test_video_fragment_keyframe_only_on_first() {
         height: 480,
         is_keyframe: true,
         timestamp: 100,
+        source: MediaSource::Camera,
         data: vec![0; 1000], // multiple fragments
     };
     let frags = fragment_video_frame(&frame, 1);
@@ -1243,7 +1250,7 @@ fn test_video_fragment_keyframe_only_on_first() {
 #[test]
 fn test_video_reassemble_wrong_frame_id() {
     use parolnet_core::video::{VideoFragment, reassemble_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     let mut fragments = vec![
         VideoFragment {
@@ -1252,6 +1259,7 @@ fn test_video_reassemble_wrong_frame_id() {
             total_fragments: 2,
             is_keyframe: false,
             timestamp: 0,
+            source: MediaSource::Camera,
             data: vec![1],
         },
         VideoFragment {
@@ -1260,6 +1268,7 @@ fn test_video_reassemble_wrong_frame_id() {
             total_fragments: 2,
             is_keyframe: false,
             timestamp: 0,
+            source: MediaSource::Camera,
             data: vec![2],
         },
     ];
@@ -1270,7 +1279,7 @@ fn test_video_reassemble_wrong_frame_id() {
 #[test]
 fn test_video_reassemble_out_of_order() {
     use parolnet_core::video::{VideoFrame, fragment_video_frame, reassemble_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     let frame = VideoFrame {
         codec: VideoCodec::VP8,
@@ -1278,6 +1287,7 @@ fn test_video_reassemble_out_of_order() {
         height: 240,
         is_keyframe: true,
         timestamp: 500,
+        source: MediaSource::Camera,
         data: vec![0xCD; 1000],
     };
     let mut frags = fragment_video_frame(&frame, 7);
@@ -1292,7 +1302,7 @@ fn test_video_reassemble_out_of_order() {
 #[test]
 fn test_video_fragment_preserves_timestamp() {
     use parolnet_core::video::{VideoFrame, fragment_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     let frame = VideoFrame {
         codec: VideoCodec::VP8,
@@ -1300,6 +1310,7 @@ fn test_video_fragment_preserves_timestamp() {
         height: 240,
         is_keyframe: false,
         timestamp: 12345,
+        source: MediaSource::Camera,
         data: vec![0; 1000],
     };
     let frags = fragment_video_frame(&frame, 99);
@@ -1322,7 +1333,7 @@ fn test_video_reassemble_empty_fragments_vec() {
 #[test]
 fn test_video_fragment_non_keyframe() {
     use parolnet_core::video::{VideoFrame, fragment_video_frame};
-    use parolnet_protocol::media::VideoCodec;
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
 
     let frame = VideoFrame {
         codec: VideoCodec::VP8,
@@ -1330,6 +1341,7 @@ fn test_video_fragment_non_keyframe() {
         height: 240,
         is_keyframe: false,
         timestamp: 0,
+        source: MediaSource::Camera,
         data: vec![0; 1000],
     };
     let frags = fragment_video_frame(&frame, 1);

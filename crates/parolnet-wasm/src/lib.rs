@@ -327,6 +327,52 @@ pub fn get_call_state(call_id_hex: &str) -> Result<String, JsError> {
     Ok(name)
 }
 
+// ── Screen Sharing ─────────────────────────────────────────
+
+/// Start screen sharing on an active 1:1 call (pauses camera).
+#[wasm_bindgen]
+pub fn start_screen_share(call_id_hex: &str) -> Result<(), JsError> {
+    let call_id = decode_16(call_id_hex)?;
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    state
+        .call_manager
+        .start_screen_share(&call_id)
+        .map_err(|e| JsError::new(&format!("{e}")))
+}
+
+/// Stop screen sharing on an active 1:1 call (resumes camera).
+#[wasm_bindgen]
+pub fn stop_screen_share(call_id_hex: &str) -> Result<(), JsError> {
+    let call_id = decode_16(call_id_hex)?;
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    state
+        .call_manager
+        .stop_screen_share(&call_id)
+        .map_err(|e| JsError::new(&format!("{e}")))
+}
+
+/// Check if local user is screen sharing on a call.
+#[wasm_bindgen]
+pub fn is_screen_sharing(call_id_hex: &str) -> Result<bool, JsError> {
+    let call_id = decode_16(call_id_hex)?;
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    state
+        .call_manager
+        .is_screen_sharing(&call_id)
+        .map_err(|e| JsError::new(&format!("{e}")))
+}
+
+/// Check if the remote peer is screen sharing on a call.
+#[wasm_bindgen]
+pub fn is_peer_screen_sharing(call_id_hex: &str) -> Result<bool, JsError> {
+    let call_id = decode_16(call_id_hex)?;
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    state
+        .call_manager
+        .is_peer_screen_sharing(&call_id)
+        .map_err(|e| JsError::new(&format!("{e}")))
+}
+
 // ── File Transfer ───────────────────────────────────────────
 
 /// Create a new outgoing file transfer. Returns the file_id as hex.
