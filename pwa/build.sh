@@ -101,6 +101,13 @@ rm -f "$SCRIPT_DIR/pkg/.gitignore"
 rm -f "$SCRIPT_DIR/pkg/package.json"
 rm -f "$SCRIPT_DIR/pkg/README.md"
 
+# ── Bundle JS + SW hashes + build-info ─────────────────────────
+if ! node -e "require('esbuild')" 2>/dev/null; then
+    echo "Installing esbuild..."
+    (cd "$PROJECT_ROOT" && npm install --save-dev esbuild)
+fi
+node "$SCRIPT_DIR/build.mjs"
+
 # ── Compute network ID (SHA-256 of sorted pubkeys) ────────────
 compute_network_id() {
     local keys="$1"

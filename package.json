@@ -1,0 +1,32 @@
+{
+  "name": "parolnet",
+  "version": "1.0.0",
+  "description": "> **Parol** — *parole* (speech/word) in French, *пароль* (password) in Russian, *parola* (password) in Turkish, *parola* (word) in Italian. It embodies the dual mission: **free speech protected by strong security**.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "node pwa/build.mjs",
+    "build:wasm": "wasm-pack build crates/parolnet-wasm --target web --out-dir ../../pwa/pkg --release && rm -f pwa/pkg/.gitignore pwa/pkg/package.json pwa/pkg/README.md",
+    "build:all": "npm run build:wasm && npm run build",
+    "dev": "node pwa/build.mjs --watch",
+    "docker:rebuild": "npm run build:all && docker compose build --no-cache --build-arg BUILD_DATE=\"$(date -u '+%Y-%m-%d %H:%M UTC')\" --build-arg BUILD_COMMIT=\"$(git rev-parse --short HEAD)\" --build-arg BUILD_VERSION=\"$(grep -m1 '^version' Cargo.toml | grep -oP '\"\\K[^\"]+')\" && docker compose down && docker compose up -d",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:restart": "docker compose restart",
+    "docker:logs": "docker compose logs -f parolnet",
+    "docker:shell": "docker compose exec parolnet sh",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "puppeteer": "^24.40.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}
