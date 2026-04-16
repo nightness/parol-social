@@ -172,6 +172,24 @@ pub fn get_public_key() -> String {
         .unwrap_or_default()
 }
 
+/// Sign arbitrary bytes (hex-encoded) with our Ed25519 identity key.
+/// Returns the 64-byte signature as hex.
+#[wasm_bindgen]
+pub fn sign_bytes(data_hex: &str) -> Result<String, JsError> {
+    use ed25519_dalek::Signer;
+    let data = hex::decode(data_hex)
+        .map_err(|e| JsError::new(&format!("invalid hex: {e}")))?;
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let client = state
+        .client
+        .as_ref()
+        .ok_or_else(|| JsError::new("not initialized"))?;
+    let secret = client.export_identity_secret();
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret);
+    let sig = signing_key.sign(&data);
+    Ok(hex::encode(sig.to_bytes()))
+}
+
 // ── Session Management ──────────────────────────────────────
 
 /// Establish a Double Ratchet session with a peer.

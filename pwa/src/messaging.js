@@ -11,12 +11,36 @@ import { dbGet, dbPut, dbGetAll, dbGetByIndex, dbDelete } from './db.js';
 import { showView } from './views.js';
 import { hasDirectConnection, sendViaWebRTC, seenGossipMessages, markGossipSeen,
          handleRTCOffer, handleRTCAnswer, handleRTCIce } from './webrtc.js';
-import { sendToRelay, discoverPeers, startDiscoveryInterval } from './connection.js';
+import { sendToRelay, discoverPeers, startDiscoveryInterval, connMgr } from './connection.js';
 import { loadContacts, appendMessage, answerIncomingCall, loadAddressBook } from './ui-chat.js';
+import { t } from './i18n.js';
 
 // ── Relay Message Handling ────────────────────────────────
 export function handleRelayMessage(msg) {
     switch (msg.type) {
+        case 'challenge':
+            // Relay requires challenge-response auth: sign the nonce with our Ed25519 key
+            if (msg.nonce && wasm && wasm.sign_bytes && wasm.get_public_key) {
+                try {
+                    const signature = wasm.sign_bytes(msg.nonce);
+                    const pubkey = wasm.get_public_key();
+                    const peerId = window._peerId;
+                    connMgr._swPost({
+                        type: 'relay_register_auth',
+                        peerId,
+                        pubkey,
+                        signature,
+                        nonce: msg.nonce
+                    });
+                    console.log('[Auth] Challenge signed, sending authenticated register');
+                } catch(e) {
+                    console.warn('[Auth] Failed to sign challenge:', e);
+                }
+            } else {
+                console.warn('[Auth] Cannot sign challenge — WASM not ready or missing sign_bytes');
+            }
+            break;
+
         case 'registered':
             console.log('Registered with relay. Online peers:', msg.online_peers);
             discoverPeers();
@@ -39,8 +63,7 @@ export function handleRelayMessage(msg) {
             break;
 
         case 'queued':
-            console.log('Message queued (peer offline)');
-            showToast('Peer offline — message will be delivered when they connect');
+            console.log('Message queued (peer offline — relay will deliver later)');
             break;
 
         case 'rtc_offer':
@@ -947,8 +970,9 @@ export function onIncomingMessage(fromPeerId, payload) {
                 lastTime: formatTime(Date.now()),
                 unread: 0
             }).then(() => {
-                showToast('New contact: ' + fromPeerId.slice(0, 8) + '...');
+                showToast(t('toast.newContact', { name: fromPeerId.slice(0, 8) }));
                 loadContacts();
+                showView('contacts');
             }).catch(() => {});
         } else if (payload.startsWith('__system:bootstrap:')) {
             const theirIkHex = payload.slice('__system:bootstrap:'.length);
@@ -963,8 +987,9 @@ export function onIncomingMessage(fromPeerId, payload) {
                         lastTime: formatTime(Date.now()),
                         unread: 0
                     }).then(async () => {
-                        showToast('Secure contact: ' + result.peer_id.slice(0, 8) + '...');
+                        showToast(t('toast.secureContact', { name: result.peer_id.slice(0, 8) }));
                         loadContacts();
+                        showView('contacts');
                     }).catch(() => {});
                 } catch(e) {
                     console.warn('[Bootstrap] Failed to complete presenter bootstrap:', e);

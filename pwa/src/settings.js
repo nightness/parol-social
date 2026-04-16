@@ -6,6 +6,7 @@ import { showView } from './views.js';
 import { connMgr } from './connection.js';
 import { rtcConnections, updateWebRTCPrivacyUI } from './webrtc.js';
 import { exportData, importData, validateExport } from './data-export.js';
+import { t } from './i18n.js';
 
 // ── Settings ────────────────────────────────────────────────
 export function openSettings() {

@@ -22,31 +22,32 @@ import {
     attachFile, onFileSelected, initiateCall, hangupCall,
     answerIncomingCall, toggleMute, toggleCamera, connectViaPassphrase,
     startQRScanner, stopQRScanner, copyBootstrapCode, showAddTab, initContactSearch,
-    appendMessage
+    appendMessage, toggleContactMenu
 } from './ui-chat.js';
 import {
     openSettings, enableDecoyMode, executePanicWipe, enableEncryption,
     handleExportData, handleImportData, updateNetworkSettings
 } from './settings.js';
+import { initI18n, t, changeLanguage, applyToDOM } from './i18n.js';
 
 // ── WASM Loading ────────────────────────────────────────────
 async function loadWasm() {
     const statusEl = document.getElementById('loading-status');
     try {
-        if (statusEl) statusEl.textContent = 'Loading crypto module...';
+        if (statusEl) statusEl.textContent = t('status.loadingCrypto');
         const wasmModule = await import('./pkg/parolnet_wasm.js');
         setWasm(wasmModule);
-        if (statusEl) statusEl.textContent = 'Initializing...';
+        if (statusEl) statusEl.textContent = t('status.initializing');
         const wasmUrl = './pkg/parolnet_wasm_bg.wasm?v=' + Date.now();
         await wasm.default({ module_or_path: wasmUrl });
-        if (statusEl) statusEl.textContent = 'Restoring identity...';
+        if (statusEl) statusEl.textContent = t('status.restoringIdentity');
         telemetry.track('wasm_load_success');
         await onWasmReady();
     } catch (e) {
         console.warn('WASM not available:', e.message);
         telemetry.track('wasm_load_fail', { error: e.message });
-        showToast('WASM load failed: ' + e.message);
-        if (statusEl) statusEl.textContent = 'Running without crypto (' + e.message + ')';
+        showToast(t('error.wasmLoadFailed', { error: e.message }));
+        if (statusEl) statusEl.textContent = t('status.runningWithoutCrypto', { error: e.message });
         onWasmUnavailable();
     }
 }
@@ -57,7 +58,7 @@ async function onWasmReady() {
         const decoyEnabled = wasm && wasm.is_decoy_enabled && wasm.is_decoy_enabled();
         if (!decoyEnabled) {
             showView('unlock');
-            document.getElementById('loading-status').textContent = 'Encrypted — enter passphrase';
+            document.getElementById('loading-status').textContent = t('status.encrypted');
         }
         return;
     }
@@ -124,6 +125,16 @@ async function onWasmReady() {
         console.log('[App] Discovered', relays.length, 'relays');
         connMgr.start();
         updateConnectionStatus();
+        // Poll for relay status until connected (challenge-response is async)
+        let statusChecks = 0;
+        const checkStatus = setInterval(() => {
+            if (connMgr.isRelayConnected() || ++statusChecks > 10) {
+                clearInterval(checkStatus);
+                updateConnectionStatus();
+            } else if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({ type: 'relay_status_query' });
+            }
+        }, 1000);
     }).catch(e => {
         console.warn('[App] Relay discovery failed, using defaults:', e.message);
         connMgr.start();
@@ -138,10 +149,10 @@ export function attemptUnlock() {
     cryptoStore.unlock(passphrase, dbGetRaw).then(() => {
         if (input) input.value = '';
         showView('loading');
-        document.getElementById('loading-status').textContent = 'Decrypting...';
+        document.getElementById('loading-status').textContent = t('status.decrypting');
         onWasmReady();
     }).catch(() => {
-        showToast('Wrong passphrase');
+        showToast(t('toast.wrongPassphrase'));
         if (input) { input.value = ''; input.focus(); }
     });
 }
@@ -149,7 +160,7 @@ export function attemptUnlock() {
 function onWasmUnavailable() {
     showView('contacts');
     const el = document.getElementById('settings-version');
-    if (el) el.textContent = 'dev (no WASM)';
+    if (el) el.textContent = t('settings.devMode');
 
     relayClient.discover().then(() => {
         connMgr.start();
@@ -169,13 +180,13 @@ function updateConnectionStatus() {
 
     if (hasRelay) {
         dot.className = 'connection-dot online';
-        dot.title = 'Relay connected';
+        dot.title = t('status.relayConnected');
     } else if (hasAnyWebRTC) {
         dot.className = 'connection-dot partial';
-        dot.title = 'Direct only';
+        dot.title = t('status.directOnly');
     } else {
         dot.className = 'connection-dot offline';
-        dot.title = 'Offline — messages will be queued';
+        dot.title = t('status.offline');
     }
     updateNetworkSettings();
 }
@@ -280,12 +291,25 @@ function registerServiceWorker() {
 }
 
 // ── Boot ────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     setPlatform(detectPlatform());
     document.body.classList.add(`platform-${platform}`);
+
+    // Load saved language preference, then init i18n
+    let savedLang = null;
+    try {
+        const langSetting = await dbGet('settings', 'language');
+        if (langSetting && langSetting.value) savedLang = langSetting.value;
+    } catch {}
+    await initI18n(savedLang).catch(() => {});
+
+    // Set language selector to current value
+    const langSelect = document.getElementById('settings-language');
+    if (langSelect && savedLang) langSelect.value = savedLang;
+
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
     registerServiceWorker();
-    showToast('Starting ParolNet...', 2000);
+    showToast(t('toast.starting'), 2000);
     loadPanicCode().catch(() => {});
     loadCustomStunServers().catch(() => {});
     loadWasm();
@@ -294,7 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const loading = document.getElementById('view-loading');
         if (loading && !loading.classList.contains('hidden')) {
             const errEl = document.getElementById('loading-error');
-            if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Taking too long. Try clearing cache.'; }
+            if (errEl) { errEl.style.display = 'block'; errEl.textContent = t('error.takingTooLong'); }
             const btn = document.getElementById('loading-retry');
             if (btn) btn.style.display = 'inline-block';
             const btn2 = document.getElementById('loading-clear');
@@ -308,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (bootstrap && wasm && wasm.parse_qr_payload) {
         try {
             wasm.parse_qr_payload(bootstrap);
-            showToast('Bootstrap data received');
+            showToast(t('toast.bootstrapReceived'));
         } catch(e) {
             console.warn('Failed to parse bootstrap:', e);
         }
@@ -389,3 +413,9 @@ window.toggleGroupMute = toggleGroupMute;
 // Group files
 window.attachGroupFile = attachGroupFile;
 window.onGroupFileSelected = onGroupFileSelected;
+window.toggleContactMenu = toggleContactMenu;
+// i18n
+window.changeLanguage = async function(lang) {
+    await changeLanguage(lang);
+    dbPut('settings', { key: 'language', value: lang }).catch(() => {});
+};

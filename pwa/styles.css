@@ -1238,3 +1238,95 @@ button.success {
         padding-bottom: env(safe-area-inset-bottom);
     }
 }
+
+/* ── Contact Actions (hamburger on mobile) ────────────────── */
+.contact-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+.contact-actions button {
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-size: 16px;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+.contact-actions button:hover {
+    background: var(--border);
+    color: var(--text);
+}
+.contact-overflow-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-size: 20px;
+    padding: 4px 8px;
+    cursor: pointer;
+    line-height: 1;
+}
+.contact-overflow-menu {
+    position: absolute;
+    right: 8px;
+    top: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px var(--shadow);
+    z-index: 100;
+    min-width: 140px;
+    overflow: hidden;
+}
+.contact-overflow-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 16px;
+    border: none;
+    background: none;
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+}
+.contact-overflow-menu button:hover {
+    background: var(--border);
+}
+.address-book-item {
+    position: relative;
+}
+
+@media (max-width: 600px) {
+    .contact-actions { display: none; }
+    .contact-overflow-btn { display: block; }
+}
+
+/* ── Close conversation button ──────────────────────────────── */
+.close-conversation-btn {
+    background: none;
+    border: none;
+    color: var(--text3);
+    font-size: 14px;
+    padding: 4px 8px;
+    cursor: pointer;
+    opacity: 0.6;
+}
+.close-conversation-btn:hover {
+    opacity: 1;
+    color: var(--red);
+}
+
+/* ── RTL Support ────────────────────────────────────────────── */
+[dir="rtl"] header { direction: rtl; }
+[dir="rtl"] .header-actions { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .contact-info { text-align: right; }
+[dir="rtl"] .chat-bubble.sent { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .chat-bubble.received { margin-right: 0; margin-left: auto; }
+[dir="rtl"] .chat-input { direction: rtl; }
+[dir="rtl"] .message-input { text-align: right; }
+[dir="rtl"] .settings-content { direction: rtl; text-align: right; }
+[dir="rtl"] .setting-row { direction: rtl; }
+[dir="rtl"] .contact-overflow-menu { right: auto; left: 8px; }
+[dir="rtl"] .contact-overflow-menu button { text-align: right; }

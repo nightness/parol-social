@@ -10,10 +10,10 @@ const CACHE_NAME = 'parolnet-v9';
 // If the hash doesn't match, the resource is re-fetched from the network.
 // Regenerate these hashes whenever the corresponding files change.
 const RESOURCE_HASHES = {
-    'app.js': '1be60cabcb89e9997c25e8754006d8038475dc3e1d45a13b9fae7f8f3edbc787',
-    'styles.css': '3d3228629a323f70bf29d3f584476f09834abe7785068b12a14a625f8eb372bb',
+    'app.js': '1b12c72aa2de8f19654ca814790a6c7db16fd603a7e76d71d68634eddaf36c76',
+    'styles.css': 'a4a07e1fe925dbd2324e9cf01e9454dadd9c3409e19e39df1f4254f5682dfcc2',
     'crypto-store.js': '2aba63c04e985c4d9d3aeb969d3321eb9cb9c7e86e3d8519cdc7f4d722b0a45f',
-    'index.html': 'de2822bda54192410d8228f056f3172a28889e532c0b842dc39207c3345a20c3',
+    'index.html': '1a85191fc4392bc09586e39f6bd5aa3456873d8d1a201caa2b4f99331e38d2d1',
 };
 
 // Compute SHA-256 hex digest of an ArrayBuffer.
@@ -60,6 +60,22 @@ const ASSETS_TO_CACHE = [
     './pkg/parolnet_wasm_bg.wasm',
     './network-config.js',
     './relay-client.js',
+    './lang/en.json',
+    './lang/ru.json',
+    './lang/fa.json',
+    './lang/zh-CN.json',
+    './lang/zh-TW.json',
+    './lang/ko.json',
+    './lang/ja.json',
+    './lang/fr.json',
+    './lang/de.json',
+    './lang/it.json',
+    './lang/pt.json',
+    './lang/ar.json',
+    './lang/es.json',
+    './lang/tr.json',
+    './lang/my.json',
+    './lang/vi.json',
 ];
 
 // ── Install: cache all assets ──────────────────────────────────
@@ -272,18 +288,22 @@ function swConnectRelay() {
     }
 
     relayWs.onopen = () => {
-        console.log('[SW-Relay] connected');
-        relayConnected = true;
+        console.log('[SW-Relay] WebSocket open, awaiting registration...');
         relayReconnectDelay = 1000;
         if (relayPeerId) {
             relayWs.send(JSON.stringify({ type: 'register', peer_id: relayPeerId }));
         }
-        swBroadcastStatus(true);
     };
 
     relayWs.onmessage = (event) => {
         try {
             const msg = JSON.parse(event.data);
+            // Only mark as connected after relay confirms registration
+            if (msg.type === 'registered' && !relayConnected) {
+                console.log('[SW-Relay] registered with relay');
+                relayConnected = true;
+                swBroadcastStatus(true);
+            }
             swBroadcastOrBuffer(msg);
         } catch(e) {}
     };
@@ -379,6 +399,17 @@ self.addEventListener('message', event => {
             relayPeerId = d.peerId;
             if (relayWs && relayWs.readyState === 1) {
                 relayWs.send(JSON.stringify({ type: 'register', peer_id: d.peerId }));
+            }
+            break;
+        case 'relay_register_auth':
+            if (relayWs && relayWs.readyState === 1) {
+                relayWs.send(JSON.stringify({
+                    type: 'register',
+                    peer_id: d.peerId,
+                    pubkey: d.pubkey,
+                    signature: d.signature,
+                    nonce: d.nonce
+                }));
             }
             break;
         case 'relay_send':

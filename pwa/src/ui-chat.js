@@ -12,6 +12,7 @@ import { showView } from './views.js';
 import { initWebRTC, hasDirectConnection, sendViaWebRTC, rtcConnections,
          seenGossipMessages, markGossipSeen } from './webrtc.js';
 import { sendToRelay, connMgr, queueMessage } from './connection.js';
+import { t } from './i18n.js';
 
 // ── Contact List ────────────────────────────────────────────
 export async function loadContacts() {
@@ -29,7 +30,7 @@ function renderContactList(contacts) {
     if (!list) return;
 
     if (contacts.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p>No contacts yet</p><p>Tap + to add someone</p></div>';
+        list.innerHTML = `<div class="empty-state"><p>${escapeHtml(t('empty.noMessages'))}</p><p>${escapeHtml(t('empty.addContact'))}</p></div>`;
         return;
     }
     list.innerHTML = contacts.map(c => `
@@ -37,7 +38,7 @@ function renderContactList(contacts) {
             <div class="contact-avatar">${escapeHtml(c.name[0]?.toUpperCase() || '?')}</div>
             <div class="contact-info">
                 <div class="contact-name" dir="auto">${escapeHtml(c.name)}</div>
-                <div class="contact-last-msg" dir="auto">${escapeHtml(c.lastMessage || 'No messages yet')}</div>
+                <div class="contact-last-msg" dir="auto">${escapeHtml(c.lastMessage || t('contact.noMessagesYet'))}</div>
             </div>
             <div class="contact-meta">
                 <div class="contact-time">${escapeHtml(c.lastTime || '')}</div>
@@ -64,19 +65,53 @@ function renderAddressBook(contacts) {
     if (!list) return;
 
     if (!contacts || contacts.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p>No contacts yet</p><p>Tap + to add someone</p></div>';
+        list.innerHTML = `<div class="empty-state"><p>${escapeHtml(t('empty.noContacts'))}</p><p>${escapeHtml(t('empty.addContact'))}</p></div>`;
         return;
     }
-    list.innerHTML = contacts.map(c => `
-        <div class="contact-item address-book-item" data-peerid="${escapeAttr(c.peerId)}">
+    list.innerHTML = contacts.map(c => {
+        const pid = escapeAttr(c.peerId);
+        return `
+        <div class="contact-item address-book-item" data-peerid="${pid}">
             <div class="contact-avatar">${escapeHtml(c.name[0]?.toUpperCase() || '?')}</div>
-            <div class="contact-info" onclick="openChat('${escapeAttr(c.peerId)}')">
+            <div class="contact-info" onclick="openChat('${pid}')">
                 <div class="contact-name" dir="auto">${escapeHtml(c.name)}</div>
                 <div class="contact-peer-id">${escapeHtml(c.peerId.slice(0, 16) + '...')}</div>
             </div>
-            <button class="contact-edit-btn" onclick="renameContact('${escapeAttr(c.peerId)}')" title="Rename contact">&#9998;</button>
-        </div>
-    `).join('');
+            <div class="contact-actions">
+                <button onclick="openChat('${pid}')" title="${escapeAttr(t('btn.message'))}">💬</button>
+                <button onclick="initiateCall('${pid}', false)" title="${escapeAttr(t('btn.voiceCall'))}">📞</button>
+                <button onclick="initiateCall('${pid}', true)" title="${escapeAttr(t('btn.videoCall'))}">📹</button>
+                <button onclick="renameContact('${pid}')" title="${escapeAttr(t('btn.rename'))}">✏️</button>
+            </div>
+            <button class="contact-overflow-btn" onclick="toggleContactMenu(this)">⋮</button>
+            <div class="contact-overflow-menu hidden">
+                <button onclick="openChat('${pid}')">${escapeHtml(t('btn.message'))}</button>
+                <button onclick="initiateCall('${pid}', false)">${escapeHtml(t('btn.voiceCall'))}</button>
+                <button onclick="initiateCall('${pid}', true)">${escapeHtml(t('btn.videoCall'))}</button>
+                <button onclick="renameContact('${pid}')">${escapeHtml(t('btn.rename'))}</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+export function toggleContactMenu(btn) {
+    const menu = btn.nextElementSibling;
+    if (!menu) return;
+    // Close any other open menus
+    document.querySelectorAll('.contact-overflow-menu').forEach(m => {
+        if (m !== menu) m.classList.add('hidden');
+    });
+    menu.classList.toggle('hidden');
+    // Close on outside click
+    if (!menu.classList.contains('hidden')) {
+        const close = (e) => {
+            if (!menu.contains(e.target) && e.target !== btn) {
+                menu.classList.add('hidden');
+                document.removeEventListener('click', close);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', close), 0);
+    }
 }
 
 export async function renameContact(peerId) {
@@ -605,9 +640,13 @@ function handleScannedQR(data) {
         loadContacts();
         if (sessionEstablished && wasm && wasm.get_public_key) {
             const ourIk = wasm.get_public_key();
-            sendToRelay(peerId, '__system:bootstrap:' + ourIk);
+            if (!sendToRelay(peerId, '__system:bootstrap:' + ourIk)) {
+                queueMessage(peerId, '__system:bootstrap:' + ourIk);
+            }
         } else {
-            sendToRelay(peerId, '__system:contact_added');
+            if (!sendToRelay(peerId, '__system:contact_added')) {
+                queueMessage(peerId, '__system:contact_added');
+            }
         }
         openChat(peerId);
     }).catch(e => console.warn('Failed to save contact:', e));

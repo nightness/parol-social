@@ -17,10 +17,10 @@
     <!-- Loading -->
     <div id="view-loading" class="view">
         <div class="spinner"></div>
-        <p id="loading-status">Loading...</p>
+        <p id="loading-status" data-i18n="status.loading">Loading...</p>
         <p id="loading-error" style="color:#e74c3c;font-size:12px;margin-top:12px;max-width:300px;word-break:break-all;display:none;"></p>
-        <button id="loading-retry" style="display:none;margin-top:12px;padding:8px 24px;border:none;border-radius:8px;background:#007aff;color:#fff;font-size:14px;" onclick="location.reload()">Retry</button>
-        <button id="loading-clear" style="display:none;margin-top:8px;padding:8px 24px;border:none;border-radius:8px;background:#e74c3c;color:#fff;font-size:12px;" onclick="clearAndReload()">Clear Cache &amp; Reload</button>
+        <button id="loading-retry" style="display:none;margin-top:12px;padding:8px 24px;border:none;border-radius:8px;background:#007aff;color:#fff;font-size:14px;" onclick="location.reload()" data-i18n="btn.retry">Retry</button>
+        <button id="loading-clear" style="display:none;margin-top:8px;padding:8px 24px;border:none;border-radius:8px;background:#e74c3c;color:#fff;font-size:12px;" onclick="clearAndReload()" data-i18n="btn.clearCache">Clear Cache &amp; Reload</button>
     </div>
     <script>
     // Global error catcher — shows errors on the loading screen
@@ -44,13 +44,13 @@
     <!-- Unlock Screen -->
     <div id="view-unlock" class="view hidden">
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:24px;">
-            <h2 style="color:#fff;margin-bottom:24px;">ParolNet</h2>
-            <p style="color:#aaa;margin-bottom:16px;font-size:14px;">Enter passphrase to decrypt your data</p>
+            <h2 style="color:#fff;margin-bottom:24px;" data-i18n="heading.title">ParolNet</h2>
+            <p style="color:#aaa;margin-bottom:16px;font-size:14px;" data-i18n="status.encrypted">Enter passphrase to decrypt your data</p>
             <form onsubmit="event.preventDefault();attemptUnlock()" autocomplete="off">
-                <input type="password" id="unlock-input" placeholder="Passphrase"
+                <input type="password" id="unlock-input" placeholder="Passphrase" data-i18n-placeholder="placeholder.passphrase"
                        style="width:100%;max-width:280px;padding:12px 16px;border-radius:12px;border:1px solid #444;background:#2a2a3e;color:#fff;font-size:16px;text-align:center;margin-bottom:12px;">
                 <button type="submit"
-                        style="width:100%;max-width:280px;padding:12px;border:none;border-radius:12px;background:#007aff;color:#fff;font-size:16px;cursor:pointer;">Unlock</button>
+                        style="width:100%;max-width:280px;padding:12px;border:none;border-radius:12px;background:#007aff;color:#fff;font-size:16px;cursor:pointer;" data-i18n="btn.unlock">Unlock</button>
             </form>
         </div>
     </div>
@@ -90,19 +90,20 @@
     <!-- Contact List -->
     <div id="view-contacts" class="view hidden">
         <header>
-            <h1>Messages <span id="connection-dot" class="connection-dot offline"></span></h1>
+            <h1 data-i18n="heading.title">ParolNet</h1>
+            <span id="connection-dot" class="connection-dot offline"></span>
             <div class="header-actions">
-                <button onclick="showView('add-contact')" title="Add contact">+</button>
-                <button onclick="openSettings()" title="Settings">⚙</button>
+                <button onclick="showView('add-contact')" data-i18n-title="heading.addContact" title="Add contact">+</button>
+                <button onclick="openSettings()" data-i18n-title="heading.settings" title="Settings">⚙</button>
             </div>
         </header>
         <div class="list-tabs">
-            <button class="list-tab active" data-list="contacts" onclick="switchListTab('contacts')">Chats</button>
-            <button class="list-tab" data-list="groups" onclick="switchListTab('groups')">Groups</button>
-            <button class="list-tab" data-list="address-book" onclick="switchListTab('address-book')">Contacts</button>
+            <button class="list-tab active" data-list="messages" onclick="switchListTab('messages')" data-i18n="tab.messages">Messages</button>
+            <button class="list-tab" data-list="groups" onclick="switchListTab('groups')" data-i18n="tab.groups">Groups</button>
+            <button class="list-tab" data-list="address-book" onclick="switchListTab('address-book')" data-i18n="tab.contacts">Contacts</button>
         </div>
         <div class="search-bar">
-            <input type="text" placeholder="Search..." id="contact-search">
+            <input type="text" placeholder="Search..." id="contact-search" data-i18n-placeholder="placeholder.searchContacts">
         </div>
         <div id="contact-list" class="contact-list"></div>
         <div id="group-list" class="contact-list hidden"></div>
@@ -115,29 +116,29 @@
     <div id="view-add-contact" class="view hidden">
         <header>
             <button onclick="showView('contacts')">←</button>
-            <h1>Add Contact</h1>
+            <h1 data-i18n="heading.addContact">Add Contact</h1>
         </header>
         <div class="tabs">
-            <button class="tab active" data-tab="qr-show" onclick="showAddTab('qr-show')">Show QR</button>
-            <button class="tab" data-tab="qr-scan" onclick="showAddTab('qr-scan')">Scan QR</button>
-            <button class="tab" data-tab="passphrase" onclick="showAddTab('passphrase')">Paste Code</button>
+            <button class="tab active" data-tab="qr-show" onclick="showAddTab('qr-show')" data-i18n="qr.show">Show QR</button>
+            <button class="tab" data-tab="qr-scan" onclick="showAddTab('qr-scan')" data-i18n="qr.scan">Scan QR</button>
+            <button class="tab" data-tab="passphrase" onclick="showAddTab('passphrase')" data-i18n="qr.paste">Paste Code</button>
         </div>
         <div id="add-tab-qr-show" class="add-tab-content">
-            <p>Share your QR code with someone nearby to exchange keys securely.</p>
+            <p data-i18n="qr.shareInfo">Share your QR code with someone nearby to exchange keys securely.</p>
             <canvas id="qr-canvas" width="200" height="200" style="border-radius:12px;background:#fff;"></canvas>
-            <div id="qr-share-code" class="mono" style="margin-top:12px;padding:12px;background:var(--bg3);border-radius:8px;font-size:11px;word-break:break-all;max-width:300px;user-select:text;-webkit-user-select:text;">Loading your code...</div>
-            <button onclick="copyBootstrapCode()" style="max-width:300px;">Copy Code</button>
-            <p style="font-size:12px;color:var(--text3);">Share this code with your contact</p>
+            <div id="qr-share-code" class="mono" style="margin-top:12px;padding:12px;background:var(--bg3);border-radius:8px;font-size:11px;word-break:break-all;max-width:300px;user-select:text;-webkit-user-select:text;" data-i18n="qr.loadingCode">Loading your code...</div>
+            <button onclick="copyBootstrapCode()" style="max-width:300px;" data-i18n="btn.copyCode">Copy Code</button>
+            <p style="font-size:12px;color:var(--text3);" data-i18n="qr.shareCodeLabel">Share this code with your contact</p>
         </div>
         <div id="add-tab-qr-scan" class="add-tab-content hidden">
-            <p>Point your camera at a contact's QR code.</p>
+            <p data-i18n="qr.cameraPrompt">Point your camera at a contact's QR code.</p>
             <video id="qr-scanner-video" autoplay playsinline style="width:250px;height:250px;border-radius:12px;object-fit:cover;background:#000;"></video>
-            <p id="qr-scanner-status" style="margin-top:8px;font-size:13px;color:var(--text3);">Tap to start camera</p>
+            <p id="qr-scanner-status" style="margin-top:8px;font-size:13px;color:var(--text3);" data-i18n="qr.cameraPrompt">Tap to start camera</p>
         </div>
         <div id="add-tab-passphrase" class="add-tab-content hidden">
-            <p>Paste your contact's code here. They can copy it from their "Show QR" screen.</p>
-            <input type="text" placeholder="Paste code here..." dir="auto">
-            <button onclick="connectViaPassphrase()">Add Contact</button>
+            <p data-i18n="qr.pasteInfo">Paste your contact's code here. They can copy it from their "Show QR" screen.</p>
+            <input type="text" placeholder="Paste code here..." dir="auto" data-i18n-placeholder="placeholder.pasteCode">
+            <button onclick="connectViaPassphrase()" data-i18n="btn.addContact">Add Contact</button>
         </div>
     </div>
 
@@ -145,18 +146,18 @@
     <div id="view-chat" class="view hidden">
         <header>
             <button onclick="showView('contacts')">←</button>
-            <h1 id="chat-peer-name">Contact</h1>
+            <h1 id="chat-peer-name" data-i18n="heading.chat">Contact</h1>
             <div class="header-actions">
-                <button onclick="initiateCall(currentPeerId, false)" title="Voice call">📞</button>
-                <button onclick="initiateCall(currentPeerId, true)" title="Video call">📹</button>
+                <button onclick="initiateCall(currentPeerId, false)" data-i18n-title="btn.voiceCall" title="Voice call">📞</button>
+                <button onclick="initiateCall(currentPeerId, true)" data-i18n-title="btn.videoCall" title="Video call">📹</button>
             </div>
         </header>
         <div id="message-list" class="message-list"></div>
         <div class="chat-input">
             <button class="attach-btn" onclick="attachFile()" title="Attach file">📎</button>
-            <input type="text" id="message-input" placeholder="Type a message..." dir="auto"
+            <input type="text" id="message-input" placeholder="Type a message..." dir="auto" data-i18n-placeholder="placeholder.messageInput"
                    onkeydown="if(event.key==='Enter')sendMessage()">
-            <button class="send-btn" onclick="sendMessage()">Send</button>
+            <button class="send-btn" onclick="sendMessage()" data-i18n="btn.send">Send</button>
             <input type="file" id="file-input" style="display:none" onchange="onFileSelected(event)">
         </div>
     </div>
@@ -165,7 +166,7 @@
     <div id="view-group-chat" class="view hidden">
         <header>
             <button onclick="showView('contacts')">←</button>
-            <h1 id="group-chat-name">Group</h1>
+            <h1 id="group-chat-name" data-i18n="heading.groupChat">Group</h1>
             <div class="header-actions">
                 <span id="group-member-count" class="member-count-badge"></span>
                 <button onclick="showGroupMembers(currentGroupId)" title="Members">👥</button>
@@ -175,9 +176,9 @@
         <div id="group-message-list" class="message-list"></div>
         <div class="chat-input">
             <button class="attach-btn" onclick="attachGroupFile()" title="Attach file">📎</button>
-            <input type="text" id="group-message-input" placeholder="Type a message..." dir="auto"
+            <input type="text" id="group-message-input" placeholder="Type a message..." dir="auto" data-i18n-placeholder="placeholder.messageInput"
                    onkeydown="if(event.key==='Enter')sendGroupMessage(currentGroupId)">
-            <button class="send-btn" onclick="sendGroupMessage(currentGroupId)">Send</button>
+            <button class="send-btn" onclick="sendGroupMessage(currentGroupId)" data-i18n="btn.send">Send</button>
             <input type="file" id="group-file-input" style="display:none" onchange="onGroupFileSelected(event)">
         </div>
     </div>
@@ -186,13 +187,13 @@
     <div id="view-create-group" class="view hidden">
         <header>
             <button onclick="showView('contacts')">←</button>
-            <h1>Create Group</h1>
+            <h1 data-i18n="heading.createGroup">Create Group</h1>
         </header>
         <div class="create-group-content">
-            <p>Create a new encrypted group chat.</p>
-            <input type="text" id="create-group-name" placeholder="Group name" maxlength="64"
+            <p data-i18n="group.createDescription">Create a new encrypted group chat.</p>
+            <input type="text" id="create-group-name" placeholder="Group name" maxlength="64" data-i18n-placeholder="placeholder.groupName"
                    style="width:100%;max-width:400px;padding:12px 16px;background:var(--input-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:15px;outline:none;">
-            <button onclick="createGroup()" style="max-width:400px;">Create Group</button>
+            <button onclick="createGroup()" style="max-width:400px;" data-i18n="btn.createGroup">Create Group</button>
         </div>
     </div>
 
@@ -200,18 +201,18 @@
     <div id="group-members-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeGroupMembers()">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Group Members</h2>
+                <h2 data-i18n="heading.groupMembers">Group Members</h2>
                 <button onclick="closeGroupMembers()" class="modal-close">✕</button>
             </div>
             <div id="group-members-list" class="group-members-list"></div>
             <div class="modal-footer">
-                <button onclick="showAddMemberDialog()" class="btn-sm">Add Member</button>
-                <button onclick="leaveCurrentGroup()" class="btn-sm danger">Leave Group</button>
+                <button onclick="showAddMemberDialog()" class="btn-sm" data-i18n="btn.addMember">Add Member</button>
+                <button onclick="leaveCurrentGroup()" class="btn-sm danger" data-i18n="btn.leaveGroup">Leave Group</button>
             </div>
             <div id="add-member-section" class="hidden" style="padding:12px;">
-                <input type="text" id="add-member-input" placeholder="Paste Peer ID..."
+                <input type="text" id="add-member-input" placeholder="Paste Peer ID..." data-i18n-placeholder="placeholder.peerId"
                        style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;outline:none;margin-bottom:8px;">
-                <button onclick="addMemberFromInput()" class="btn-sm">Add</button>
+                <button onclick="addMemberFromInput()" class="btn-sm" data-i18n="btn.add">Add</button>
             </div>
         </div>
     </div>
@@ -219,26 +220,26 @@
     <!-- Incoming Call Notification -->
     <div id="incoming-call-notification" class="incoming-call-notification hidden">
         <div class="incoming-call-info">
-            <div id="incoming-call-name" class="incoming-call-name">Incoming Call</div>
-            <div id="incoming-call-label" class="incoming-call-label">Incoming call...</div>
+            <div id="incoming-call-name" class="incoming-call-name" data-i18n="heading.incomingCall">Incoming Call</div>
+            <div id="incoming-call-label" class="incoming-call-label" data-i18n="call.incoming">Incoming call...</div>
         </div>
         <div class="incoming-call-actions">
-            <button class="call-action-btn accept" onclick="acceptIncomingCall()">Accept</button>
-            <button class="call-action-btn decline" onclick="declineIncomingCall()">Decline</button>
+            <button class="call-action-btn accept" onclick="acceptIncomingCall()" data-i18n="btn.accept">Accept</button>
+            <button class="call-action-btn decline" onclick="declineIncomingCall()" data-i18n="btn.decline">Decline</button>
         </div>
     </div>
 
     <!-- Call Screen -->
     <div id="view-call" class="view hidden">
         <div class="call-screen">
-            <div id="call-peer-name" class="call-name">Calling...</div>
+            <div id="call-peer-name" class="call-name" data-i18n="status.calling">Calling...</div>
             <div id="call-status" class="call-status"></div>
             <div id="call-timer" class="call-timer"></div>
             <video id="remote-video" class="remote-video hidden" autoplay playsinline></video>
             <video id="local-video" class="local-video hidden" autoplay playsinline muted></video>
             <div class="call-controls">
                 <button class="call-btn mute" onclick="toggleMute()">🔇</button>
-                <button class="call-btn hangup" onclick="hangupCall()">End</button>
+                <button class="call-btn hangup" onclick="hangupCall()" data-i18n="btn.end">End</button>
                 <button class="call-btn camera" onclick="toggleCamera()">📷</button>
             </div>
         </div>
@@ -248,13 +249,13 @@
     <div id="view-group-call" class="view hidden">
         <div class="group-call-screen">
             <div class="group-call-header">
-                <span id="group-call-name">Group Call</span>
+                <span id="group-call-name" data-i18n="heading.groupCall">Group Call</span>
                 <span id="group-call-timer" class="call-timer"></span>
             </div>
             <div id="group-call-grid" class="group-call-grid"></div>
             <div class="call-controls">
                 <button class="call-btn mute" onclick="toggleMute()">🔇</button>
-                <button class="call-btn hangup" onclick="leaveGroupCallUI()">Leave</button>
+                <button class="call-btn hangup" onclick="leaveGroupCallUI()" data-i18n="btn.leave">Leave</button>
                 <button class="call-btn camera" onclick="toggleCamera()">📷</button>
             </div>
         </div>
@@ -264,78 +265,76 @@
     <div id="view-settings" class="view hidden">
         <header>
             <button onclick="showView('contacts')">←</button>
-            <h1>Settings</h1>
+            <h1 data-i18n="heading.settings">Settings</h1>
         </header>
         <div class="settings-content">
             <div class="settings-section">
-                <h2>Identity</h2>
+                <h2 data-i18n="settings.identity">Identity</h2>
                 <div class="setting-row">
-                    <span>Peer ID</span>
+                    <span data-i18n="settings.peerId">Peer ID</span>
                     <span id="settings-peer-id" class="mono">-</span>
                 </div>
             </div>
             <div class="settings-section">
-                <h2>Encryption</h2>
-                <p>Encrypt all local data with a passphrase. Without this, anyone with access to your device can read your messages and keys.</p>
+                <h2 data-i18n="settings.encryption">Encryption</h2>
+                <p data-i18n="settings.encryptionDescription">Encrypt all local data with a passphrase. Without this, anyone with access to your device can read your messages and keys.</p>
                 <form id="encryption-setup" style="display:none;" onsubmit="event.preventDefault();enableEncryption()" autocomplete="off">
                     <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px;">
-                        <input type="password" id="encryption-passphrase-input" placeholder="New passphrase (min 4 chars)"
+                        <input type="password" id="encryption-passphrase-input" placeholder="New passphrase (min 4 chars)" data-i18n-placeholder="placeholder.encryptionPassphrase"
                                style="padding:8px 12px;border-radius:8px;border:1px solid #444;background:#1a1a2e;color:#fff;font-size:14px;">
-                        <input type="password" id="encryption-passphrase-confirm" placeholder="Confirm passphrase"
+                        <input type="password" id="encryption-passphrase-confirm" placeholder="Confirm passphrase" data-i18n-placeholder="placeholder.confirmPassphrase"
                                style="padding:8px 12px;border-radius:8px;border:1px solid #444;background:#1a1a2e;color:#fff;font-size:14px;">
                     </div>
-                    <button type="submit" style="margin-top:8px;">Enable Encryption</button>
+                    <button type="submit" style="margin-top:8px;" data-i18n="btn.enableEncryption">Enable Encryption</button>
                 </form>
                 <div id="encryption-status" style="display:none;">
                     <p style="color:#4cd964;font-size:14px;">&#10003; Encryption is active</p>
                 </div>
             </div>
             <div class="settings-section">
-                <h2>Data Backup</h2>
-                <p style="font-size: 0.85em; opacity: 0.7; margin-bottom: 12px;">
-                    Export your data as an encrypted file. Use this to move to a new device or restore after reinstalling.
-                </p>
-                <button onclick="handleExportData()" class="btn">Export Data</button>
-                <button onclick="handleImportData()" class="btn" style="margin-top: 8px;">Import Data</button>
+                <h2 data-i18n="settings.dataBackup">Data Backup</h2>
+                <p style="font-size: 0.85em; opacity: 0.7; margin-bottom: 12px;" data-i18n="settings.dataExportDescription">Export your data as an encrypted file. Use this to move to a new device or restore after reinstalling.</p>
+                <button onclick="handleExportData()" class="btn" data-i18n="btn.exportData">Export Data</button>
+                <button onclick="handleImportData()" class="btn" style="margin-top: 8px;" data-i18n="btn.importData">Import Data</button>
             </div>
             <div class="settings-section">
-                <h2>Decoy Mode</h2>
-                <p>When enabled, the app appears as a calculator. Enter your unlock code on the keypad to reveal messages.</p>
+                <h2 data-i18n="settings.decoyMode">Decoy Mode</h2>
+                <p data-i18n="status.decoyModeInfo">When enabled, the app appears as a calculator. Enter your unlock code on the keypad to reveal messages.</p>
                 <div class="setting-row">
-                    <span>Unlock Code</span>
+                    <span data-i18n="placeholder.unlockCode">Unlock Code</span>
                     <input type="text" id="decoy-code-input" value="00000" pattern="[0-9]*" inputmode="numeric" maxlength="10">
                 </div>
-                <button onclick="enableDecoyMode()">Enable Decoy Mode</button>
+                <button onclick="enableDecoyMode()" data-i18n="btn.enableDecoyMode">Enable Decoy Mode</button>
             </div>
             <div class="settings-section">
-                <h2>Notifications</h2>
-                <p>Enable push notifications to receive messages when the app is in the background.</p>
-                <button onclick="requestNotificationPermission()">Enable Notifications</button>
+                <h2 data-i18n="settings.notifications">Notifications</h2>
+                <p data-i18n="status.notificationsInfo">Enable push notifications to receive messages when the app is in the background.</p>
+                <button onclick="requestNotificationPermission()" data-i18n="btn.enableNotifications">Enable Notifications</button>
             </div>
             <div class="settings-section">
-                <h2>Emergency</h2>
-                <p>Instantly destroy all keys, messages, and session data. This cannot be undone.</p>
-                <button class="danger" onclick="if(confirm('Destroy all data? This cannot be undone.'))executePanicWipe()">Panic Wipe</button>
+                <h2 data-i18n="settings.emergency">Emergency</h2>
+                <p data-i18n="status.panicWipeInfo">Instantly destroy all keys, messages, and session data. This cannot be undone.</p>
+                <button class="danger" onclick="if(confirm('Destroy all data? This cannot be undone.'))executePanicWipe()" data-i18n="btn.panicWipe">Panic Wipe</button>
             </div>
             <div class="settings-section">
-                <h2>Network</h2>
+                <h2 data-i18n="settings.network">Network</h2>
                 <div style="background: #2a2a3e; border-radius: 12px; padding: 12px; margin-bottom: 12px;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span style="color: #aaa;">Direct Peers</span>
+                        <span style="color: #aaa;" data-i18n="status.directPeers">Direct Peers</span>
                         <span id="settings-peer-count" style="color: #fff;">0</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span style="color: #aaa;">Relay</span>
+                        <span style="color: #aaa;" data-i18n="status.relay">Relay</span>
                         <span id="settings-relay-status" style="color: #fff;">-</span>
                     </div>
                     <div style="display: flex; justify-content: space-between;">
-                        <span style="color: #aaa;">Contact Channels</span>
+                        <span style="color: #aaa;" data-i18n="status.contactChannels">Contact Channels</span>
                         <span id="settings-contact-channels" style="color: #fff;">0</span>
                     </div>
                 </div>
-                <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;">WebRTC Privacy</h3>
+                <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;" data-i18n="settings.webrtcPrivacy">WebRTC Privacy</h3>
                 <div class="setting-row" style="margin-bottom: 8px;">
-                    <span>Relay-only mode</span>
+                    <span data-i18n="settings.relayOnlyMode">Relay-only mode</span>
                     <label style="position:relative;display:inline-block;width:44px;height:24px;">
                         <input type="checkbox" id="webrtc-privacy-toggle" checked
                             onchange="setWebRTCPrivacyMode(this.checked)"
@@ -343,24 +342,44 @@
                         <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#444;border-radius:12px;transition:.3s;"></span>
                     </label>
                 </div>
-                <p style="font-size: 0.8em; opacity: 0.6; margin-bottom: 8px;">
-                    When enabled, WebRTC connections route through TURN relays only. Your IP address is never exposed to peers. Disabling this may improve connection speed but reveals your IP.
-                </p>
+                <p style="font-size: 0.8em; opacity: 0.6; margin-bottom: 8px;" data-i18n="settings.relayOnlyDescription">When enabled, WebRTC connections route through TURN relays only. Your IP address is never exposed to peers. Disabling this may improve connection speed but reveals your IP.</p>
                 <p id="webrtc-privacy-warning" style="font-size: 0.8em; color: #ff9500; display: none; margin-bottom: 12px;"></p>
 
-                <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;">Relay Server</h3>
+                <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;" data-i18n="settings.relayServer">Relay Server</h3>
                 <div style="display: flex; gap: 8px; margin-bottom: 4px;">
-                    <input type="url" id="custom-relay-input" placeholder="wss://www.parol.social/ws"
+                    <input type="url" id="custom-relay-input" placeholder="wss://www.parol.social/ws" data-i18n-placeholder="placeholder.relayUrl"
                         style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #444; background: #1a1a2e; color: #fff; font-size: 14px;">
                     <button onclick="setCustomRelay()"
-                        style="padding: 8px 16px; border-radius: 8px; border: none; background: #007aff; color: #fff; font-size: 14px; cursor: pointer;">Set</button>
+                        style="padding: 8px 16px; border-radius: 8px; border: none; background: #007aff; color: #fff; font-size: 14px; cursor: pointer;" data-i18n="btn.set">Set</button>
                 </div>
                 <div id="relay-url-display" style="font-size: 12px; color: #888; margin-bottom: 12px;"></div>
             </div>
             <div class="settings-section">
-                <h2>About</h2>
+                <h2 data-i18n="settings.language">Language</h2>
+                <select id="settings-language" onchange="changeLanguage(this.value)"
+                    style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #444;background:#1a1a2e;color:#fff;font-size:14px;margin-bottom:4px;">
+                    <option value="en">English</option>
+                    <option value="ru">Русский</option>
+                    <option value="fa">فارسی</option>
+                    <option value="zh-CN">简体中文</option>
+                    <option value="zh-TW">繁體中文</option>
+                    <option value="ko">한국어</option>
+                    <option value="ja">日本語</option>
+                    <option value="fr">Français</option>
+                    <option value="de">Deutsch</option>
+                    <option value="it">Italiano</option>
+                    <option value="pt">Português</option>
+                    <option value="ar">العربية</option>
+                    <option value="es">Español</option>
+                    <option value="tr">Türkçe</option>
+                    <option value="my">မြန်မာ</option>
+                    <option value="vi">Tiếng Việt</option>
+                </select>
+            </div>
+            <div class="settings-section">
+                <h2 data-i18n="settings.about">About</h2>
                 <div class="setting-row">
-                    <span>Version</span>
+                    <span data-i18n="settings.version">Version</span>
                     <span id="settings-version">-</span>
                 </div>
             </div>

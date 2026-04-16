@@ -872,24 +872,12 @@ async fn handle_peers(
 }
 
 /// GET /bootstrap?exclude=<peer_id> — returns up to 20 known peer IDs,
-/// excluding the optionally specified peer.
-/// Requires ADMIN_TOKEN authentication. Returns 404 if ADMIN_TOKEN is not set,
-/// 403 if the token is missing or invalid.
+/// excluding the optionally specified peer. Used by clients for peer discovery
+/// to establish direct WebRTC connections.
 async fn handle_bootstrap(
-    headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
     peers: PeerMap,
-) -> Result<Json<Vec<String>>, StatusCode> {
-    if std::env::var("ADMIN_TOKEN")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .is_none()
-    {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    if !check_admin_token(&headers) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+) -> Json<Vec<String>> {
     let peer_list = peers.lock().await;
     let exclude = params.get("exclude").cloned().unwrap_or_default();
     let known: Vec<String> = peer_list
@@ -898,7 +886,7 @@ async fn handle_bootstrap(
         .take(20)
         .cloned()
         .collect();
-    Ok(Json(known))
+    Json(known)
 }
 
 #[tokio::main]
@@ -1104,9 +1092,9 @@ async fn main() {
             "/bootstrap",
             get({
                 let peers = peers.clone();
-                move |headers: axum::http::HeaderMap, query: Query<HashMap<String, String>>| {
+                move |query: Query<HashMap<String, String>>| {
                     let peers = peers.clone();
-                    async move { handle_bootstrap(headers, query, peers).await }
+                    async move { handle_bootstrap(query, peers).await }
                 }
             }),
         )
