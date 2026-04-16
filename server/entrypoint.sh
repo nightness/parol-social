@@ -1,4 +1,11 @@
 #!/bin/sh
+# Write build-info.js at startup so DEV_MODE env var takes effect without a rebuild.
+# DEV_MODE env var wins over the baked-in PAROLNET_DEV_MODE build arg.
+_dev="${DEV_MODE:-${PAROLNET_DEV_MODE:-false}}"
+echo "window.BUILD_INFO={date:'v${PAROLNET_BUILD_VERSION} ${PAROLNET_BUILD_COMMIT} ${PAROLNET_BUILD_DATE}',dev:${_dev}};" \
+    > /usr/share/nginx/html/pwa/build-info.js
+echo "Build: v${PAROLNET_BUILD_VERSION} ${PAROLNET_BUILD_COMMIT} | dev=${_dev}"
+
 # Start relay server in background
 echo "Starting ParolNet relay on port 9000..."
 /usr/local/bin/parolnet-relay &

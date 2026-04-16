@@ -20,29 +20,9 @@
         <p id="loading-status">Loading...</p>
         <p id="loading-error" style="color:#e74c3c;font-size:12px;margin-top:12px;max-width:300px;word-break:break-all;display:none;"></p>
         <button id="loading-retry" style="display:none;margin-top:12px;padding:8px 24px;border:none;border-radius:8px;background:#007aff;color:#fff;font-size:14px;" onclick="location.reload()">Retry</button>
-        <button id="loading-compat" style="display:none;margin-top:8px;padding:8px 24px;border:none;border-radius:8px;background:#007aff;color:#fff;font-size:12px;" onclick="enableCspCompat()">Use Compatibility Mode</button>
         <button id="loading-clear" style="display:none;margin-top:8px;padding:8px 24px;border:none;border-radius:8px;background:#e74c3c;color:#fff;font-size:12px;" onclick="clearAndReload()">Clear Cache &amp; Reload</button>
     </div>
     <script>
-    (function() {
-        var params = new URLSearchParams(location.search);
-        if (params.get('compat') === '1') {
-            try { localStorage.setItem('parolnetCspCompat', '1'); } catch(e) {}
-            return;
-        }
-        try {
-            if (localStorage.getItem('parolnetCspCompat') === '1') {
-                params.set('compat', '1');
-                location.replace(location.pathname + '?' + params.toString() + location.hash);
-            }
-        } catch(e) {}
-    })();
-    function enableCspCompat() {
-        try { localStorage.setItem('parolnetCspCompat', '1'); } catch(e) {}
-        var params = new URLSearchParams(location.search);
-        params.set('compat', '1');
-        location.href = location.pathname + '?' + params.toString() + location.hash;
-    }
     // Global error catcher — shows errors on the loading screen
     window.onerror = function(msg, src, line, col, err) {
         var el = document.getElementById('loading-error');
@@ -51,23 +31,11 @@
         if (btn) btn.style.display = 'inline-block';
         var btn2 = document.getElementById('loading-clear');
         if (btn2) btn2.style.display = 'inline-block';
-        var btn3 = document.getElementById('loading-compat');
-        var text = String(msg || '') + ' ' + String(err && err.message || '');
-        if (btn3 && /webassembly|wasm|unsafe-eval|content security policy|script-src/i.test(text)) {
-            btn3.style.display = 'inline-block';
-        }
     };
     function clearAndReload() {
-        // Nuke everything and reload
-        var keepCompat = false;
-        try { keepCompat = localStorage.getItem('parolnetCspCompat') === '1'; } catch(e) {}
-        keepCompat = keepCompat || new URLSearchParams(location.search).get('compat') === '1';
         if ('caches' in window) caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)})});
         if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){reg.unregister()})});
         try { localStorage.clear(); } catch(e) {}
-        if (keepCompat) {
-            try { localStorage.setItem('parolnetCspCompat', '1'); } catch(e) {}
-        }
         try { sessionStorage.clear(); } catch(e) {}
         setTimeout(function(){ location.reload(); }, 500);
     }

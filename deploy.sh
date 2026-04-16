@@ -9,22 +9,9 @@ cd "$SCRIPT_DIR"
 echo "=== ParolNet Deploy ==="
 echo ""
 
-# Step 1: Build WASM
-echo "[1/2] Building WASM module..."
-if ! command -v wasm-pack &> /dev/null; then
-    echo "ERROR: wasm-pack not found. Install: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
-    exit 1
-fi
-
-wasm-pack build crates/parolnet-wasm \
-    --target web \
-    --out-dir "$SCRIPT_DIR/pwa/pkg" \
-    --release
-
-# Clean wasm-pack extras
-rm -f pwa/pkg/.gitignore pwa/pkg/package.json pwa/pkg/README.md
-
-echo "WASM built: $(du -sh pwa/pkg/parolnet_wasm_bg.wasm | cut -f1)"
+# Step 1: Build WASM + generate SW hashes
+echo "[1/2] Building PWA..."
+"$SCRIPT_DIR/build.sh"
 echo ""
 
 # Step 2: Rebuild Docker image (multi-stage: compiles relay server + bundles with nginx)

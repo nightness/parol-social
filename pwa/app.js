@@ -427,17 +427,23 @@ async function dbClear(storeName) {
 }
 
 // ── Telemetry ──────────────────────────────────────────────
+function isDevMode() {
+    return !!(window.BUILD_INFO && window.BUILD_INFO.dev);
+}
+
 const telemetry = {
     sid: Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2, '0')).join(''),
     events: [],
     MAX_EVENTS: 500,
 
     track(type, meta) {
+        if (!isDevMode()) return;
         if (this.events.length >= this.MAX_EVENTS) this.events.shift();
         this.events.push({ type, ts: Date.now(), meta: meta || null });
     },
 
     async flush() {
+        if (!isDevMode()) return;
         if (this.events.length === 0) return;
         // Skip telemetry if no relay server is configured/connected
         const relayUrl = connMgr && connMgr.relayUrl;
@@ -484,17 +490,6 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ── WASM Loading ────────────────────────────────────────────
-function isCspWasmError(error) {
-    const message = String(error?.message || error || '');
-    return /webassembly|wasm|unsafe-eval|content security policy|script-src/i.test(message);
-}
-
-function showCspCompatOption(error) {
-    if (!isCspWasmError(error)) return;
-    const compatBtn = document.getElementById('loading-compat');
-    if (compatBtn) compatBtn.style.display = 'inline-block';
-}
-
 async function loadWasm() {
     const statusEl = document.getElementById('loading-status');
     try {
@@ -511,7 +506,6 @@ async function loadWasm() {
         console.warn('WASM not available:', e.message);
         telemetry.track('wasm_load_fail', { error: e.message });
         showToast('WASM load failed: ' + e.message);
-        showCspCompatOption(e);
         if (statusEl) statusEl.textContent = 'Running without crypto (' + e.message + ')';
         onWasmUnavailable();
     }
@@ -578,6 +572,9 @@ async function onWasmReady() {
         const el = document.getElementById('settings-peer-id');
         if (el) el.textContent = peerId || '-';
     }
+    // Ensure SW relay knows the peer ID (covers the case where SW was
+    // already connected before WASM finished loading)
+    if (window._peerId) connMgr.registerPeer(window._peerId);
 
     if (wasm.version) {
         const el = document.getElementById('settings-version');
@@ -2060,11 +2057,26 @@ function hasDirectConnection(peerId) {
 }
 
 // ── Connection Manager ─────────────────────────────────────
+// WebSocket lives in the Service Worker so it persists when
+// the page is backgrounded. connMgr delegates all WS ops via
+// postMessage to the SW; status comes back via relay_status.
 const connMgr = {
-    relayWs: null,          // WebSocket to relay
-    relayUrl: null,         // relay WebSocket URL
-    relayReconnectTimer: null,
-    relayReconnectDelay: 1000,
+    relayUrl: null,
+    _swRelayConnected: false,
+    _discoveredRelays: [],
+    _currentRelayIndex: 0,
+
+    _swPost(msg) {
+        const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+        if (sw) {
+            sw.postMessage(msg);
+        } else if (navigator.serviceWorker) {
+            // SW not yet controlling this page (first install) — send once it's ready
+            navigator.serviceWorker.ready.then(reg => {
+                if (reg.active) reg.active.postMessage(msg);
+            });
+        }
+    },
 
     async start() {
         // Load custom relay URL from IndexedDB
@@ -2074,11 +2086,9 @@ const connMgr = {
             if (saved && saved.value) customRelayUrl = saved.value;
         } catch(e) {}
 
-        // Use custom relay URL if set, otherwise default to same-origin
         this.relayUrl = customRelayUrl ||
             (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
 
-        // Store discovered relays for fallback reconnection
         this._discoveredRelays = relayClient.relays.map(url => {
             let u = url.replace(/\/$/, '');
             if (u.startsWith('https://')) return 'wss://' + u.slice(8) + '/ws';
@@ -2087,97 +2097,35 @@ const connMgr = {
         });
         this._currentRelayIndex = 0;
 
-        this._connectRelay();
+        // Tell SW to open the relay WebSocket
+        this._swPost({ type: 'relay_connect', url: this.relayUrl, peerId: window._peerId || null });
     },
 
-    _connectRelay() {
-        // Same logic as old connectRelay() but stored on connMgr
-        if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) return;
-        try {
-            this.relayWs = new WebSocket(this.relayUrl);
-        } catch(e) {
-            this._scheduleRelayReconnect();
-            return;
-        }
-
-        this.relayWs.onopen = () => {
-            console.log('[ConnMgr] Relay connected');
-            this.relayReconnectDelay = 1000;
-            telemetry.track('relay_connect');
-            updateConnectionStatus();
-            if (window._peerId) {
-                this.relayWs.send(JSON.stringify({ type: 'register', peer_id: window._peerId }));
-            }
-            flushMessageQueue();
-        };
-
-        this.relayWs.onmessage = (event) => {
-            try {
-                const msg = JSON.parse(event.data);
-                handleRelayMessage(msg);
-            } catch(e) {}
-        };
-
-        this.relayWs.onclose = () => {
-            console.log('[ConnMgr] Relay disconnected');
-            telemetry.track('relay_disconnect');
-            updateConnectionStatus();
-            this._scheduleRelayReconnect();
-            // Try WebRTC to known peers when relay drops
-            if (window._knownPeers && typeof RTCPeerConnection !== 'undefined') {
-                for (const pid of window._knownPeers) {
-                    if (!hasDirectConnection(pid)) {
-                        initWebRTC(pid, true).catch(() => {});
-                    }
-                }
-            }
-        };
-
-        this.relayWs.onerror = () => {
-            updateConnectionStatus();
-        };
+    // Register peer_id with relay (called after WASM loads and peerId is known)
+    registerPeer(peerId) {
+        this._swPost({ type: 'relay_register', peerId });
     },
 
-    _scheduleRelayReconnect() {
-        if (this.relayReconnectTimer) return;
-        this.relayReconnectTimer = setTimeout(() => {
-            this.relayReconnectTimer = null;
-            // Try next discovered relay before increasing backoff
-            if (this._discoveredRelays && this._discoveredRelays.length > 1) {
-                this._currentRelayIndex = (this._currentRelayIndex + 1) % this._discoveredRelays.length;
-                const nextUrl = this._discoveredRelays[this._currentRelayIndex];
-                if (nextUrl && nextUrl !== this.relayUrl) {
-                    console.log('[ConnMgr] Trying fallback relay:', nextUrl);
-                    this.relayUrl = nextUrl;
-                }
-            }
-            this.relayReconnectDelay = Math.min(this.relayReconnectDelay * 2, 30000);
-            this._connectRelay();
-        }, this.relayReconnectDelay);
-    },
-
-    // Send signaling through best available channel
+    // Send signaling through relay
     sendSignaling(type, toPeerId, payload) {
-        if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) {
-            this.relayWs.send(JSON.stringify({ type, to: toPeerId, payload }));
-            return true;
-        }
-        return false;
+        if (!this._swRelayConnected) return false;
+        this._swPost({ type: 'relay_signaling', msgType: type, to: toPeerId, payload });
+        return true;
     },
 
-    // Send a message through relay (for non-signaling messages)
+    // Send a message through relay
     sendRelay(toPeerId, payload) {
-        if (!this.relayWs || this.relayWs.readyState !== WebSocket.OPEN) return false;
-        this.relayWs.send(JSON.stringify({ type: 'message', to: toPeerId, payload }));
+        if (!this._swRelayConnected) return false;
+        this._swPost({ type: 'relay_send', to: toPeerId, payload });
         return true;
     },
 
     isRelayConnected() {
-        return this.relayWs && this.relayWs.readyState === WebSocket.OPEN;
+        return this._swRelayConnected;
     },
 
     isConnected() {
-        return this.isRelayConnected();
+        return this._swRelayConnected;
     }
 };
 
@@ -3418,19 +3366,90 @@ function showLocalNotification(title, body, peerId) {
     }
 }
 
+// ── SW Inbox Drain ──────────────────────────────────────────
+// Messages that arrived while the page was backgrounded are
+// buffered in the SW's IndexedDB. Drain them on page load.
+async function drainSwInbox() {
+    return new Promise((resolve) => {
+        const req = indexedDB.open('parolnet-sw', 1);
+        req.onupgradeneeded = (e) => {
+            e.target.result.createObjectStore('sw-inbox', { keyPath: 'id', autoIncrement: true });
+        };
+        req.onsuccess = (e) => {
+            const db = e.target.result;
+            const tx = db.transaction('sw-inbox', 'readwrite');
+            const store = tx.objectStore('sw-inbox');
+            const msgs = [];
+            store.openCursor().onsuccess = (ce) => {
+                const cursor = ce.target.result;
+                if (cursor) {
+                    msgs.push(cursor.value.msg);
+                    cursor.delete();
+                    cursor.continue();
+                }
+            };
+            tx.oncomplete = () => {
+                db.close();
+                msgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+                for (const msg of msgs) {
+                    try { handleRelayMessage(msg); } catch(e) {}
+                }
+                if (msgs.length > 0) console.log('[SW-Inbox] drained', msgs.length, 'buffered messages');
+                resolve();
+            };
+            tx.onerror = () => { resolve(); };
+        };
+        req.onerror = () => resolve();
+    });
+}
+
 // ── Service Worker Registration ─────────────────────────────
 function registerServiceWorker() {
-    if ('serviceWorker' in navigator) {
-        // Register service worker for offline support
-        navigator.serviceWorker.register('sw.js').then(reg => {
-            console.log('SW registered:', reg.scope);
+    if (!('serviceWorker' in navigator)) return;
 
-            // Check for updates periodically
-            setInterval(() => reg.update(), 3600000); // every hour
-        }).catch(err => {
-            console.warn('SW registration failed:', err);
+    // Route messages from SW back into the app
+    navigator.serviceWorker.addEventListener('message', event => {
+        const d = event.data;
+        if (!d || typeof d !== 'object') return;
+        if (d.type === 'relay_msg') {
+            handleRelayMessage(d.msg);
+        } else if (d.type === 'relay_status') {
+            const wasConnected = connMgr._swRelayConnected;
+            connMgr._swRelayConnected = d.connected;
+            updateConnectionStatus();
+            if (d.connected) {
+                telemetry.track('relay_connect');
+                flushMessageQueue();
+            } else if (wasConnected) {
+                telemetry.track('relay_disconnect');
+                // Try WebRTC to known peers when relay drops
+                if (window._knownPeers && typeof RTCPeerConnection !== 'undefined') {
+                    for (const pid of window._knownPeers) {
+                        if (!hasDirectConnection(pid)) {
+                            initWebRTC(pid, true).catch(() => {});
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    navigator.serviceWorker.register('sw.js').then(reg => {
+        console.log('SW registered:', reg.scope);
+        setInterval(() => reg.update(), 3600000);
+
+        // Drain any messages that arrived while page was backgrounded
+        drainSwInbox().catch(() => {});
+
+        // Query current relay status from SW
+        navigator.serviceWorker.ready.then(() => {
+            if (navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({ type: 'relay_status_query' });
+            }
         });
-    }
+    }).catch(err => {
+        console.warn('SW registration failed:', err);
+    });
 }
 
 // ── Contact Search ──────────────────────────────────────────
@@ -3481,6 +3500,8 @@ function formatSize(bytes) {
 // ── Boot ────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add(`platform-${platform}`);
+    // Ask OS to treat this origin as persistent — reduces likelihood of SW being evicted
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
     registerServiceWorker();
     showToast('Starting ParolNet...', 2000);
     // Load user-configurable settings from IndexedDB early
@@ -3531,6 +3552,11 @@ document.addEventListener('visibilitychange', () => {
         }, 5 * 60 * 1000);
     } else {
         clearTimeout(window._lockTimer);
+        // Coming back to foreground — sync relay state and drain any buffered messages
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'relay_status_query' });
+        }
+        drainSwInbox().catch(() => {});
     }
 });
 

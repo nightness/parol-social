@@ -16,12 +16,16 @@ COPY server/index.html /usr/share/nginx/html/index.html
 COPY server/install.html /usr/share/nginx/html/install.html
 COPY pwa/ /usr/share/nginx/html/pwa/
 
-# Generate build info (no source files modified)
-ARG BUILD_DATE
-ARG BUILD_COMMIT
-ARG BUILD_VERSION
-RUN echo "window.BUILD_INFO={date:'v${BUILD_VERSION} ${BUILD_COMMIT} ${BUILD_DATE}'};" \
-    > /usr/share/nginx/html/pwa/build-info.js
+# Bake build metadata into image ENV so entrypoint can write build-info.js at startup.
+# DEV_MODE defaults to false; override with --build-arg DEV_MODE=true or env var at runtime.
+ARG BUILD_DATE=""
+ARG BUILD_COMMIT=""
+ARG BUILD_VERSION=""
+ARG DEV_MODE=false
+ENV PAROLNET_BUILD_DATE="$BUILD_DATE" \
+    PAROLNET_BUILD_COMMIT="$BUILD_COMMIT" \
+    PAROLNET_BUILD_VERSION="$BUILD_VERSION" \
+    PAROLNET_DEV_MODE="$DEV_MODE"
 
 # Relay binary
 COPY --from=builder /build/target/release/parolnet-relay /usr/local/bin/parolnet-relay
