@@ -14,7 +14,7 @@ This index is the authoritative registry of ParolNet Protocol (PNP) specificatio
 | PNP-004 | Relay Circuit Construction | 0.2 | CANDIDATE | 58 | 7 | 1 | 66 | 21% M / 0% S |
 | PNP-005 | Gossip Mesh & Diffusion | 0.2 | CANDIDATE | 48 | 16 | 4 | 68 | 29% M / 0% S |
 | PNP-006 | Traffic Shaping & Camouflage | 0.2 | CANDIDATE | 44 | 14 | 5 | 63 | 0% M / 0% S |
-| PNP-007 | Media & File Transfer | 0.2 | CANDIDATE | 89 | 12 | 3 | 104 | 0% M / 0% S |
+| PNP-007 | Media & File Transfer | 0.2 | CANDIDATE | 89 | 12 | 3 | 104 | 25% M / 0% S |
 | PNP-008 | Relay Federation & Network Resilience | 0.2 | CANDIDATE | 62 | 11 | 3 | 76 | 0% M / 0% S |
 | PNP-009 | Group Communication | 0.2 | CANDIDATE | 77 | 7 | 3 | 87 | 18% M / 0% S |
 | **Totals** | — | — | — | **512** | **97** | **31** | **640** | **—** |
