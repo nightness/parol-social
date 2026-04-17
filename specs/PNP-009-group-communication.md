@@ -1,8 +1,23 @@
 # PNP-009: ParolNet Group Communication Protocol
 
-### Status: DRAFT
-### Version: 0.1
-### Date: 2026-04-15
+### Status: CANDIDATE
+### Version: 0.2
+### Date: 2026-04-17
+
+---
+
+## Changelog
+
+**v0.2 (2026-04-17) — Harmonization pass**
+
+- Status bumped from DRAFT to CANDIDATE.
+- Added clause IDs to every RFC 2119 statement (`PNP-009-MUST-NNN`, `-SHOULD-NNN`, `-MAY-NNN`).
+- Clarified `MAX_SKIP = 1000` semantics (§5.7): the limit is a resource-management rule, not a security rule — discarding a message that would require >1000 skipped keys is intended to bound memory consumption. A legitimate sender who exceeds MAX_SKIP SHOULD rotate their sender key.
+- Cross-referenced message-type code allocation against PNP-001 §3.4 canonical registry (0x0C–0x11).
+- Linked §5.4 nonce construction to scheme `N-SENDERKEY` in PNP-001 §9 Nonce Construction Catalog.
+- Completed cross-reference table.
+
+**v0.1 (2026-04-15)** — Initial draft.
 
 ---
 
@@ -39,7 +54,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ### 3.1 New Wire Protocol Message Types
 
-The following message type codes extend the table in PNP-001 Section 3.4:
+The following message type codes are allocated by this specification as part of the canonical registry in PNP-001 §3.4:
 
 | Code | Name | Description |
 |------|------|-------------|
@@ -50,11 +65,11 @@ The following message type codes extend the table in PNP-001 Section 3.4:
 | 0x10 | GROUP_FILE_CONTROL | File transfer control for a group (accept, cancel, pause, resume) |
 | 0x11 | SENDER_KEY_DISTRIBUTION | Sender key distribution message |
 
-These message types are carried in the `msg_type` field of the PNP-001 cleartext header. As with all message types, unrecognized codes MUST be treated as DECOY and silently discarded after decryption (PNP-001 Section 3.4).
+These message types are carried in the `msg_type` field of the PNP-001 cleartext header. Unrecognized codes MUST be treated as DECOY and silently discarded after decryption (PNP-001 §3.4 / PNP-001-MUST-008).
 
 ### 3.2 MessageFlags Extension
 
-Bit 0x10 of the MessageFlags field (PNP-001 Section 3.3) is defined as the **group message flag**. When set, the message is a group message and the payload MUST contain a `group_id` field. Implementations MUST check this bit to determine whether to process a message through the group decryption path or the pairwise decryption path.
+Bit 0x10 of the MessageFlags field (PNP-001 §3.3) is defined as the **group message flag**. When set, the message is a group message and the payload MUST contain a `group_id` field. Implementations MUST check this bit to determine whether to process a message through the group decryption path or the pairwise decryption path. **PNP-009-MUST-001**
 
 ## 4. Group Identifiers
 
@@ -67,8 +82,8 @@ GroupId = SHA-256(creator_peer_id || creation_nonce)
 ```
 
 Where:
-- `creator_peer_id` is the 32-byte PeerId of the group creator (SHA-256 of their Ed25519 public key, per PNP-001 Section 2.1).
-- `creation_nonce` is a 32-byte cryptographically random value generated at group creation time.
+- `creator_peer_id` is the 32-byte PeerId of the group creator (SHA-256 of their Ed25519 public key, per PNP-001 §2).
+- `creation_nonce` is a 32-byte cryptographically random value generated at group creation time. **PNP-009-MUST-002**
 
 ### 4.2 Properties
 
@@ -87,13 +102,13 @@ GroupId is always represented as a 32-byte (256-bit) value. In CBOR encoding, it
 
 Each group member generates their own sender key chain consisting of:
 
-1. A **chain key**: 32-byte random symmetric key, generated from a cryptographically secure random source.
+1. A **chain key**: 32-byte random symmetric key, generated from a cryptographically secure random source. **PNP-009-MUST-003**
 2. An **Ed25519 signing key pair**: Used to sign each message, binding the ciphertext to the sender's identity.
 3. A **chain index**: Initialized to 0, incremented with each message sent.
 
 ### 5.2 Sender Key Distribution
 
-When a member joins a group or rotates their keys, they distribute their sender key material to all other group members. Distribution MUST occur via pairwise Double Ratchet sessions (PNP-002), ensuring that sender key material is never exposed in transit.
+When a member joins a group or rotates their keys, they distribute their sender key material to all other group members. Distribution MUST occur via pairwise Double Ratchet sessions (PNP-002), ensuring that sender key material is never exposed in transit. **PNP-009-MUST-004**
 
 The distribution message is a SENDER_KEY_DISTRIBUTION (0x11) message type containing:
 
@@ -106,7 +121,7 @@ SenderKeyDistribution = {
 }
 ```
 
-Each distribution message MUST be sent individually to each group member through their respective pairwise Double Ratchet session. The sender MUST NOT broadcast sender key material through the group channel.
+Each distribution message MUST be sent individually to each group member through their respective pairwise Double Ratchet session. **PNP-009-MUST-005** The sender MUST NOT broadcast sender key material through the group channel. **PNP-009-MUST-006**
 
 ### 5.3 Symmetric Ratchet
 
@@ -132,11 +147,11 @@ message_key = HKDF-SHA-256(
 )
 ```
 
-After deriving the message key, the chain key MUST be advanced immediately. The previous chain key MUST be zeroized.
+After deriving the message key, the chain key MUST be advanced immediately. The previous chain key MUST be zeroized. **PNP-009-MUST-007**
 
 ### 5.4 Encryption
 
-Messages are encrypted using ChaCha20-Poly1305 (RFC 8439) with the derived message key. The 12-byte nonce is constructed as:
+Messages are encrypted using ChaCha20-Poly1305 (RFC 8439) with the derived message key. **PNP-009-MUST-008** The 12-byte nonce is constructed per scheme `N-SENDERKEY` in PNP-001 §9 Nonce Construction Catalog: **PNP-009-MUST-009**
 
 ```
 nonce = SHA-256(signing_public_key)[0..8] || chain_index.to_be_bytes()
@@ -156,7 +171,9 @@ After encryption, the sender computes an Ed25519 signature over the concatenatio
 signature = Ed25519_Sign(signing_private_key, chain_index.to_be_bytes() || ciphertext)
 ```
 
-Recipients MUST verify this signature before decryption. If verification fails, the message MUST be discarded.
+**PNP-009-MUST-010**
+
+Recipients MUST verify this signature before decryption. If verification fails, the message MUST be discarded. **PNP-009-MUST-011**
 
 ### 5.6 SenderKeyMessage Wire Format
 
@@ -170,17 +187,17 @@ SenderKeyMessage = {
 
 ### 5.7 Out-of-Order Handling
 
-Messages may arrive out of order due to network conditions. Implementations MUST support out-of-order decryption by advancing the chain and storing skipped message keys:
+Messages may arrive out of order due to network conditions. Implementations MUST support out-of-order decryption by advancing the chain and storing skipped message keys: **PNP-009-MUST-012**
 
-1. If a received `chain_index` is greater than the expected next index, the implementation MUST derive and store all intermediate message keys up to the received index.
-2. The maximum number of skipped keys that MAY be stored is MAX_SKIP = 1000. If a message would require skipping more than MAX_SKIP keys, it MUST be discarded.
-3. Stored skipped message keys MUST be indexed by `(sender_peer_id, chain_index)`.
-4. When a stored key is used for decryption, it MUST be deleted immediately after use.
-5. Stored keys SHOULD be expired after 7 days to limit memory consumption.
+1. If a received `chain_index` is greater than the expected next index, the implementation MUST derive and store all intermediate message keys up to the received index. **PNP-009-MUST-013**
+2. The maximum number of skipped keys that MAY be stored is MAX_SKIP = 1000. If a message would require skipping more than MAX_SKIP keys, it MUST be discarded. **PNP-009-MUST-014** This limit is a **resource-management** rule, not a security rule — the discarded message would otherwise be cryptographically valid. A legitimate sender who habitually exceeds MAX_SKIP SHOULD rotate their sender key (§7). Implementations MUST NOT treat a MAX_SKIP exceedance as a security failure nor penalize the sender via peer scoring.
+3. Stored skipped message keys MUST be indexed by `(sender_peer_id, chain_index)`. **PNP-009-MUST-015**
+4. When a stored key is used for decryption, it MUST be deleted immediately after use. **PNP-009-MUST-016**
+5. Stored keys SHOULD be expired after 7 days to limit memory consumption. **PNP-009-SHOULD-001**
 
 ### 5.8 Replay Protection
 
-The chain index is monotonically increasing. Implementations MUST track the highest chain index received from each sender and MUST reject any message with a chain index that has already been processed (either directly or via a stored skipped key). Duplicate messages MUST be silently discarded.
+The chain index is monotonically increasing. Implementations MUST track the highest chain index received from each sender and MUST reject any message with a chain index that has already been processed (either directly or via a stored skipped key). **PNP-009-MUST-017** Duplicate messages MUST be silently discarded. **PNP-009-MUST-018**
 
 ## 6. Group Membership Management
 
@@ -193,7 +210,7 @@ Each group member holds one of two roles:
 | Admin | Send/receive messages, add/remove members, promote/demote admins, update group name, initiate key rotation |
 | Member | Send/receive messages |
 
-The group creator is automatically the first Admin. A group MUST have at least one Admin at all times.
+The group creator is automatically the first Admin. A group MUST have at least one Admin at all times. **PNP-009-MUST-019**
 
 ### 6.2 Group Operations
 
@@ -223,18 +240,18 @@ GroupOperation = {
 
 ### 6.3 Operation Verification
 
-1. The `signature` field MUST be an Ed25519 signature over the CBOR-encoded GroupOperation with the `signature` field set to a zero-length byte string.
-2. Recipients MUST verify that `admin_id` corresponds to a current Admin of the group.
-3. Recipients MUST verify the signature against the admin's known Ed25519 public key.
-4. If verification fails, the operation MUST be discarded.
+1. The `signature` field MUST be an Ed25519 signature over the CBOR-encoded GroupOperation with the `signature` field set to a zero-length byte string. **PNP-009-MUST-020**
+2. Recipients MUST verify that `admin_id` corresponds to a current Admin of the group. **PNP-009-MUST-021**
+3. Recipients MUST verify the signature against the admin's known Ed25519 public key. **PNP-009-MUST-022**
+4. If verification fails, the operation MUST be discarded. **PNP-009-MUST-023**
 
 ### 6.4 Version Ordering
 
-The `version` field is a monotonically increasing counter. Recipients MUST reject any GroupOperation with a `version` less than or equal to the highest version they have already processed for that group. This prevents replay of stale operations.
+The `version` field is a monotonically increasing counter. Recipients MUST reject any GroupOperation with a `version` less than or equal to the highest version they have already processed for that group. **PNP-009-MUST-024** This prevents replay of stale operations.
 
 ### 6.5 Distribution
 
-GroupOperations are distributed via the gossip protocol (PNP-005) using GossipPayloadType 0x04. The gossip payload contains the CBOR-encoded GroupOperation. Only group members participate in gossip for a given group's operations; non-members MUST discard gossip payloads for groups they do not belong to.
+GroupOperations are distributed via the gossip protocol (PNP-005) using GossipPayloadType 0x04. The gossip payload contains the CBOR-encoded GroupOperation. Only group members participate in gossip for a given group's operations; non-members MUST discard gossip payloads for groups they do not belong to. **PNP-009-MUST-025**
 
 ## 7. Key Rotation
 
@@ -242,35 +259,35 @@ GroupOperations are distributed via the gossip protocol (PNP-005) using GossipPa
 
 Key rotation is REQUIRED in the following circumstances:
 
-1. **Member removal**: When any member is removed from the group (voluntarily or by admin action), ALL remaining members MUST generate new sender keys and distribute them to all other remaining members. This prevents the removed member from decrypting future messages.
-2. **Suspected compromise**: If any member suspects their key material has been compromised, they MUST immediately rotate their sender key and notify the group admin.
+1. **Member removal**: When any member is removed from the group (voluntarily or by admin action), ALL remaining members MUST generate new sender keys and distribute them to all other remaining members. **PNP-009-MUST-026** This prevents the removed member from decrypting future messages.
+2. **Suspected compromise**: If any member suspects their key material has been compromised, they MUST immediately rotate their sender key and notify the group admin. **PNP-009-MUST-027**
 
 ### 7.2 Recommended Rotation
 
 Key rotation is RECOMMENDED:
 
-1. Every 1000 messages sent by a given member.
-2. Every 24 hours, regardless of message count.
+1. Every 1000 messages sent by a given member. **PNP-009-SHOULD-002**
+2. Every 24 hours, regardless of message count. **PNP-009-SHOULD-003**
 
-Implementations SHOULD track message count and time since last rotation and initiate rotation automatically when either threshold is reached.
+Implementations SHOULD track message count and time since last rotation and initiate rotation automatically when either threshold is reached. **PNP-009-SHOULD-004**
 
 ### 7.3 Rotation Procedure
 
-1. The rotating member generates a new random 32-byte chain key.
-2. The rotating member generates a new Ed25519 signing key pair.
-3. The chain index is reset to 0.
+1. The rotating member generates a new random 32-byte chain key. **PNP-009-MUST-028**
+2. The rotating member generates a new Ed25519 signing key pair. **PNP-009-MUST-029**
+3. The chain index is reset to 0. **PNP-009-MUST-030**
 4. The rotating member creates a new SenderKeyDistribution message containing the new key material.
-5. The SenderKeyDistribution MUST be sent to every other group member via their pairwise Double Ratchet session.
-6. Recipients MUST replace the old sender key state for that member with the new state upon receipt.
-7. The old chain key and signing private key MUST be zeroized immediately after the new key is distributed.
+5. The SenderKeyDistribution MUST be sent to every other group member via their pairwise Double Ratchet session. **PNP-009-MUST-031**
+6. Recipients MUST replace the old sender key state for that member with the new state upon receipt. **PNP-009-MUST-032**
+7. The old chain key and signing private key MUST be zeroized immediately after the new key is distributed. **PNP-009-MUST-033**
 
 ### 7.4 Member Addition
 
 When a new member is added to the group:
 
-1. The admin sends an "add_member" GroupOperation (Section 6.2.1).
-2. Each existing member sends their current SenderKeyDistribution to the new member via the pairwise Double Ratchet session between them and the new member.
-3. The new member generates their own sender key chain and distributes it to all existing members.
+1. The admin sends an "add_member" GroupOperation (§6.2.1). **PNP-009-MUST-034**
+2. Each existing member sends their current SenderKeyDistribution to the new member via the pairwise Double Ratchet session between them and the new member. **PNP-009-MUST-035**
+3. The new member generates their own sender key chain and distributes it to all existing members. **PNP-009-MUST-036**
 4. Existing members do NOT rotate their keys on member addition (the new member receives the current chain state and can decrypt only messages sent after their addition).
 
 ## 8. Group Text Messaging
@@ -280,44 +297,44 @@ When a new member is added to the group:
 To send a text message to a group:
 
 1. The sender constructs the plaintext message payload.
-2. The plaintext MUST be padded per the PaddingStrategy trait (PNP-001 Section 3.6) before encryption.
-3. The sender derives the message key from their current chain key (Section 5.3).
-4. The sender encrypts the padded plaintext with ChaCha20-Poly1305 using the derived message key and constructed nonce (Section 5.4).
-5. The sender signs the (chain_index || ciphertext) with their signing key (Section 5.5).
-6. The sender constructs a SenderKeyMessage (Section 5.6).
-7. The SenderKeyMessage is wrapped in a GROUP_TEXT (0x0C) envelope with the group message flag (0x10) set.
-8. The envelope is sent to each of the N-1 other group members via their respective 3-hop onion circuits.
+2. The plaintext MUST be padded per the PaddingStrategy trait (PNP-001 §3.6) before encryption. **PNP-009-MUST-037**
+3. The sender derives the message key from their current chain key (§5.3).
+4. The sender encrypts the padded plaintext with ChaCha20-Poly1305 using the derived message key and constructed nonce (§5.4). **PNP-009-MUST-038**
+5. The sender signs the (chain_index || ciphertext) with their signing key (§5.5). **PNP-009-MUST-039**
+6. The sender constructs a SenderKeyMessage (§5.6).
+7. The SenderKeyMessage is wrapped in a GROUP_TEXT (0x0C) envelope with the group message flag (0x10) set. **PNP-009-MUST-040**
+8. The envelope is sent to each of the N-1 other group members via their respective 3-hop onion circuits. **PNP-009-MUST-041**
 
 ### 8.2 Receiving
 
 To receive a group text message:
 
-1. The recipient checks the group message flag (0x10) in MessageFlags.
+1. The recipient checks the group message flag (0x10) in MessageFlags. **PNP-009-MUST-042**
 2. The recipient looks up the sender's SenderKeyState by the sender's PeerId.
-3. The recipient verifies the Ed25519 signature (Section 5.5). If verification fails, the message MUST be discarded.
-4. The recipient checks the chain index for replay (Section 5.8). If the index has been seen, the message MUST be discarded.
-5. If the chain index is ahead of the expected index, skipped keys are derived and stored (Section 5.7).
-6. The recipient derives the message key and decrypts the ciphertext.
+3. The recipient verifies the Ed25519 signature (§5.5). If verification fails, the message MUST be discarded. **PNP-009-MUST-043**
+4. The recipient checks the chain index for replay (§5.8). If the index has been seen, the message MUST be discarded. **PNP-009-MUST-044**
+5. If the chain index is ahead of the expected index, skipped keys are derived and stored (§5.7). **PNP-009-MUST-045**
+6. The recipient derives the message key and decrypts the ciphertext. **PNP-009-MUST-046**
 7. Padding is removed from the plaintext.
-8. The chain key is advanced.
+8. The chain key is advanced. **PNP-009-MUST-047**
 
 ### 8.3 Delivery
 
-Each group message MUST be sent individually to each recipient through their respective pairwise relay circuits. From the perspective of relay nodes, group messages are indistinguishable from 1:1 messages: each transmission is a standard PNP-001 envelope traversing a 3-hop circuit (PNP-004). The group semantics exist only at the application layer.
+Each group message MUST be sent individually to each recipient through their respective pairwise relay circuits. **PNP-009-MUST-048** From the perspective of relay nodes, group messages are indistinguishable from 1:1 messages: each transmission is a standard PNP-001 envelope traversing a 3-hop circuit (PNP-004). The group semantics exist only at the application layer.
 
 ## 9. Group Call Protocol
 
 ### 9.1 Topology
 
-Group calls use a **full-mesh** topology. Each pair of participants establishes a direct pairwise connection through separate 3-hop onion relay circuits. For N participants, this yields N*(N-1)/2 pairwise circuits.
+Group calls use a **full-mesh** topology. Each pair of participants establishes a direct pairwise connection through separate 3-hop onion relay circuits. For N participants, this yields N*(N-1)/2 pairwise circuits. **PNP-009-MUST-049**
 
-The maximum number of participants in a group call is 8, yielding a maximum of 28 pairwise circuits at full mesh. This limit prevents resource exhaustion on participating nodes.
+The maximum number of participants in a group call is 8, yielding a maximum of 28 pairwise circuits at full mesh. **PNP-009-MUST-050** This limit prevents resource exhaustion on participating nodes.
 
-Sender keys are NOT used for group call media. Each pairwise media stream is encrypted using SRTP keys derived from the pairwise Double Ratchet session between the two participants (PNP-007 Sections 5.2, 6.6). This preserves the post-compromise security guarantees of the Double Ratchet for real-time streams.
+Sender keys are NOT used for group call media. Each pairwise media stream is encrypted using SRTP keys derived from the pairwise Double Ratchet session between the two participants (PNP-007 §§5.2, 6.6). **PNP-009-MUST-051** This preserves the post-compromise security guarantees of the Double Ratchet for real-time streams.
 
 ### 9.2 Call Identifiers
 
-Each group call is identified by a **Call ID**: a cryptographically random 128-bit (16-byte) value generated by the call initiator. The Call ID MUST be unique and MUST be generated using a cryptographically secure random source.
+Each group call is identified by a **Call ID**: a cryptographically random 128-bit (16-byte) value generated by the call initiator. The Call ID MUST be unique and MUST be generated using a cryptographically secure random source. **PNP-009-MUST-052**
 
 ### 9.3 Signaling Messages
 
@@ -367,41 +384,41 @@ GroupCallScreenShareStop = {
 ### 9.4 Call Flow
 
 1. **Initiation**: The initiator generates a Call ID and sends a GroupCallInvite as a group text message (GROUP_TEXT). All group members see the invite.
-2. **Joining**: Each member who wishes to join sends a GroupCallJoin message pairwise to every other participant who has already joined. The SDP offer/answer exchange is performed pairwise via Double Ratchet sessions.
-3. **SDP Negotiation**: Each pair of participants exchanges SDP offers and answers through their pairwise Double Ratchet session. SRTP keys are derived from the Double Ratchet state per PNP-007 Section 5.2.
+2. **Joining**: Each member who wishes to join sends a GroupCallJoin message pairwise to every other participant who has already joined. **PNP-009-MUST-053** The SDP offer/answer exchange is performed pairwise via Double Ratchet sessions.
+3. **SDP Negotiation**: Each pair of participants exchanges SDP offers and answers through their pairwise Double Ratchet session. SRTP keys are derived from the Double Ratchet state per PNP-007 §5.2.
 4. **Media Flow**: Once SDP negotiation completes for a pair, media flows between them on a dedicated relay circuit. Each participant maintains a separate circuit for each peer in the call.
 5. **Leaving**: A participant sends a GroupCallLeave to all other participants. Other participants tear down the pairwise circuits with the leaving participant.
-6. **Ending**: Any participant MAY send a GroupCallEnd. Upon receiving it, all participants SHOULD leave the call. The initiator SHOULD send GroupCallEnd when they leave.
+6. **Ending**: Any participant MAY send a GroupCallEnd. Upon receiving it, all participants SHOULD leave the call. The initiator SHOULD send GroupCallEnd when they leave. **PNP-009-SHOULD-005**
 
 ### 9.5 Late Join
 
-A participant MAY join an in-progress call at any time by sending GroupCallJoin to all current participants. Current participants are discovered by tracking GroupCallJoin and GroupCallLeave messages for the active Call ID.
+A participant MAY join an in-progress call at any time by sending GroupCallJoin to all current participants. **PNP-009-MAY-001** Current participants are discovered by tracking GroupCallJoin and GroupCallLeave messages for the active Call ID.
 
 ### 9.6 Participant Limit
 
-Implementations MUST enforce a maximum of 8 participants per group call. If a 9th participant attempts to join, their GroupCallJoin MUST be rejected by existing participants.
+Implementations MUST enforce a maximum of 8 participants per group call. **PNP-009-MUST-054** If a 9th participant attempts to join, their GroupCallJoin MUST be rejected by existing participants. **PNP-009-MUST-055**
 
 ### 9.7 Screen Sharing
 
 #### 9.7.1 Single Sharer Policy
 
-At most one participant MAY share their screen at any given time during a group call. This constraint prevents bandwidth explosion in the full-mesh topology (N-1 screen share streams per sharer, multiplied by concurrent sharers).
+At most one participant MAY share their screen at any given time during a group call. **PNP-009-MAY-002** This constraint prevents bandwidth explosion in the full-mesh topology (N-1 screen share streams per sharer, multiplied by concurrent sharers).
 
-1. A participant wishing to share their screen MUST send `GroupCallScreenShareStart` to all other participants.
-2. If another participant is already sharing (tracked locally by prior receipt of their `GroupCallScreenShareStart` without a subsequent `GroupCallScreenShareStop`), the new request MUST be rejected locally. Implementations SHOULD notify the user that another participant is currently sharing.
-3. The one-stream-per-user rule from PNP-007 Section 6.7.2 applies: the sharer's camera video MUST be paused while screen sharing is active.
+1. A participant wishing to share their screen MUST send `GroupCallScreenShareStart` to all other participants. **PNP-009-MUST-056**
+2. If another participant is already sharing (tracked locally by prior receipt of their `GroupCallScreenShareStart` without a subsequent `GroupCallScreenShareStop`), the new request MUST be rejected locally. **PNP-009-MUST-057** Implementations SHOULD notify the user that another participant is currently sharing. **PNP-009-SHOULD-006**
+3. The one-stream-per-user rule from PNP-007 §6.7.2 applies: the sharer's camera video MUST be paused while screen sharing is active. **PNP-009-MUST-058**
 
 #### 9.7.2 Screen Share Flow
 
-1. The sharer sends `GroupCallScreenShareStart` (with `VideoConfig`) to all current participants via pairwise GROUP_CALL_SIGNAL messages.
+1. The sharer sends `GroupCallScreenShareStart` (with `VideoConfig`) to all current participants via pairwise GROUP_CALL_SIGNAL messages. **PNP-009-MUST-059**
 2. All participants update their local state to reflect that this peer is now the active screen sharer.
-3. The sharer's subsequent video frames carry `MediaSource = Screen` (0x01) in the encrypted payload (PNP-007 Section 6.7.1).
-4. When the sharer stops, they send `GroupCallScreenShareStop` to all participants and resume camera video.
-5. If the sharer leaves the call while screen sharing, other participants MUST treat the departure as an implicit screen share stop.
+3. The sharer's subsequent video frames carry `MediaSource = Screen` (0x01) in the encrypted payload (PNP-007 §6.7.1).
+4. When the sharer stops, they send `GroupCallScreenShareStop` to all participants and resume camera video. **PNP-009-MUST-060**
+5. If the sharer leaves the call while screen sharing, other participants MUST treat the departure as an implicit screen share stop. **PNP-009-MUST-061**
 
 #### 9.7.3 SRTP
 
-Screen share frames in group calls reuse the pairwise video SRTP context for each pair, following PNP-007 Section 6.7.5. No additional SRTP context is needed.
+Screen share frames in group calls reuse the pairwise video SRTP context for each pair, following PNP-007 §6.7.5. No additional SRTP context is needed.
 
 ## 10. Group File Transfer
 
@@ -421,9 +438,9 @@ GroupFileOffer = {
 }
 ```
 
-1. The `file_id` MUST be cryptographically random and unique per transfer.
-2. The `chunk_size` MUST default to 32768 bytes (32 KiB).
-3. The `sha256` hash MUST be computed over the plaintext file content before any chunking or encryption.
+1. The `file_id` MUST be cryptographically random and unique per transfer. **PNP-009-MUST-062**
+2. The `chunk_size` MUST default to 32768 bytes (32 KiB). **PNP-009-MUST-063**
+3. The `sha256` hash MUST be computed over the plaintext file content before any chunking or encryption. **PNP-009-MUST-064**
 
 ### 10.2 File Chunks
 
@@ -438,7 +455,7 @@ GroupFileChunk = {
 }
 ```
 
-Each chunk is encrypted using the sender's sender key chain (Section 5.4). The sender encrypts once; all group members decrypt using their copy of the sender's chain. The chain index advances with each chunk.
+Each chunk is encrypted using the sender's sender key chain (§5.4). The sender encrypts once; all group members decrypt using their copy of the sender's chain. The chain index advances with each chunk.
 
 ### 10.3 File Control
 
@@ -464,32 +481,32 @@ GroupFileResume = {
 
 ### 10.4 Out-of-Order Reassembly
 
-Chunks MAY arrive out of order. Implementations MUST support reassembly regardless of arrival order by buffering received chunks and tracking which chunk indices have been received.
+Chunks MAY arrive out of order. Implementations MUST support reassembly regardless of arrival order by buffering received chunks and tracking which chunk indices have been received. **PNP-009-MUST-065**
 
 ### 10.5 Integrity Verification
 
-1. Upon receiving the final chunk (`is_last` = true), the receiver MUST reconstruct the complete file and compute its SHA-256 hash.
-2. The computed hash MUST be compared with the `sha256` value from the GroupFileOffer.
-3. If the hashes do not match, the receiver MUST discard the file and SHOULD notify the user of a transfer integrity failure.
-4. Hash comparison MUST use constant-time comparison (the `subtle` crate) to prevent timing side channels.
+1. Upon receiving the final chunk (`is_last` = true), the receiver MUST reconstruct the complete file and compute its SHA-256 hash. **PNP-009-MUST-066**
+2. The computed hash MUST be compared with the `sha256` value from the GroupFileOffer. **PNP-009-MUST-067**
+3. If the hashes do not match, the receiver MUST discard the file **PNP-009-MUST-068** and SHOULD notify the user of a transfer integrity failure. **PNP-009-SHOULD-007**
+4. Hash comparison MUST use constant-time comparison (the `subtle` crate) to prevent timing side channels. **PNP-009-MUST-069**
 
 ### 10.6 Resume Support
 
-If a transfer is interrupted, the sender MAY resume by retransmitting from a given chunk index. Recipients track received chunks and can request resumption by sending a GroupFileResume with `resume_from` set to the first missing chunk index.
+If a transfer is interrupted, the sender MAY resume by retransmitting from a given chunk index. **PNP-009-MAY-003** Recipients track received chunks and can request resumption by sending a GroupFileResume with `resume_from` set to the first missing chunk index.
 
 ## 11. Security Considerations
 
 ### 11.1 Sender Key Forward Secrecy Limitations
 
-Sender keys provide a weaker form of forward secrecy compared to the Double Ratchet. Because there is no Diffie-Hellman ratchet in the sender key chain, compromise of a chain key reveals all future messages until the next key rotation. Mandatory key rotation (Section 7.1) and recommended periodic rotation (Section 7.2) mitigate this limitation. Implementations MUST enforce the rotation requirements.
+Sender keys provide a weaker form of forward secrecy compared to the Double Ratchet. Because there is no Diffie-Hellman ratchet in the sender key chain, compromise of a chain key reveals all future messages until the next key rotation. Mandatory key rotation (§7.1) and recommended periodic rotation (§7.2) mitigate this limitation. Implementations MUST enforce the rotation requirements. **PNP-009-MUST-070**
 
 ### 11.2 Key Rotation on Member Removal
 
-When a member is removed from a group, key rotation is REQUIRED (Section 7.1). All remaining members MUST generate new sender keys and distribute them. Failure to rotate keys after member removal would allow the removed member to continue decrypting group messages.
+When a member is removed from a group, key rotation is REQUIRED (§7.1). All remaining members MUST generate new sender keys and distribute them. Failure to rotate keys after member removal would allow the removed member to continue decrypting group messages.
 
 ### 11.3 Admin Operation Authentication
 
-All GroupOperations MUST be signed by an admin's Ed25519 identity key (Section 6.3). Recipients MUST verify both the signature and the admin status of the signer before applying any operation. Unsigned or improperly signed operations MUST be discarded.
+All GroupOperations MUST be signed by an admin's Ed25519 identity key (§6.3). Recipients MUST verify both the signature and the admin status of the signer before applying any operation. Unsigned or improperly signed operations MUST be discarded. **PNP-009-MUST-071**
 
 ### 11.4 Group Membership Confidentiality
 
@@ -502,25 +519,25 @@ Group membership is hidden from non-members and from the network:
 
 ### 11.5 No Sender Key for Media Streams
 
-Group calls deliberately avoid sender keys for media encryption. Real-time media streams use pairwise SRTP keyed from Double Ratchet sessions (Section 9.1). This preserves post-compromise security: if a participant's key material is compromised and later recovered, the Double Ratchet's DH ratchet ensures that future media sessions are secure.
+Group calls deliberately avoid sender keys for media encryption. Real-time media streams use pairwise SRTP keyed from Double Ratchet sessions (§9.1). This preserves post-compromise security: if a participant's key material is compromised and later recovered, the Double Ratchet's DH ratchet ensures that future media sessions are secure.
 
 ### 11.6 Screen Share Indistinguishability
 
-Screen sharing in group calls uses the same `VIDEO` (0x08) message type and pairwise SRTP contexts as camera video (Section 9.7.3, PNP-007 Section 6.7). The `MediaSource` field is inside the encrypted payload. Network observers and relay nodes cannot determine whether a participant is sharing their screen or transmitting camera video. The single-sharer policy (Section 9.7.1) and one-stream-per-user rule (PNP-007 Section 6.7.2) ensure that screen sharing does not alter observable traffic patterns.
+Screen sharing in group calls uses the same `VIDEO` (0x08) message type and pairwise SRTP contexts as camera video (§9.7.3, PNP-007 §6.7). The `MediaSource` field is inside the encrypted payload. Network observers and relay nodes cannot determine whether a participant is sharing their screen or transmitting camera video. The single-sharer policy (§9.7.1) and one-stream-per-user rule (PNP-007 §6.7.2) ensure that screen sharing does not alter observable traffic patterns.
 
 ### 11.7 Replay Protection
 
-The monotonically increasing chain index (Section 5.8) provides replay protection for sender key messages. Implementations MUST track processed chain indices per sender and reject duplicates. For group operations, the monotonic version field (Section 6.4) provides equivalent protection.
+The monotonically increasing chain index (§5.8) provides replay protection for sender key messages. Implementations MUST track processed chain indices per sender and reject duplicates. For group operations, the monotonic version field (§6.4) provides equivalent protection.
 
 ### 11.8 Memory Exhaustion Mitigation
 
-The MAX_SKIP limit of 1000 (Section 5.7) prevents an attacker from forcing a recipient to derive and store an unbounded number of skipped message keys. An attacker who sends a message with chain_index far ahead of the expected index cannot force more than 1000 key derivations.
+The MAX_SKIP limit of 1000 (§5.7) prevents an attacker from forcing a recipient to derive and store an unbounded number of skipped message keys. An attacker who sends a message with chain_index far ahead of the expected index cannot force more than 1000 key derivations. As clarified in §5.7 item 2, exceeding MAX_SKIP is a **resource-management** outcome, not a security signal — implementations MUST NOT penalize senders who exceed it via peer scoring.
 
 ### 11.9 Zeroization
 
-All sender key state -- including chain keys, message keys, signing private keys, and skipped message keys -- MUST implement `Zeroize` and `ZeroizeOnDrop` (from the `zeroize` crate). When a sender key is rotated or a member leaves a group, the old key material MUST be zeroized immediately.
+All sender key state -- including chain keys, message keys, signing private keys, and skipped message keys -- MUST implement `Zeroize` and `ZeroizeOnDrop` (from the `zeroize` crate). **PNP-009-MUST-072** When a sender key is rotated or a member leaves a group, the old key material MUST be zeroized immediately. **PNP-009-MUST-073**
 
-The `panic_wipe` handler (PNP-001 Section 7) MUST clear all group state, including all sender key chains, group metadata, and buffered file transfer state.
+The `panic_wipe` handler MUST clear all group state, including all sender key chains, group metadata, and buffered file transfer state. **PNP-009-MUST-074**
 
 ### 11.10 Group Size Limits
 
@@ -529,7 +546,7 @@ Group size limits prevent resource exhaustion:
 - **Text and file transfer**: Maximum 256 members. Each message requires N-1 relay circuit transmissions; 256 is the maximum practical group size.
 - **Voice and video calls**: Maximum 8 participants. Full-mesh at 8 participants requires 28 pairwise circuits; beyond this, bandwidth and processing costs become prohibitive.
 
-Implementations MUST enforce these limits and MUST reject operations that would exceed them.
+Implementations MUST enforce the 256-member text/file limit. **PNP-009-MUST-075** Implementations MUST enforce the 8-participant call limit. **PNP-009-MUST-076** Operations that would exceed either limit MUST be rejected. **PNP-009-MUST-077**
 
 ## 12. Wire Format Diagrams
 
@@ -551,23 +568,6 @@ Implementations MUST enforce these limits and MUST reject operations that would 
 +-------------------+---------------------------+
 
 Total: 72 + ciphertext_len bytes
-
-Byte layout:
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                        chain_index                            |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                       ciphertext_len                          |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                     ciphertext (variable)                     |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                    signature (64 bytes)                       |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
 ### 12.2 SenderKeyDistribution Layout
@@ -588,25 +588,6 @@ Byte layout:
 +---------------------+-------------------------+
 
 Total: 100 bytes (fixed)
-
-Byte layout:
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                   sender_peer_id (32 bytes)                   |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                     chain_key (32 bytes)                      |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                        chain_index                            |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                signing_public_key (32 bytes)                  |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
 ### 12.3 GroupOperation Layout
@@ -633,87 +614,15 @@ Byte layout:
 +-------------------+---------------------------+
 | signature         | 64 bytes (Ed25519)        |
 +-------------------+---------------------------+
-
-Byte layout:
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                     group_id (32 bytes)                       |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                     version (8 bytes)                         |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|         op_type_len           |                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
-|                     op_type (variable)                        |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                       payload_len                             |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                     payload (variable, CBOR)                  |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                    admin_id (32 bytes)                        |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|                   signature (64 bytes)                        |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-## 13. Conformance
+## 13. Cross-Protocol References
 
-### 13.1 MUST Requirements
-
-Implementations conforming to this specification MUST:
-
-1. Support group text messaging with sender key encryption (Sections 5, 8).
-2. Support sender key distribution via pairwise Double Ratchet sessions (Section 5.2).
-3. Enforce key rotation on member removal (Section 7.1).
-4. Verify Ed25519 signatures on all SenderKeyMessages before decryption (Section 5.5).
-5. Verify Ed25519 signatures on all GroupOperations before processing (Section 6.3).
-6. Enforce monotonic version ordering for GroupOperations (Section 6.4).
-7. Enforce monotonic chain index for replay protection (Section 5.8).
-8. Limit out-of-order key storage to MAX_SKIP = 1000 (Section 5.7).
-9. Use ChaCha20-Poly1305 for sender key AEAD (Section 5.4).
-10. Derive sender key chain using HKDF-SHA-256 with the specified salt and info strings (Section 5.3).
-11. Pad all messages per PaddingStrategy before encryption (Section 8.1).
-12. Implement Zeroize and ZeroizeOnDrop for all sender key state (Section 11.8).
-13. Clear all group state on panic_wipe (Section 11.8).
-14. Enforce group size limits: 256 for text/files, 8 for calls (Section 11.9).
-15. Use full-mesh pairwise WebRTC for group calls, NOT sender keys (Section 9.1).
-16. Use constant-time hash comparison for file integrity verification (Section 10.5).
-17. Set the group message flag (0x10) on all group messages (Section 3.2).
-18. Route all group traffic through 3-hop onion circuits (PNP-004).
-19. Enforce single-sharer policy for group call screen sharing (Section 9.7.1).
-20. Pause camera video during screen sharing per the one-stream-per-user rule (PNP-007 Section 6.7.2).
-
-### 13.2 SHOULD Requirements
-
-Implementations conforming to this specification SHOULD:
-
-1. Rotate sender keys every 1000 messages or 24 hours (Section 7.2).
-2. Expire stored skipped message keys after 7 days (Section 5.7).
-3. Provide progress indication for group file transfers (Section 10).
-4. Send GroupCallEnd when the call initiator leaves (Section 9.4).
-
-### 13.3 MAY Requirements
-
-Implementations conforming to this specification MAY:
-
-1. Support late join for group calls (Section 9.5).
-2. Support file transfer resume via GroupFileResume (Section 10.6).
-3. Implement additional group roles beyond Admin and Member.
-
-## 14. Cross-Protocol References
-
-- **PNP-001** (Wire Protocol): GROUP_TEXT (0x0C), GROUP_CALL_SIGNAL (0x0D), GROUP_FILE_OFFER (0x0E), GROUP_FILE_CHUNK (0x0F), GROUP_FILE_CONTROL (0x10), and SENDER_KEY_DISTRIBUTION (0x11) message types extend PNP-001 Section 3.4. MessageFlags bit 0x10 indicates group messages. All group data is carried in standard PNP-001 envelopes with bucket padding.
-- **PNP-002** (Handshake Protocol): Pairwise Double Ratchet sessions established via PNP-002 are used to distribute sender key material (Section 5.2) and to derive SRTP keys for group call media (Section 9.1).
-- **PNP-004** (Relay Circuit Protocol): All group traffic flows through 3-hop onion circuits. Group messages are indistinguishable from 1:1 messages at the relay layer.
-- **PNP-005** (Gossip Mesh Protocol): GroupOperations are distributed via gossip with GossipPayloadType 0x04 (Section 6.5).
-- **PNP-006** (Traffic Shaping Protocol): Group call circuits use MediaCall bandwidth mode (PNP-007 Section 8) for real-time media streams.
-- **PNP-007** (Media and File Transfer Protocol): Group calls reuse the SRTP key derivation (PNP-007 Sections 5.2, 6.6) and codec negotiation (PNP-007 Section 5.3) mechanisms for pairwise media streams within the full-mesh topology.
+| Spec | Relationship |
+|------|-------------|
+| PNP-001 (Wire Protocol) | GROUP_TEXT (0x0C), GROUP_CALL_SIGNAL (0x0D), GROUP_FILE_OFFER (0x0E), GROUP_FILE_CHUNK (0x0F), GROUP_FILE_CONTROL (0x10), SENDER_KEY_DISTRIBUTION (0x11) message types are allocated by this spec and registered in PNP-001 §3.4. MessageFlags bit 0x10 indicates group messages. Nonce scheme `N-SENDERKEY` defined in PNP-001 §9 governs §5.4. |
+| PNP-002 (Handshake) | Pairwise Double Ratchet sessions established via PNP-002 are used to distribute sender key material (§5.2) and to derive SRTP keys for group call media (§9.1). |
+| PNP-004 (Relay Circuit) | All group traffic flows through 3-hop onion circuits. Group messages are indistinguishable from 1:1 messages at the relay layer. |
+| PNP-005 (Gossip Mesh) | GroupOperations are distributed via gossip with GossipPayloadType 0x04 (§6.5). |
+| PNP-006 (Traffic Shaping) | Group call circuits use MediaCall bandwidth mode (PNP-007 §8) for real-time media streams. |
+| PNP-007 (Media & File) | Group calls reuse the SRTP key derivation (PNP-007 §§5.2, 6.6) and codec negotiation (PNP-007 §5.3) mechanisms for pairwise media streams within the full-mesh topology. |

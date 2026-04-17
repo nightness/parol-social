@@ -1,8 +1,22 @@
 # PNP-003: ParolNet Bootstrap Protocol
 
-### Status: DRAFT
-### Version: 0.1
-### Date: 2026-04-10
+### Status: CANDIDATE
+### Version: 0.2
+### Date: 2026-04-17
+
+---
+
+## Changelog
+
+**v0.2 (2026-04-17) — Harmonization pass**
+
+- Status bumped from DRAFT to CANDIDATE.
+- Assigned a normative BLE service UUID for §5.7 Bluetooth bootstrap (previously TBD): `b51e4c00-50ef-4e6c-9a83-d2b4f0ae1c01`. Characteristic UUIDs are derived siblings within the same service.
+- Added clause IDs to every RFC 2119 statement (`PNP-003-MUST-NNN`, `-SHOULD-NNN`, `-MAY-NNN`).
+- Clarified that the 30-minute QR freshness window (§5.1.6) is scoped to the bootstrap layer and is unrelated to the envelope-level replay/timestamp windows tabulated in PNP-001 §5.4.
+- Completed cross-reference table.
+
+**v0.1 (2026-04-10)** — Initial draft.
 
 ---
 
@@ -33,7 +47,7 @@ All RFC 2119 keywords apply. Additional terms:
 
 ### 3.1 QR Code Payload
 
-The QR payload is CBOR-encoded, then base45-encoded (for efficient QR representation), and presented as a QR code. The total payload MUST fit within a single QR code (maximum 2953 bytes for alphanumeric mode at error correction level M).
+The QR payload is CBOR-encoded, then base45-encoded (for efficient QR representation), and presented as a QR code. The total payload MUST fit within a single QR code (maximum 2953 bytes for alphanumeric mode at error correction level M). **PNP-003-MUST-001**
 
 ```
 QRPayload = CBOR Map:
@@ -46,6 +60,8 @@ QRPayload = CBOR Map:
     "net"  : uint8            -- Network hint: 0x01=internet relay, 0x02=LAN, 0x03=BT.
   }
 ```
+
+The `v` field MUST be set to 0x01 for this version of the protocol. **PNP-003-MUST-002**
 
 CBOR byte-level layout example (approximate):
 
@@ -80,7 +96,7 @@ PassphrasePayload = CBOR Map:
   }
 ```
 
-The passphrase is communicated verbally or through an existing trusted channel. It is NOT transmitted over the ParolNet network.
+The `v` field MUST be set to 0x01. **PNP-003-MUST-003** The passphrase is communicated verbally or through an existing trusted channel. It MUST NOT be transmitted over the ParolNet network. **PNP-003-MUST-004**
 
 ### 3.3 Bootstrap Handshake Message
 
@@ -125,6 +141,8 @@ DiscoveryAnnouncement = CBOR Map:
                                   revealing BS to observers.
   }
 ```
+
+The `v` field MUST be set to 0x01. **PNP-003-MUST-005**
 
 ## 4. State Machine
 
@@ -195,13 +213,13 @@ State transition table:
 
 ### 5.1 QR Code Bootstrap
 
-1. The QR presenter (Alice) MUST generate a fresh 32-byte `seed` using a CSPRNG.
-2. Alice MUST encode the QRPayload as CBOR, then base45-encode the result.
-3. The QR code MUST use error correction level M or higher.
-4. Alice MUST display the QR code only while actively waiting for contact. The QR SHOULD include a visual expiration indicator (RECOMMENDED: 10 minutes).
-5. The QR scanner (Bob) MUST decode and validate the QR payload.
-6. Bob MUST verify that the timestamp `ts` is within 30 minutes of the current coarsened time. QR codes older than 30 minutes MUST be rejected.
-7. Both peers derive the Bootstrap Secret:
+1. The QR presenter (Alice) MUST generate a fresh 32-byte `seed` using a CSPRNG. **PNP-003-MUST-006**
+2. Alice MUST encode the QRPayload as CBOR, then base45-encode the result. **PNP-003-MUST-007**
+3. The QR code MUST use error correction level M or higher. **PNP-003-MUST-008**
+4. Alice MUST display the QR code only while actively waiting for contact. **PNP-003-MUST-009** The QR SHOULD include a visual expiration indicator (RECOMMENDED: 10 minutes). **PNP-003-SHOULD-001**
+5. The QR scanner (Bob) MUST decode and validate the QR payload. **PNP-003-MUST-010**
+6. Bob MUST verify that the timestamp `ts` is within 30 minutes of the current coarsened time. QR codes older than 30 minutes MUST be rejected. **PNP-003-MUST-011**
+7. Both peers derive the Bootstrap Secret: **PNP-003-MUST-012**
    ```
    BS = HKDF-SHA-256(
      salt = "ParolNet_bootstrap_v1",
@@ -214,9 +232,9 @@ State transition table:
 
 ### 5.2 Shared Secret Derivation (Passphrase)
 
-1. The passphrase MUST be at least 6 words from a standardized wordlist (BIP-39 English wordlist, 2048 words, yielding at least 66 bits of entropy).
-2. The passphrase MUST be transmitted out-of-band (voice, existing trusted channel). It MUST NOT be transmitted over the ParolNet network.
-3. Both peers derive BS from the passphrase:
+1. The passphrase MUST be at least 6 words from a standardized wordlist (BIP-39 English wordlist, 2048 words, yielding at least 66 bits of entropy). **PNP-003-MUST-013**
+2. The passphrase MUST be transmitted out-of-band (voice, existing trusted channel). It MUST NOT be transmitted over the ParolNet network. **PNP-003-MUST-014**
+3. Both peers derive BS from the passphrase: **PNP-003-MUST-015**
    ```
    BS = HKDF-SHA-256(
      salt = "ParolNet_passphrase_v1",
@@ -226,30 +244,30 @@ State transition table:
    )
    ```
    Argon2id is used to strengthen the passphrase against brute-force attacks on the BS.
-4. After BS derivation, the passphrase MUST be securely erased from memory.
+4. After BS derivation, the passphrase MUST be securely erased from memory. **PNP-003-MUST-016**
 
 ### 5.3 Passphrase Generation
 
-1. Implementations MUST provide a passphrase generator that selects words uniformly at random from the BIP-39 English wordlist.
-2. The default passphrase length MUST be 8 words (88 bits of entropy).
-3. Implementations MAY support other wordlists for localization, provided the wordlist contains at least 2048 words and the entropy per word is clearly communicated to the user.
-4. Implementations MUST display the entropy of the generated passphrase to the user.
+1. Implementations MUST provide a passphrase generator that selects words uniformly at random from the BIP-39 English wordlist. **PNP-003-MUST-017**
+2. The default passphrase length MUST be 8 words (88 bits of entropy). **PNP-003-MUST-018**
+3. Implementations MAY support other wordlists for localization, provided the wordlist contains at least 2048 words and the entropy per word is clearly communicated to the user. **PNP-003-MAY-001**
+4. Implementations MUST display the entropy of the generated passphrase to the user. **PNP-003-MUST-019**
 
 ### 5.4 Bootstrap Handshake
 
-1. The peer who scanned the QR (or both peers simultaneously after passphrase exchange) MUST send a BootstrapHandshake message.
-2. The `proof` field MUST be computed as:
+1. The peer who scanned the QR (or both peers simultaneously after passphrase exchange) MUST send a BootstrapHandshake message. **PNP-003-MUST-020**
+2. The `proof` field MUST be computed as: **PNP-003-MUST-021**
    ```
    proof = HMAC-SHA-256(BS, ik_sender || ek_sender || nonce)
    ```
-3. The receiver MUST verify the `proof` by recomputing the HMAC with the received values and the locally derived BS. If verification fails, the bootstrap MUST be aborted and BS MUST be erased.
-4. After successful proof verification, both peers MUST exchange PreKeyBundles (included in the BootstrapHandshake) and transition to PNP-002 handshake.
-5. Both peers MUST erase the `seed` and BS from memory after the PNP-002 session reaches ESTABLISHED state. The long-term contact binding is maintained through the identity key association, not the bootstrap secret.
+3. The receiver MUST verify the `proof` by recomputing the HMAC with the received values and the locally derived BS. If verification fails, the bootstrap MUST be aborted and BS MUST be erased. **PNP-003-MUST-022**
+4. After successful proof verification, both peers MUST exchange PreKeyBundles (included in the BootstrapHandshake) and transition to PNP-002 handshake. **PNP-003-MUST-023**
+5. Both peers MUST erase the `seed` and BS from memory after the PNP-002 session reaches ESTABLISHED state. The long-term contact binding is maintained through the identity key association, not the bootstrap secret. **PNP-003-MUST-024**
 
 ### 5.5 SAS Verification
 
-1. After the AUTHENTICATED state is reached, either peer MAY request SAS verification.
-2. The SAS is computed as:
+1. After the AUTHENTICATED state is reached, either peer MAY request SAS verification. **PNP-003-MAY-002**
+2. The SAS is computed as: **PNP-003-MUST-025**
    ```
    sas_material = HKDF-SHA-256(
      salt = BS,
@@ -260,64 +278,75 @@ State transition table:
    sas_string = encode_as_digits(sas_material)  -- 6-digit decimal number
    ```
    The 5 bytes (40 bits) are converted to a 6-digit decimal string by taking `uint40 mod 1000000` and zero-padding.
-3. Both peers MUST display the SAS to the user. Users SHOULD compare the SAS over a voice channel or in person.
-4. Implementations MUST also support an emoji-based SAS (for accessibility): the 5 bytes are split into 5 values (0-255), each mapped to one of 256 distinct emoji.
-5. After the user confirms the SAS matches, the confirming peer MUST send a SASVerify message.
-6. Both peers MUST receive the SASVerify message and verify the `sas_mac` before transitioning to CONTACT_ESTABLISHED.
+3. Both peers MUST display the SAS to the user. **PNP-003-MUST-026** Users SHOULD compare the SAS over a voice channel or in person. **PNP-003-SHOULD-002**
+4. Implementations MUST also support an emoji-based SAS (for accessibility): the 5 bytes are split into 5 values (0-255), each mapped to one of 256 distinct emoji. **PNP-003-MUST-027**
+5. After the user confirms the SAS matches, the confirming peer MUST send a SASVerify message. **PNP-003-MUST-028**
+6. Both peers MUST receive the SASVerify message and verify the `sas_mac` before transitioning to CONTACT_ESTABLISHED. **PNP-003-MUST-029**
 
 ### 5.6 Local Network Discovery (mDNS)
 
-1. For LAN bootstrap, peers MUST announce their presence using mDNS with service type `_parolnet._tcp`.
-2. The TXT record MUST contain the CBOR-encoded DiscoveryAnnouncement, base64-encoded.
+1. For LAN bootstrap, peers MUST announce their presence using mDNS with service type `_parolnet._tcp`. **PNP-003-MUST-030**
+2. The TXT record MUST contain the CBOR-encoded DiscoveryAnnouncement, base64-encoded. **PNP-003-MUST-031**
 3. The `bs_hint` field allows a peer who already has a BS (from QR/passphrase) to identify the correct announcement without revealing the BS to network observers.
-4. The `nonce` MUST be rotated with each mDNS announcement (RECOMMENDED interval: 30 seconds).
-5. After discovering a matching peer, the peers MUST establish a direct TCP connection and proceed with the BootstrapHandshake over that connection.
-6. All mDNS announcements MUST cease once the connection is established.
+4. The `nonce` MUST be rotated with each mDNS announcement (RECOMMENDED interval: 30 seconds). **PNP-003-MUST-032**
+5. After discovering a matching peer, the peers MUST establish a direct TCP connection and proceed with the BootstrapHandshake over that connection. **PNP-003-MUST-033**
+6. All mDNS announcements MUST cease once the connection is established. **PNP-003-MUST-034**
 
 ### 5.7 Bluetooth Bootstrap
 
-1. For Bluetooth bootstrap, peers MUST advertise a BLE service with a designated UUID (TBD in final specification).
-2. The BLE advertisement MUST include the `bs_hint` (4 bytes) in the service data.
-3. Upon BLE connection, peers MUST exchange QRPayload-equivalent data over the GATT characteristic.
-4. The BLE connection MUST be encrypted at the link layer (BLE Secure Connections).
-5. After exchanging identity material, the peers MUST proceed with the BootstrapHandshake either over BLE or by transitioning to a TCP connection using information from the exchange.
+1. For Bluetooth bootstrap, peers MUST advertise a BLE service with service UUID `b51e4c00-50ef-4e6c-9a83-d2b4f0ae1c01`. **PNP-003-MUST-035** The service exposes two GATT characteristics:
+   - QR Exchange Characteristic: `b51e4c00-50ef-4e6c-9a83-d2b4f0ae1c02` (write + notify, carries a QRPayload equivalent in CBOR).
+   - BS Confirmation Characteristic: `b51e4c00-50ef-4e6c-9a83-d2b4f0ae1c03` (write + notify, carries the BootstrapHandshake message).
+2. The BLE advertisement MUST include the `bs_hint` (4 bytes) in the service data. **PNP-003-MUST-036**
+3. Upon BLE connection, peers MUST exchange QRPayload-equivalent data over the QR Exchange Characteristic. **PNP-003-MUST-037**
+4. The BLE connection MUST be encrypted at the link layer (BLE Secure Connections, LE Secure Connections pairing with Numeric Comparison or Passkey). **PNP-003-MUST-038**
+5. After exchanging identity material, the peers MUST proceed with the BootstrapHandshake either over BLE or by transitioning to a TCP connection using information from the exchange. **PNP-003-MUST-039**
 
 ## 6. Security Considerations
 
-1. **QR Code Interception**: An attacker who photographs the QR code obtains the `seed` and the presenter's identity key. This allows them to derive BS and potentially impersonate the scanner. To mitigate this: (a) QR codes SHOULD be displayed briefly, (b) the QR presenter MUST accept only one bootstrap per seed, (c) SAS verification SHOULD be performed for high-security contacts.
+1. **QR Code Interception**: An attacker who photographs the QR code obtains the `seed` and the presenter's identity key. This allows them to derive BS and potentially impersonate the scanner. To mitigate this: (a) QR codes SHOULD be displayed briefly **PNP-003-SHOULD-003**, (b) the QR presenter MUST accept only one bootstrap per seed **PNP-003-MUST-040**, (c) SAS verification SHOULD be performed for high-security contacts. **PNP-003-SHOULD-004**
 
-2. **Passphrase Brute-Force**: With 8 BIP-39 words (88 bits of entropy) and Argon2id strengthening, offline brute-force is computationally infeasible. Implementations MUST NOT accept passphrases shorter than 6 words. The Argon2id parameters (t=3, m=64MB, p=4) SHOULD be tuned for a computation time of 500ms-2s on the target platform.
+2. **Passphrase Brute-Force**: With 8 BIP-39 words (88 bits of entropy) and Argon2id strengthening, offline brute-force is computationally infeasible. Implementations MUST NOT accept passphrases shorter than 6 words. **PNP-003-MUST-041** The Argon2id parameters (t=3, m=64MB, p=4) SHOULD be tuned for a computation time of 500ms-2s on the target platform. **PNP-003-SHOULD-005**
 
-3. **Man-in-the-Middle**: Without SAS verification or a pre-existing trusted channel, a MITM attacker can intercept the QR scan and substitute their own identity key. SAS verification detects this attack with probability `1 - 10^-6` (for 6-digit SAS). Implementations SHOULD strongly encourage SAS verification for initial contacts and MUST make the verification option prominently visible.
+3. **Man-in-the-Middle**: Without SAS verification or a pre-existing trusted channel, a MITM attacker can intercept the QR scan and substitute their own identity key. SAS verification detects this attack with probability `1 - 10^-6` (for 6-digit SAS). Implementations SHOULD strongly encourage SAS verification for initial contacts **PNP-003-SHOULD-006** and MUST make the verification option prominently visible. **PNP-003-MUST-042**
 
-4. **Replay of Bootstrap Messages**: The 128-bit nonce in BootstrapHandshake prevents replay. The timestamp in the QR payload provides an additional time-bound. Implementations MUST reject bootstrap handshakes with nonces seen in the last 60 minutes.
+4. **Replay of Bootstrap Messages**: The 128-bit nonce in BootstrapHandshake prevents replay. The timestamp in the QR payload provides an additional time-bound. Implementations MUST reject bootstrap handshakes with nonces seen in the last 60 minutes. **PNP-003-MUST-043**
 
-5. **BS Erasure**: The bootstrap secret is ephemeral and MUST be erased after PNP-002 session establishment. If BS is compromised after erasure, it does not affect the ongoing Double Ratchet session (forward secrecy is provided by PNP-002).
+5. **BS Erasure**: The bootstrap secret is ephemeral and MUST be erased after PNP-002 session establishment. **PNP-003-MUST-044** If BS is compromised after erasure, it does not affect the ongoing Double Ratchet session (forward secrecy is provided by PNP-002).
 
-6. **Local Network Exposure**: mDNS announcements reveal that a ParolNet peer exists on the local network. The `bs_hint` partially mitigates indiscriminate correlation, but a local network observer can detect ParolNet usage. For high-risk environments, implementations SHOULD prefer Bluetooth or direct QR exchange over mDNS.
+6. **Local Network Exposure**: mDNS announcements reveal that a ParolNet peer exists on the local network. The `bs_hint` partially mitigates indiscriminate correlation, but a local network observer can detect ParolNet usage. For high-risk environments, implementations SHOULD prefer Bluetooth or direct QR exchange over mDNS. **PNP-003-SHOULD-007**
 
-7. **Bluetooth Security**: BLE advertisements are inherently public. The `bs_hint` prevents casual observers from associating an advertisement with a specific bootstrap exchange, but an attacker who has the BS can match it. BLE Secure Connections provides link-layer encryption, but implementations MUST NOT rely solely on BLE link-layer security; the BootstrapHandshake HMAC proof provides application-layer authentication.
+7. **Bluetooth Security**: BLE advertisements are inherently public. The `bs_hint` prevents casual observers from associating an advertisement with a specific bootstrap exchange, but an attacker who has the BS can match it. BLE Secure Connections provides link-layer encryption, but implementations MUST NOT rely solely on BLE link-layer security; the BootstrapHandshake HMAC proof provides application-layer authentication. **PNP-003-MUST-045**
 
 ## 7. Privacy Considerations
 
 1. **No Server Storage**: At no point during bootstrap is any data stored on any server, relay, or third-party infrastructure. All data exchange occurs directly between the two peers (QR, voice, BLE, LAN) or through existing trusted channels.
 
-2. **Ephemeral Discovery**: mDNS announcements and BLE advertisements MUST cease once the bootstrap is complete. The `nonce` rotation ensures that passive observers cannot track a peer across announcements.
+2. **Ephemeral Discovery**: mDNS announcements and BLE advertisements MUST cease once the bootstrap is complete. **PNP-003-MUST-046** The `nonce` rotation ensures that passive observers cannot track a peer across announcements.
 
-3. **Identity Key Exposure**: The QR payload and BootstrapHandshake contain the identity public key in cleartext (or base45-encoded). This is acceptable because bootstrap is inherently an identity-revealing operation -- you are introducing yourself to a specific person. However, the identity key MUST NOT be broadcast beyond the intended recipient.
+3. **Identity Key Exposure**: The QR payload and BootstrapHandshake contain the identity public key in cleartext (or base45-encoded). This is acceptable because bootstrap is inherently an identity-revealing operation -- you are introducing yourself to a specific person. However, the identity key MUST NOT be broadcast beyond the intended recipient. **PNP-003-MUST-047**
 
 4. **No Breadcrumbs**: After successful bootstrap:
-   - The QR code MUST be cleared from the display and any screenshot buffer.
-   - The passphrase MUST be erased from memory.
-   - The BS MUST be erased after PNP-002 session establishment.
-   - mDNS/BLE advertisements MUST be stopped.
-   - No logs, analytics, or telemetry regarding the bootstrap event MUST be transmitted or stored persistently. Local secure logs MAY be kept if the user explicitly opts in.
+   - The QR code MUST be cleared from the display and any screenshot buffer. **PNP-003-MUST-048**
+   - The passphrase MUST be erased from memory. **PNP-003-MUST-049**
+   - The BS MUST be erased after PNP-002 session establishment. **PNP-003-MUST-050**
+   - mDNS/BLE advertisements MUST be stopped. **PNP-003-MUST-051**
+   - No logs, analytics, or telemetry regarding the bootstrap event MUST be transmitted or stored persistently. Local secure logs MAY be kept if the user explicitly opts in. **PNP-003-MUST-052**
 
 5. **Contact Graph Protection**: The bootstrap process creates a contact binding that is stored only on the two peers' devices. No central directory, social graph, or contact list exists on any server. If a peer's device is compromised, only that peer's contact list is exposed -- there is no server-side graph to seize.
 
-6. **Relay Hint Privacy**: The optional `relay` field in the QR payload reveals a relay that the presenter uses. This relay could be monitored. Implementations SHOULD rotate relay hints and MAY omit the relay hint entirely if the peers are bootstrapping on the same local network.
+6. **Relay Hint Privacy**: The optional `relay` field in the QR payload reveals a relay that the presenter uses. This relay could be monitored. Implementations SHOULD rotate relay hints **PNP-003-SHOULD-008** and MAY omit the relay hint entirely if the peers are bootstrapping on the same local network. **PNP-003-MAY-003**
 
-## 8. Cross-Protocol Dependencies
+## 8. Cross-Protocol References
+
+| Spec | Relationship |
+|------|-------------|
+| PNP-001 (Wire Protocol) | BootstrapHandshake messages transmitted as PNP-001 envelopes with `msg_type = 0x05`. The 30-minute QR freshness window defined in §5.1.6 is scoped to bootstrap only and is separate from the envelope-level timestamp / replay windows in PNP-001 §5.4. |
+| PNP-002 (Handshake) | PBP produces an authenticated IK binding + BS that feeds PNP-002. After PNP-002 ESTABLISHED, BS is erased. |
+| PNP-004 (Relay Circuit) | Relay hints in QR payloads may reference PNP-004 relays. |
+| PNP-005 (Gossip Mesh) | Pre-key bundles exchanged during bootstrap may subsequently be republished via gossip. |
+
+## 9. Cross-Protocol Dependencies
 
 ```
 +-------------------+

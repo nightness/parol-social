@@ -1,8 +1,23 @@
 # PNP-004: ParolNet Relay Circuit Protocol
 
-### Status: DRAFT
-### Version: 0.1
-### Date: 2026-04-10
+### Status: CANDIDATE
+### Version: 0.2
+### Date: 2026-04-17
+
+---
+
+## Changelog
+
+**v0.2 (2026-04-17) — Harmonization pass**
+
+- Status bumped from DRAFT to CANDIDATE.
+- Clarified AEAD layering in §5.1: onion-layer AEAD is ChaCha20-Poly1305 ONLY, not negotiable. This is independent of the PNP-001 session-layer AEAD (which MAY be AES-256-GCM when peers negotiate). Added explicit reconciliation note pointing to PNP-001 §6.6.
+- Linked §5.1.5 nonce construction to scheme `N-ONION` in PNP-001 §9 Nonce Construction Catalog.
+- Bound §5.9 padding rate to PNP-006 bandwidth modes: "1 cell per 500ms" is the NORMAL-mode default; other rates apply under LOW or HIGH modes as defined in PNP-006 §3.
+- Added clause IDs to every RFC 2119 statement (`PNP-004-MUST-NNN`, `-SHOULD-NNN`, `-MAY-NNN`).
+- Completed cross-reference table.
+
+**v0.1 (2026-04-10)** — Initial draft.
 
 ---
 
@@ -14,7 +29,7 @@ This document is a protocol design target. The `parolnet-relay` crate contains r
 
 The ParolNet Relay Circuit Protocol (PRCP) defines how a client constructs an onion-routed circuit through a sequence of volunteer relay nodes, such that no single relay learns both the origin and destination of a data flow. The protocol uses fixed-size cells to prevent size-based traffic correlation, incremental circuit construction with per-hop X25519 key agreement, and layered ChaCha20-Poly1305 encryption. Relay nodes are assumed potentially compromised (zero-trust); the security property emerges from the requirement that an adversary must compromise all hops simultaneously to deanonymize a circuit.
 
-This protocol draws inspiration from Tor's circuit construction but simplifies the design: it uses CBOR (RFC 8949) for structured sub-fields within cells, ChaCha20-Poly1305 (RFC 8439) as the sole AEAD cipher for layer encryption, and a gossip-based relay directory rather than a centralized directory authority.
+This protocol draws inspiration from Tor's circuit construction but simplifies the design: it uses CBOR (RFC 8949) for structured sub-fields within cells, ChaCha20-Poly1305 (RFC 8439) as the sole AEAD cipher for layer encryption (see §5.1), and a gossip-based relay directory rather than a centralized directory authority.
 
 ## 2. Terminology
 
@@ -32,7 +47,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## 3. Cell Format
 
-All cells MUST be exactly 512 bytes. Shorter payloads MUST be padded with random bytes to fill the cell. A receiver MUST NOT interpret padding bytes.
+All cells MUST be exactly 512 bytes. **PNP-004-MUST-001** Shorter payloads MUST be padded with random bytes to fill the cell. **PNP-004-MUST-002** A receiver MUST NOT interpret padding bytes. **PNP-004-MUST-003**
 
 ### 3.1 Cell Header (Fixed, 7 bytes)
 
@@ -72,7 +87,7 @@ Offset  Length  Field
 32+N    ...     Random padding to fill 505 bytes
 ```
 
-The handshake extensions MAY include protocol version negotiation and requested cryptographic parameters. If absent, defaults apply (ChaCha20-Poly1305, protocol version 1).
+The handshake extensions MAY include protocol version negotiation and requested cryptographic parameters. If absent, defaults apply (ChaCha20-Poly1305, protocol version 1). Note: the CREATE payload MUST NOT request any onion-layer AEAD cipher other than ChaCha20-Poly1305. Implementations MUST reject any requested cipher other than ChaCha20-Poly1305. **PNP-004-MUST-004**
 
 ### 3.4 CREATED Payload
 
@@ -98,11 +113,11 @@ Offset  Length  Field
 64+N    ...     Random padding
 ```
 
-The relay receiving EXTEND MUST look up the specified PeerId in its local relay directory to resolve the network address. This prevents the originator from embedding IP addresses in EXTEND cells, which would leak topology information to intermediate relays if the cell were compromised. The relay MUST open a TLS connection to the resolved address (if not already connected), allocate a new CID on that connection, and send a CREATE cell on behalf of the OP. It MUST NOT log, store, or forward the OP's identity. If the PeerId is not found in the local directory, the relay MUST respond with a DESTROY cell (reason: protocol error).
+The relay receiving EXTEND MUST look up the specified PeerId in its local relay directory to resolve the network address. **PNP-004-MUST-005** This prevents the originator from embedding IP addresses in EXTEND cells, which would leak topology information to intermediate relays if the cell were compromised. The relay MUST open a TLS connection to the resolved address (if not already connected), allocate a new CID on that connection, and send a CREATE cell on behalf of the OP. **PNP-004-MUST-006** It MUST NOT log, store, or forward the OP's identity. **PNP-004-MUST-007** If the PeerId is not found in the local directory, the relay MUST respond with a DESTROY cell (reason: protocol error). **PNP-004-MUST-008**
 
 ### 3.6 EXTENDED Payload
 
-Same format as CREATED (Section 3.4), relayed back through the circuit encrypted under each hop's key.
+Same format as CREATED (§3.4), relayed back through the circuit encrypted under each hop's key.
 
 ### 3.7 DATA Payload
 
@@ -116,7 +131,7 @@ Offset  Length  Field
 7+N     ...     Random padding to fill 505 bytes
 ```
 
-DATA cells carry application-layer streams multiplexed within a single circuit. The Stream ID is chosen by the OP and MUST be unique per circuit.
+DATA cells carry application-layer streams multiplexed within a single circuit. The Stream ID is chosen by the OP and MUST be unique per circuit. **PNP-004-MUST-009**
 
 ### 3.8 DESTROY Payload
 
@@ -137,7 +152,7 @@ Reason codes:
 
 ### 3.9 PADDING Payload
 
-All 505 payload bytes MUST be cryptographically random. Receivers MUST silently discard PADDING cells after decryption. PADDING cells MUST be indistinguishable from DATA cells to observers (same size, same encryption).
+All 505 payload bytes MUST be cryptographically random. **PNP-004-MUST-010** Receivers MUST silently discard PADDING cells after decryption. **PNP-004-MUST-011** PADDING cells MUST be indistinguishable from DATA cells to observers (same size, same encryption). **PNP-004-MUST-012**
 
 ## 4. State Machine
 
@@ -223,51 +238,53 @@ A relay maintains a mapping: (connection_in, CID_in) <-> (connection_out, CID_ou
 
 ### 5.1 Key Exchange
 
-1. The OP MUST generate a fresh X25519 ephemeral key pair for each hop.
-2. The relay MUST generate a fresh X25519 ephemeral key pair for each CREATE it handles.
-3. The shared secret MUST be computed as X25519(client_ephemeral_private, relay_ephemeral_public).
-4. From the 32-byte shared secret, both sides MUST derive keys using HKDF-SHA256 (RFC 5869) with info string "prcp-key-expand-v1":
+The onion-layer AEAD cipher is **ChaCha20-Poly1305 ONLY** and is NOT negotiable. Every hop MUST use ChaCha20-Poly1305 for layer encryption. **PNP-004-MUST-013** This is independent of the session-layer AEAD cipher selected during the PNP-002 handshake (which MAY be ChaCha20-Poly1305 or AES-256-GCM). Onion layers always use ChaCha20-Poly1305 because (a) intermediate hops cannot observe a session-layer negotiation, and (b) constant-time behavior without AES-NI hardware must be guaranteed at every relay. See PNP-001 §6.6 for the full reconciliation.
+
+1. The OP MUST generate a fresh X25519 ephemeral key pair for each hop. **PNP-004-MUST-014**
+2. The relay MUST generate a fresh X25519 ephemeral key pair for each CREATE it handles. **PNP-004-MUST-015**
+3. The shared secret MUST be computed as X25519(client_ephemeral_private, relay_ephemeral_public). **PNP-004-MUST-016**
+4. From the 32-byte shared secret, both sides MUST derive keys using HKDF-SHA256 (RFC 5869) with info string "prcp-key-expand-v1": **PNP-004-MUST-017**
    - Bytes 0-31: Forward key (OP->Exit direction, ChaCha20-Poly1305)
    - Bytes 32-63: Backward key (Exit->OP direction, ChaCha20-Poly1305)
    - Bytes 64-75: Forward nonce seed (12 bytes)
    - Bytes 76-87: Backward nonce seed (12 bytes)
-5. Nonces MUST be constructed as: nonce_seed XOR counter (big-endian uint96). The counter starts at 0 and increments by 1 for each cell encrypted in that direction. A node MUST destroy the circuit if the counter reaches 2^32 (approximately 2 TB of cell data).
-6. The key confirmation in CREATED MUST be verified before the OP proceeds. Failure to verify MUST result in circuit destruction.
+5. Nonces MUST be constructed per scheme `N-ONION` in PNP-001 §9 Nonce Construction Catalog: `nonce_seed XOR counter (big-endian uint96)`. **PNP-004-MUST-018** The counter starts at 0 and increments by 1 for each cell encrypted in that direction. A node MUST destroy the circuit if the counter reaches 2^32 (approximately 2 TB of cell data). **PNP-004-MUST-019**
+6. The key confirmation in CREATED MUST be verified before the OP proceeds. Failure to verify MUST result in circuit destruction. **PNP-004-MUST-020**
 
 ### 5.2 Layer Encryption
 
-1. When the OP sends a DATA cell through a 3-hop circuit, it MUST encrypt the payload three times: first with hop 3's forward key, then hop 2's forward key, then hop 1's forward key.
-2. Each hop peels one layer by decrypting with its forward key, then forwards the result.
-3. In the reverse direction (exit -> OP), each hop adds one layer by encrypting with its backward key. The OP decrypts all three layers in order (hop 1, hop 2, hop 3).
-4. The AEAD tag (16 bytes) for each layer MUST be prepended to the encrypted payload. This reduces the effective payload capacity by 16 bytes per hop. For a 3-hop circuit, the maximum DATA payload data field is 505 - (3 * 16) = 457 bytes.
-5. Relay nodes MUST NOT be able to distinguish encrypted DATA from encrypted PADDING. Both MUST use the same encryption path.
+1. When the OP sends a DATA cell through a 3-hop circuit, it MUST encrypt the payload three times: first with hop 3's forward key, then hop 2's forward key, then hop 1's forward key. **PNP-004-MUST-021**
+2. Each hop peels one layer by decrypting with its forward key, then forwards the result. **PNP-004-MUST-022**
+3. In the reverse direction (exit -> OP), each hop adds one layer by encrypting with its backward key. The OP decrypts all three layers in order (hop 1, hop 2, hop 3). **PNP-004-MUST-023**
+4. The AEAD tag (16 bytes) for each layer MUST be prepended to the encrypted payload. **PNP-004-MUST-024** This reduces the effective payload capacity by 16 bytes per hop. For a 3-hop circuit, the maximum DATA payload data field is 505 - (3 * 16) = 457 bytes.
+5. Relay nodes MUST NOT be able to distinguish encrypted DATA from encrypted PADDING. Both MUST use the same encryption path. **PNP-004-MUST-025**
 
 ### 5.3 Circuit Construction
 
-1. The OP MUST build circuits incrementally: first establish keys with hop 1, then extend to hop 2 through hop 1, then extend to hop 3 through hops 1 and 2.
-2. Circuits MUST have exactly 3 hops. Implementations MUST NOT allow fewer than 3 hops. Future protocol versions MAY permit variable-length circuits.
-3. The OP SHOULD pre-build circuits before they are needed and keep a pool of 3-5 ready circuits.
-4. Circuit construction MUST complete within 30 seconds. If any hop fails to respond within 10 seconds, the OP MUST destroy the partial circuit and retry with a different relay selection.
+1. The OP MUST build circuits incrementally: first establish keys with hop 1, then extend to hop 2 through hop 1, then extend to hop 3 through hops 1 and 2. **PNP-004-MUST-026**
+2. Circuits MUST have exactly 3 hops. Implementations MUST NOT allow fewer than 3 hops. **PNP-004-MUST-027** Future protocol versions MAY permit variable-length circuits.
+3. The OP SHOULD pre-build circuits before they are needed and keep a pool of 3-5 ready circuits. **PNP-004-SHOULD-001**
+4. Circuit construction MUST complete within 30 seconds. **PNP-004-MUST-028** If any hop fails to respond within 10 seconds, the OP MUST destroy the partial circuit and retry with a different relay selection. **PNP-004-MUST-029**
 
 ### 5.4 Circuit IDs
 
-1. CIDs MUST be randomly generated 32-bit unsigned integers.
-2. CIDs are scoped to a single TLS connection between two nodes. The same CID value MAY appear on different connections without conflict.
-3. When a relay extends a circuit, it MUST choose a new random CID for the outgoing connection that does not collide with any existing CID on that connection.
-4. CID 0x00000000 is reserved and MUST NOT be used for circuits.
+1. CIDs MUST be randomly generated 32-bit unsigned integers. **PNP-004-MUST-030**
+2. CIDs are scoped to a single TLS connection between two nodes. The same CID value MAY appear on different connections without conflict. **PNP-004-MAY-001**
+3. When a relay extends a circuit, it MUST choose a new random CID for the outgoing connection that does not collide with any existing CID on that connection. **PNP-004-MUST-031**
+4. CID 0x00000000 is reserved and MUST NOT be used for circuits. **PNP-004-MUST-032**
 
 ### 5.5 Relay Cell Processing
 
-1. Upon receiving a cell, a relay MUST look up the (connection, CID) pair in its circuit table.
-2. If no matching circuit exists and the cell is CREATE, the relay MUST initiate the handshake.
-3. If no matching circuit exists and the cell is not CREATE, the relay MUST silently discard it.
-4. For DATA and PADDING cells on an OPEN circuit, the relay MUST decrypt one layer (forward direction) or encrypt one layer (backward direction) and forward to the paired connection/CID.
-5. A relay MUST NOT buffer more than 64 cells per circuit. If the outgoing connection is congested, the relay MUST drop the oldest cells and MAY send DESTROY.
-6. A relay MUST enforce a maximum of 8192 simultaneous circuits. Exceeding this limit MUST result in rejecting new CREATE cells.
+1. Upon receiving a cell, a relay MUST look up the (connection, CID) pair in its circuit table. **PNP-004-MUST-033**
+2. If no matching circuit exists and the cell is CREATE, the relay MUST initiate the handshake. **PNP-004-MUST-034**
+3. If no matching circuit exists and the cell is not CREATE, the relay MUST silently discard it. **PNP-004-MUST-035**
+4. For DATA and PADDING cells on an OPEN circuit, the relay MUST decrypt one layer (forward direction) or encrypt one layer (backward direction) and forward to the paired connection/CID. **PNP-004-MUST-036**
+5. A relay MUST NOT buffer more than 64 cells per circuit. **PNP-004-MUST-037** If the outgoing connection is congested, the relay MUST drop the oldest cells and MAY send DESTROY. **PNP-004-MUST-038**
+6. A relay MUST enforce a maximum of 8192 simultaneous circuits. **PNP-004-MUST-039** Exceeding this limit MUST result in rejecting new CREATE cells. **PNP-004-MUST-040**
 
 ### 5.6 Relay Directory (Gossip-Based)
 
-1. Each relay MUST publish a signed relay descriptor containing:
+1. Each relay MUST publish a signed relay descriptor containing: **PNP-004-MUST-041**
    - PeerId (32 bytes)
    - Ed25519 identity public key (32 bytes)
    - X25519 long-term public key (32 bytes, used for optional ntor-like optimization)
@@ -276,38 +293,48 @@ A relay maintains a mapping: (connection_in, CID_in) <-> (connection_out, CID_ou
    - Uptime counter
    - Descriptor timestamp (Unix epoch seconds)
    - Ed25519 signature over all preceding fields
-2. Relay descriptors MUST be propagated via the Gossip/Mesh Protocol (PNP-005).
-3. A descriptor MUST be refreshed at least every 6 hours. Descriptors older than 24 hours MUST be considered stale and SHOULD NOT be used for new circuits.
-4. Nodes MUST verify the Ed25519 signature and confirm PeerId = SHA-256(identity_public_key) before accepting a descriptor.
-5. Nodes SHOULD maintain a local cache of at least 100 relay descriptors.
+2. Relay descriptors MUST be propagated via the Gossip/Mesh Protocol (PNP-005). **PNP-004-MUST-042**
+3. A descriptor MUST be refreshed at least every 6 hours. **PNP-004-MUST-043** Descriptors older than 24 hours MUST be considered stale and SHOULD NOT be used for new circuits. **PNP-004-SHOULD-002**
+4. Nodes MUST verify the Ed25519 signature and confirm PeerId = SHA-256(identity_public_key) before accepting a descriptor. **PNP-004-MUST-044**
+5. Nodes SHOULD maintain a local cache of at least 100 relay descriptors. **PNP-004-SHOULD-003**
 
 ### 5.7 Relay Selection
 
-1. The OP MUST select hop 1 from its guard set. The guard set SHOULD contain 2-3 relays, selected from relays with uptime exceeding 7 days, and SHOULD be stable for at least 30 days.
-2. Hops 2 and 3 MUST be selected randomly from the known relay pool, excluding the guard and each other.
-3. No two hops in a circuit MUST share the same /16 IPv4 subnet or /48 IPv6 prefix.
-4. The OP SHOULD weight relay selection by advertised bandwidth class.
+1. The OP MUST select hop 1 from its guard set. **PNP-004-MUST-045** The guard set SHOULD contain 2-3 relays, selected from relays with uptime exceeding 7 days, and SHOULD be stable for at least 30 days. **PNP-004-SHOULD-004**
+2. Hops 2 and 3 MUST be selected randomly from the known relay pool, excluding the guard and each other. **PNP-004-MUST-046**
+3. No two hops in a circuit MUST share the same /16 IPv4 subnet or /48 IPv6 prefix. **PNP-004-MUST-047** The OP resolves hop network addresses from the local relay directory (see §5.6) and applies the subnet-diversity filter during candidate selection.
+4. The OP SHOULD weight relay selection by advertised bandwidth class. **PNP-004-SHOULD-005**
 
 ### 5.8 Circuit Teardown
 
-1. **Graceful**: Either endpoint sends a DESTROY cell. Each relay in the path MUST forward DESTROY to the next hop, then deallocate the circuit.
-2. **Ungraceful**: If no cell (including PADDING) is received on a circuit for 90 seconds, the relay MUST consider the circuit dead and deallocate it. The relay SHOULD send DESTROY in both directions.
-3. Upon receiving DESTROY, a relay MUST deallocate the circuit within 1 second and MUST NOT forward any further cells on that CID.
+1. **Graceful**: Either endpoint sends a DESTROY cell. Each relay in the path MUST forward DESTROY to the next hop, then deallocate the circuit. **PNP-004-MUST-048**
+2. **Ungraceful**: If no cell (including PADDING) is received on a circuit for 90 seconds, the relay MUST consider the circuit dead and deallocate it. **PNP-004-MUST-049** The relay SHOULD send DESTROY in both directions. **PNP-004-SHOULD-006**
+3. Upon receiving DESTROY, a relay MUST deallocate the circuit within 1 second and MUST NOT forward any further cells on that CID. **PNP-004-MUST-050**
 
 ### 5.9 Padding Between Relays
 
-1. When a circuit is OPEN, each pair of adjacent nodes (OP-hop1, hop1-hop2, hop2-hop3) MUST exchange PADDING cells at a constant rate when no DATA cells are pending. The default rate is 1 cell per 500ms (see PNP-006 for traffic shaping parameters).
-2. The padding rate SHOULD be negotiated during circuit construction via handshake extensions.
-3. PADDING cells MUST be encrypted identically to DATA cells and MUST be indistinguishable to any observer.
+The padding rate on a circuit link MUST match the active PNP-006 bandwidth mode (§3 of PNP-006). The default rate of **1 cell per 500 ms** applies only under NORMAL mode. The rates for other modes are:
+
+| PNP-006 Mode | Inter-cell interval | Cells/sec |
+|--------------|---------------------|-----------|
+| LOW          | 2000 ms             | 0.5       |
+| NORMAL       | 500 ms (default)    | 2         |
+| HIGH         | 100 ms              | 10        |
+| MediaCall    | 20 ms               | 50        |
+
+1. When a circuit is OPEN, each pair of adjacent nodes (OP-hop1, hop1-hop2, hop2-hop3) MUST exchange PADDING cells at the constant rate implied by the active bandwidth mode when no DATA cells are pending. **PNP-004-MUST-051**
+2. The padding rate SHOULD be negotiated during circuit construction via handshake extensions. **PNP-004-SHOULD-007** If not negotiated, both sides default to NORMAL mode (500 ms).
+3. PADDING cells MUST be encrypted identically to DATA cells and MUST be indistinguishable to any observer. **PNP-004-MUST-052**
 
 ## 6. Security Considerations
 
-1. **Compromised relays**: The protocol assumes any individual relay may be compromised. Security depends on the adversary not controlling all three hops simultaneously. Relay selection rules (Section 5.7) mitigate Sybil attacks by subnet diversity requirements.
-2. **Replay attacks**: Each cell is encrypted with a unique nonce derived from a monotonically increasing counter. Replayed cells will have invalid AEAD tags and MUST be rejected.
+1. **Compromised relays**: The protocol assumes any individual relay may be compromised. Security depends on the adversary not controlling all three hops simultaneously. Relay selection rules (§5.7) mitigate Sybil attacks by subnet diversity requirements.
+2. **Replay attacks**: Each cell is encrypted with a unique nonce derived from a monotonically increasing counter. Replayed cells will have invalid AEAD tags and MUST be rejected. **PNP-004-MUST-053**
 3. **Forward secrecy**: Ephemeral X25519 keys are used for each circuit. Compromise of a relay's long-term identity key does not reveal past session keys.
 4. **Circuit fingerprinting**: Fixed cell sizes and constant-rate padding prevent size and timing analysis on individual links. However, a global passive adversary observing all links simultaneously may still perform traffic confirmation attacks. This is an inherent limitation shared with Tor.
-5. **RELAY_EARLY attacks**: The RELAY_EARLY cell type includes a hop counter decremented at each relay. This prevents a malicious relay from extending a circuit to an arbitrary depth to perform tagging attacks. An OP MUST set the counter to 3. Each relay MUST decrement by 1 and MUST NOT forward if counter reaches 0.
-6. **Cell counter overflow**: Implementations MUST destroy circuits before the nonce counter reaches 2^32 to prevent nonce reuse.
+5. **RELAY_EARLY attacks**: The RELAY_EARLY cell type includes a hop counter decremented at each relay. This prevents a malicious relay from extending a circuit to an arbitrary depth to perform tagging attacks. An OP MUST set the counter to 3. **PNP-004-MUST-054** Each relay MUST decrement by 1 and MUST NOT forward if counter reaches 0. **PNP-004-MUST-055**
+6. **Cell counter overflow**: Implementations MUST destroy circuits before the nonce counter reaches 2^32 to prevent nonce reuse. **PNP-004-MUST-056**
+7. **Cross-layer cipher isolation**: The onion-layer AEAD (ChaCha20-Poly1305 only) is isolated from the session-layer AEAD negotiation (PNP-001 §6.6). An attacker who coerces a weaker session-layer cipher does not weaken the onion layers. **PNP-004-MUST-057**
 
 ## 7. Privacy Considerations
 
@@ -315,4 +342,14 @@ A relay maintains a mapping: (connection_in, CID_in) <-> (connection_out, CID_ou
 2. CIDs are locally scoped and randomly chosen, preventing cross-connection correlation.
 3. The relay directory is distributed via gossip, preventing a directory server from learning which relays a client is interested in.
 4. Guard nodes reduce the probability of an adversary being selected as the first hop over time, compared to random first-hop selection.
-5. Implementations MUST NOT include timestamps, sequence numbers, or any OP-identifying information in cell payloads beyond what is specified in this document.
+5. Implementations MUST NOT include timestamps, sequence numbers, or any OP-identifying information in cell payloads beyond what is specified in this document. **PNP-004-MUST-058**
+
+## 8. Cross-Protocol References
+
+| Spec | Relationship |
+|------|-------------|
+| PNP-001 (Wire Protocol) | Circuit DATA cells MAY carry PNP-001 envelopes. Onion-layer AEAD is scoped independently of the session-layer AEAD — see PNP-001 §6.6 for reconciliation. Nonce scheme `N-ONION` defined in PNP-001 §9. |
+| PNP-002 (Handshake) | Circuit key exchange uses the same X25519 primitives as PNP-002 but with per-hop ephemeral keys. |
+| PNP-005 (Gossip Mesh) | Relay descriptors (§5.6) are distributed as gossip messages with payload type 0x01 (RELAY_DESCRIPTOR). |
+| PNP-006 (Traffic Shaping) | The padding rate (§5.9) MUST follow the active PNP-006 bandwidth mode. |
+| PNP-008 (Relay Federation) | Authority signatures on relay descriptors are federated per PNP-008. |
