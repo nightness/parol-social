@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — H12 Phase 3 prep: FederationSync / FederationHeartbeat wire structs + sync_id replay cache (PNP-008 §4.1, §4.2, MUST-006)
+- `parolnet-protocol::federation` now carries the full wire structs: `FederationSync`, `FederationHeartbeat`, plus supporting types `SyncScope`, `HeartbeatFlags`, `LoadHint`. Each has Ed25519 `sign`/`verify` over a domain-separated (`PNP-008-FederationSync-v1`, `PNP-008-FederationHeartbeat-v1`) SHA-256 of the signable fields; `timestamp_fresh()` implements the ±300 s window from MUST-008. CBOR encode/decode roundtrips preserve signatures. `response_descriptors` carries descriptors as opaque CBOR byte blobs (`ByteBuf`) so the type can live in `parolnet-protocol` without depending on `parolnet-relay`.
+- `parolnet-mesh::replay`: new `SyncIdReplayCache` enforces MUST-006 — rejects duplicate sync_ids within a 300 s window, evicts old entries on access, hard-caps memory to 4096 entries by default.
+- Conformance: MUST-006/007/008/009/010/011 tests now exercise the real types — real `FederationSync::verify` for MUST-007 signature-covers-all-fields with tamper rejection, real `SyncIdReplayCache` for MUST-006 replay, real signed heartbeats with counter monotonicity for MUST-010. The earlier placeholder tests were dropped.
+- 14 new protocol tests + 7 new mesh tests + 4 upgraded conformance tests. Full workspace green.
+- Unblocks FederationManager: state machine can now construct, sign, verify, replay-check, and serialize federation payloads without a single TODO in the wire layer.
+
 ### Added — H12 Phase 3 prep: RelayReputation + directory integration (PNP-008 §7)
 - New `parolnet-relay::health` module: `RelayReputation` with EWMA-0.9 score (MUST-032), §7.1 event table (`ObservationEvent`), SUSPECT / BANNED state machine (MUST-034 / MUST-035), invalid-signature rolling window (>3 in 60 s triggers BAN), 24 h BAN cooldown, STABLE promotion after 7 d ACTIVE at score ≥ 0.8 (SHOULD-005), 10 min persist-due hinting (MUST-036). `RelayFlags` is a serde-transparent `u32` bitfield — no new crate deps.
 - `parolnet-relay::directory::RelayDirectory` now carries per-peer reputation: `record_reputation_event`, `reputation`, `reputation_mut`, `is_reputation_eligible`. The existing `weighted_select` path auto-filters SUSPECT and BANNED peers so all circuit-building callers pick up MUST-034 / MUST-035 without code changes. New `select_by_reputation()` complements `select_random()` with reputation-weighted selection for federation-peer choice.

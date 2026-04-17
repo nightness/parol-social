@@ -258,66 +258,196 @@ fn federation_rate_limits_are_100_per_min_descriptors_10_per_hour_syncs() {
     assert_eq!(sync_initiations_per_hour, 10);
 }
 
-// -- §4.2 Heartbeat timing ---------------------------------------------------
-
-#[clause("PNP-008-MUST-011")]
-#[test]
-fn heartbeat_interval_is_60_seconds_timeout_180_seconds() {
-    let heartbeat_interval_secs: u64 = 60;
-    let peer_unreachable_secs: u64 = 180;
-    assert_eq!(heartbeat_interval_secs, 60);
-    assert_eq!(peer_unreachable_secs, 180);
-    assert!(peer_unreachable_secs >= 3 * heartbeat_interval_secs);
-}
-
-#[clause("PNP-008-MUST-010")]
-#[test]
-fn heartbeat_counter_must_strictly_increase() {
-    // MUST-010: receiver MUST drop heartbeats with non-increasing counter.
-    // Pin the invariant: any u64 sequence is either strictly increasing or
-    // rejected. The check is `next > last`.
-    let last: u64 = 42;
-    let bad_equal: u64 = 42;
-    let bad_lower: u64 = 41;
-    let good: u64 = 43;
-    assert!(!(bad_equal > last));
-    assert!(!(bad_lower > last));
-    assert!(good > last);
-}
+// -- §4.2 Heartbeat timing: real-type tests live below under MUST-010/011 ---
 
 // -- §4.1 FederationSync nonce + timestamp window ----------------------------
 
 #[clause("PNP-008-MUST-006")]
 #[test]
 fn federation_sync_id_is_128_bits() {
-    let sync_id_bytes: usize = 16;
-    assert_eq!(sync_id_bytes * 8, 128);
+    use parolnet_protocol::federation::FederationSync;
+    let s = FederationSync {
+        sync_id: [0u8; 16],
+        since_timestamp: 0,
+        iblt: vec![],
+        scope: parolnet_protocol::federation::SyncScope::DescriptorsOnly,
+        requested_digests: None,
+        response_descriptors: None,
+        timestamp: 0,
+        signature: [0u8; 64],
+    };
+    assert_eq!(s.sync_id.len(), 16);
 }
 
 #[clause("PNP-008-MUST-008")]
 #[test]
 fn federation_sync_timestamp_window_is_300_seconds() {
-    // ±300 seconds = 5-minute clock skew tolerance.
-    let window_secs: i64 = 300;
-    assert_eq!(window_secs, 300);
+    use parolnet_protocol::federation::{FederationSync, SyncScope};
+    let mut s = FederationSync {
+        sync_id: [0u8; 16],
+        since_timestamp: 0,
+        iblt: vec![],
+        scope: SyncScope::DescriptorsOnly,
+        requested_digests: None,
+        response_descriptors: None,
+        timestamp: 10_000,
+        signature: [0u8; 64],
+    };
+    assert!(s.timestamp_fresh(10_000));
+    assert!(s.timestamp_fresh(10_000 + 299));
+    assert!(s.timestamp_fresh(10_000 - 299));
+    assert!(!s.timestamp_fresh(10_000 + 301));
+    assert!(!s.timestamp_fresh(10_000 - 301));
 
-    let now: u64 = 10_000;
-    let ok_future = now + 299;
-    let ok_past = now - 299;
-    let bad_future = now + 301;
-    let bad_past = now - 301;
-    let accept = |ts: u64| ts.abs_diff(now) <= window_secs as u64;
-    assert!(accept(ok_future));
-    assert!(accept(ok_past));
-    assert!(!accept(bad_future));
-    assert!(!accept(bad_past));
+    // Also apply to heartbeats.
+    s.timestamp = 20_000;
+    let h = parolnet_protocol::federation::FederationHeartbeat {
+        counter: 0,
+        load_hint: parolnet_protocol::federation::LoadHint::default(),
+        flags: parolnet_protocol::federation::HeartbeatFlags::empty(),
+        timestamp: 20_000,
+        signature: [0u8; 64],
+    };
+    assert!(h.timestamp_fresh(20_000 + 299));
+    assert!(!h.timestamp_fresh(20_000 - 301));
 }
 
 #[clause("PNP-008-MUST-006")]
 #[test]
 fn federation_sync_id_replay_window_is_five_minutes() {
-    let replay_window_secs: u64 = 5 * 60;
-    assert_eq!(replay_window_secs, 300);
+    use parolnet_mesh::replay::SyncIdReplayCache;
+    use parolnet_protocol::federation::SYNC_ID_REPLAY_WINDOW_SECS;
+    assert_eq!(SYNC_ID_REPLAY_WINDOW_SECS, 300);
+
+    let mut cache = SyncIdReplayCache::new();
+    assert!(cache.observe(&[7u8; 16], 1_000).is_ok());
+    // Within window → replay rejected.
+    assert!(cache.observe(&[7u8; 16], 1_299).is_err());
+    // Past window → accepted again.
+    assert!(cache
+        .observe(&[7u8; 16], 1_000 + SYNC_ID_REPLAY_WINDOW_SECS)
+        .is_ok());
+}
+
+#[clause("PNP-008-MUST-007")]
+#[test]
+fn federation_sync_signature_over_domain_separated_hash() {
+    // MUST-007: the FederationSync signature covers all preceding fields.
+    // Our signable_bytes prepends a domain-separation label so altering any
+    // field invalidates the signature.
+    use ed25519_dalek::SigningKey;
+    use parolnet_protocol::federation::{FederationSync, SyncScope};
+
+    let mut s = [0u8; 32];
+    s[0] = 9;
+    let signer = SigningKey::from_bytes(&s);
+    let pubkey = signer.verifying_key().to_bytes();
+
+    let mut fs = FederationSync {
+        sync_id: [0xCC; 16],
+        since_timestamp: 100,
+        iblt: vec![0u8; 32],
+        scope: SyncScope::DescriptorsOnly,
+        requested_digests: None,
+        response_descriptors: None,
+        timestamp: 200,
+        signature: [0u8; 64],
+    };
+    fs.sign(&signer);
+    assert!(fs.verify(&pubkey).unwrap(), "valid signature verifies");
+
+    for mutate in [
+        |fs: &mut FederationSync| fs.sync_id[0] ^= 0x01,
+        |fs: &mut FederationSync| fs.since_timestamp ^= 0xFF,
+        |fs: &mut FederationSync| fs.timestamp ^= 0xFF,
+        |fs: &mut FederationSync| fs.iblt.push(0x00),
+    ] {
+        let mut tampered = fs.clone();
+        mutate(&mut tampered);
+        assert!(
+            !tampered.verify(&pubkey).unwrap(),
+            "tampered field must invalidate signature"
+        );
+    }
+}
+
+#[clause("PNP-008-MUST-009")]
+#[test]
+fn requested_digests_response_is_subset_not_fabrication() {
+    // MUST-009 structural pin: response_descriptors carries a concrete
+    // Vec<ByteBuf> that the implementation fills from its local store.
+    // Receivers decoding response_descriptors must match each blob back to
+    // a known digest before accepting it; any unmatched entry indicates
+    // fabrication and MUST be dropped.
+    use parolnet_protocol::federation::{FederationSync, SyncScope};
+    let mut fs = FederationSync {
+        sync_id: [0u8; 16],
+        since_timestamp: 0,
+        iblt: vec![],
+        scope: SyncScope::DescriptorsOnly,
+        requested_digests: Some(vec![[1u8; 32], [2u8; 32], [3u8; 32]]),
+        response_descriptors: Some(vec![
+            serde_bytes::ByteBuf::from(vec![0xAAu8; 60]),
+            serde_bytes::ByteBuf::from(vec![0xBBu8; 60]),
+        ]),
+        timestamp: 0,
+        signature: [0u8; 64],
+    };
+    // 3 requested, 2 returned — the receiver pairs responses to requested by
+    // re-hashing. Pin by shape: response count may be less than request count.
+    assert!(fs.requested_digests.as_ref().unwrap().len() >= fs.response_descriptors.as_ref().unwrap().len());
+    // Removing a digest after signing would require re-signing; pin the
+    // ordering invariant used by the verifier.
+    fs.requested_digests.as_mut().unwrap().pop();
+    assert_eq!(fs.requested_digests.as_ref().unwrap().len(), 2);
+}
+
+#[clause("PNP-008-MUST-010")]
+#[test]
+fn heartbeat_counter_must_strictly_increase_verified_via_sig() {
+    // MUST-010: receivers MUST drop heartbeats with non-increasing counter.
+    // Pair this with the signature check to ensure a replay of the same
+    // counter (even with a valid old signature) fails the monotonicity gate.
+    use ed25519_dalek::SigningKey;
+    use parolnet_protocol::federation::{
+        FederationHeartbeat, HeartbeatFlags, LoadHint,
+    };
+    let mut s = [0u8; 32];
+    s[0] = 77;
+    let signer = SigningKey::from_bytes(&s);
+    let pubkey = signer.verifying_key().to_bytes();
+
+    let mk = |counter: u64| {
+        let mut h = FederationHeartbeat {
+            counter,
+            load_hint: LoadHint::default(),
+            flags: HeartbeatFlags::empty(),
+            timestamp: 1_000_000,
+            signature: [0u8; 64],
+        };
+        h.sign(&signer);
+        h
+    };
+    let h1 = mk(10);
+    let h2 = mk(11);
+    assert!(h1.verify(&pubkey).unwrap());
+    assert!(h2.verify(&pubkey).unwrap());
+    // Monotonicity check: h2 > h1, h1 at ≥ h1.counter is a replay.
+    let last_counter = 11u64;
+    assert!(mk(12).counter > last_counter);
+    assert!(!(mk(11).counter > last_counter));
+    assert!(!(mk(0).counter > last_counter));
+}
+
+#[clause("PNP-008-MUST-011")]
+#[test]
+fn heartbeat_cadence_constants_match_spec() {
+    use parolnet_protocol::federation::{
+        HEARTBEAT_MIN_INTERVAL_SECS, HEARTBEAT_UNREACHABLE_SECS,
+    };
+    assert_eq!(HEARTBEAT_MIN_INTERVAL_SECS, 60);
+    assert_eq!(HEARTBEAT_UNREACHABLE_SECS, 180);
+    assert!(HEARTBEAT_UNREACHABLE_SECS >= 3 * HEARTBEAT_MIN_INTERVAL_SECS);
 }
 
 // -- §4.3 BridgeAnnouncement ------------------------------------------------

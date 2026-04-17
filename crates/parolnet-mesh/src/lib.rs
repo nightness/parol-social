@@ -15,6 +15,7 @@ pub mod error;
 pub mod gossip;
 pub mod peer_manager;
 pub mod peer_table;
+pub mod replay;
 pub mod store_forward;
 pub mod sync;
 
