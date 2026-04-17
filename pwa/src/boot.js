@@ -29,6 +29,7 @@ import {
     handleExportData, handleImportData, updateNetworkSettings
 } from './settings.js';
 import { initI18n, t, changeLanguage, applyToDOM } from './i18n.js';
+import { showSafetyNumberModal } from './safety-number.js';
 
 // ── WASM Loading ────────────────────────────────────────────
 async function loadWasm() {
@@ -425,6 +426,8 @@ window.toggleGroupMute = toggleGroupMute;
 window.attachGroupFile = attachGroupFile;
 window.onGroupFileSelected = onGroupFileSelected;
 window.toggleContactMenu = toggleContactMenu;
+// Identity verification
+window.showSafetyNumber = (peerId) => showSafetyNumberModal(peerId || window.currentPeerId);
 // i18n
 window.changeLanguage = async function(lang) {
     await changeLanguage(lang);

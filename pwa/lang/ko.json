@@ -2,7 +2,6 @@
   "tab.messages": "메시지",
   "tab.groups": "그룹",
   "tab.contacts": "연락처",
-
   "heading.title": "ParolNet",
   "heading.addContact": "연락처 추가",
   "heading.chat": "연락처",
@@ -13,7 +12,6 @@
   "heading.call": "통화",
   "heading.groupCall": "그룹 통화",
   "heading.settings": "설정",
-
   "btn.unlock": "잠금 해제",
   "btn.addContact": "연락처 추가",
   "btn.copyCode": "코드 복사",
@@ -43,7 +41,6 @@
   "btn.videoCall": "영상 통화",
   "btn.rename": "이름 변경",
   "btn.closeConversation": "닫기",
-
   "placeholder.passphrase": "비밀문구",
   "placeholder.searchContacts": "검색...",
   "placeholder.groupName": "그룹 이름",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "잠금 해제 코드",
   "placeholder.peerId": "Peer ID 붙여넣기...",
-
   "status.loading": "로딩 중...",
   "status.loadingCrypto": "암호화 모듈 로딩 중...",
   "status.initializing": "초기화 중...",
@@ -82,7 +78,6 @@
   "status.relay": "릴레이",
   "status.contactChannels": "연락처 채널",
   "status.runningWithoutCrypto": "암호화 모듈 없이 실행 중 ({error})",
-
   "error.loadingContact": "연락처 로딩 실패",
   "error.contactNotFound": "연락처를 찾을 수 없습니다",
   "error.emptyName": "이름을 비워둘 수 없습니다",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "그룹 이름을 입력하세요",
   "error.enterContactCode": "연락처의 코드를 붙여넣으세요",
   "error.alreadyMember": "이미 멤버입니다",
-
   "toast.starting": "ParolNet 시작 중...",
   "toast.bootstrapReceived": "부트스트랩 데이터 수신 완료",
   "toast.wrongPassphrase": "비밀문구가 틀렸습니다",
@@ -158,18 +152,15 @@
   "toast.importComplete": "가져오기 완료! 새로고침 중...",
   "toast.fileReceiving": "수신 중...",
   "toast.conversationClosed": "대화가 닫혔습니다",
-
   "empty.noContacts": "아직 연락처가 없습니다",
   "empty.addContact": "+ 버튼을 눌러 추가하세요",
   "empty.noMessages": "아직 메시지가 없습니다",
   "empty.noGroups": "아직 그룹이 없습니다",
   "empty.createOrJoinGroup": "그룹을 만들거나 참여하세요",
-
   "call.incoming": "전화가 오고 있습니다...",
   "call.groupInvitation": "그룹 통화 초대",
   "call.groupCallName": "{groupName} 통화",
   "call.you": "나",
-
   "settings.peerId": "Peer ID",
   "settings.version": "버전",
   "settings.devMode": "개발 모드 (WASM 없음)",
@@ -195,11 +186,9 @@
   "settings.member": "멤버",
   "settings.encryptionDescription": "암호 문구로 모든 로컬 데이터를 암호화합니다. 이 기능이 없으면 기기에 접근할 수 있는 누구나 메시지와 키를 읽을 수 있습니다.",
   "settings.dataExportDescription": "데이터를 암호화된 파일로 내보냅니다.",
-
   "file.attachment": "{fileName}",
   "file.download": "다운로드 ({size})",
   "file.receiving": "수신 중... {percentage}%",
-
   "qr.show": "QR 보기",
   "qr.scan": "QR 스캔",
   "qr.paste": "코드 붙여넣기",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "연락처의 코드를 여기에 붙여넣으세요. QR 보기 화면에서 복사할 수 있습니다.",
   "qr.loadingCode": "코드 로딩 중...",
   "qr.shareCodeLabel": "이 코드를 연락처에게 공유하세요",
-
   "contact.noMessagesYet": "아직 메시지가 없습니다",
   "contact.rename": "연락처 이름 변경",
   "contact.renamePrompt": "이 연락처의 이름을 설정하세요:",
   "contact.sessionEstablished": "암호화 세션이 설정되었습니다",
   "contact.connectedViaQR": "QR로 연결됨",
-
   "confirm.importData": "모든 현재 데이터가 교체됩니다.\n\n내보내기 내용:\n- 연락처 {contactCount}개\n- 메시지 {messageCount}개\n- 신원 키: {hasIdentity}\n\n계속하시겠습니까?",
   "confirm.destroyData": "모든 데이터를 삭제하시겠습니까? 되돌릴 수 없습니다.",
   "confirm.enterExportPassword": "내보내기 파일을 암호화할 비밀번호를 입력하세요:",
   "confirm.confirmPassword": "비밀번호 확인:",
   "confirm.enterImportPassword": "내보내기 시 설정한 비밀번호를 입력하세요:",
-
   "group.createDescription": "새로운 암호화된 그룹 채팅을 만듭니다.",
   "group.unnamed": "이름 없는 그룹",
   "group.noMessages": "아직 메시지가 없습니다",
   "group.info": "멤버 {memberCount}명",
-
-  "misc.calculator": "계산기"
+  "misc.calculator": "계산기",
+  "btn.verifyIdentity": "신원 확인",
+  "heading.verifyIdentity": "신원 확인",
+  "safety.intro": "신뢰할 수 있는 채널(전화 통화, 직접 만남)을 통해 상대방과 이 숫자를 비교하세요. 두 화면에 같은 숫자가 표시되면, 세션 설정 시 누구도 키를 바꿔치기하지 않은 것입니다.",
+  "safety.note": "숫자가 다르면 누군가 메시지를 가로채고 있을 수 있습니다. 신뢰할 수 있는 기기에서 새 QR 코드를 사용해 연락처를 다시 추가하세요."
 }

@@ -2,7 +2,6 @@
   "tab.messages": "メッセージ",
   "tab.groups": "グループ",
   "tab.contacts": "連絡先",
-
   "heading.title": "ParolNet",
   "heading.addContact": "連絡先を追加",
   "heading.chat": "連絡先",
@@ -13,7 +12,6 @@
   "heading.call": "通話",
   "heading.groupCall": "グループ通話",
   "heading.settings": "設定",
-
   "btn.unlock": "ロック解除",
   "btn.addContact": "連絡先を追加",
   "btn.copyCode": "コードをコピー",
@@ -43,7 +41,6 @@
   "btn.videoCall": "ビデオ通話",
   "btn.rename": "名前を変更",
   "btn.closeConversation": "閉じる",
-
   "placeholder.passphrase": "パスフレーズ",
   "placeholder.searchContacts": "検索...",
   "placeholder.groupName": "グループ名",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "ロック解除コード",
   "placeholder.peerId": "Peer IDを貼り付け...",
-
   "status.loading": "読み込み中...",
   "status.loadingCrypto": "暗号化モジュールを読み込み中...",
   "status.initializing": "初期化中...",
@@ -82,7 +78,6 @@
   "status.relay": "Relay",
   "status.contactChannels": "連絡チャンネル",
   "status.runningWithoutCrypto": "暗号化なしで動作中 ({error})",
-
   "error.loadingContact": "連絡先の読み込みに失敗しました",
   "error.contactNotFound": "連絡先が見つかりません",
   "error.emptyName": "名前を空にすることはできません",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "グループ名を入力してください",
   "error.enterContactCode": "連絡先の方からもらったコードを貼り付けてください",
   "error.alreadyMember": "すでにメンバーです",
-
   "toast.starting": "ParolNetを起動しています...",
   "toast.bootstrapReceived": "初期データを受信しました",
   "toast.wrongPassphrase": "パスフレーズが違います",
@@ -158,18 +152,15 @@
   "toast.importComplete": "インポートが完了しました！再読み込みします...",
   "toast.fileReceiving": "受信中...",
   "toast.conversationClosed": "会話を閉じました",
-
   "empty.noContacts": "まだ連絡先がありません",
   "empty.addContact": "+ をタップして追加しましょう",
   "empty.noMessages": "まだメッセージがありません",
   "empty.noGroups": "まだグループがありません",
   "empty.createOrJoinGroup": "グループを作成または参加しましょう",
-
   "call.incoming": "着信中...",
   "call.groupInvitation": "グループ通話への招待",
   "call.groupCallName": "{groupName} 通話",
   "call.you": "あなた",
-
   "settings.peerId": "Peer ID",
   "settings.version": "バージョン",
   "settings.devMode": "開発モード（WASMなし）",
@@ -195,11 +186,9 @@
   "settings.member": "メンバー",
   "settings.encryptionDescription": "パスフレーズですべてのローカルデータを暗号化します。これがないと、デバイスにアクセスできる人は誰でもメッセージと鍵を読むことができます。",
   "settings.dataExportDescription": "データを暗号化されたファイルとしてエクスポートします。",
-
   "file.attachment": "{fileName}",
   "file.download": "ダウンロード ({size})",
   "file.receiving": "受信中... {percentage}%",
-
   "qr.show": "QR表示",
   "qr.scan": "QRスキャン",
   "qr.paste": "コードを貼り付け",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "連絡先のコードをここに貼り付けてください。相手は「QR表示」画面からコピーできます。",
   "qr.loadingCode": "コードを読み込み中...",
   "qr.shareCodeLabel": "このコードを連絡先の方に共有してください",
-
   "contact.noMessagesYet": "まだメッセージがありません",
   "contact.rename": "連絡先の名前を変更",
   "contact.renamePrompt": "この連絡先の名前を設定してください:",
   "contact.sessionEstablished": "暗号化セッションが確立されました",
   "contact.connectedViaQR": "QRで接続済み",
-
   "confirm.importData": "現在のデータがすべて置き換えられます。\n\nエクスポート内容:\n- 連絡先 {contactCount}件\n- メッセージ {messageCount}件\n- ID鍵: {hasIdentity}\n\n続けますか？",
   "confirm.destroyData": "すべてのデータを破棄しますか？この操作は元に戻せません。",
   "confirm.enterExportPassword": "エクスポートを暗号化するパスワードを入力してください:",
   "confirm.confirmPassword": "パスワードを確認:",
   "confirm.enterImportPassword": "エクスポート時のパスワードを入力してください:",
-
   "group.createDescription": "新しい暗号化グループチャットを作成します。",
   "group.unnamed": "名前なしグループ",
   "group.noMessages": "まだメッセージがありません",
   "group.info": "{memberCount}人のメンバー",
-
-  "misc.calculator": "電卓"
+  "misc.calculator": "電卓",
+  "btn.verifyIdentity": "本人確認",
+  "heading.verifyIdentity": "本人確認",
+  "safety.intro": "信頼できる手段（電話、対面）で相手とこの数字を照合してください。両方の画面に同じ番号が表示されていれば、セッション確立時に鍵が差し替えられていないことを意味します。",
+  "safety.note": "番号が異なる場合、第三者があなたのメッセージを傍受している可能性があります。信頼できる端末で新しい QR コードから連絡先を追加し直してください。"
 }

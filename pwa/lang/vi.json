@@ -2,7 +2,6 @@
   "tab.messages": "Tin nhắn",
   "tab.groups": "Nhóm",
   "tab.contacts": "Danh bạ",
-
   "heading.title": "ParolNet",
   "heading.addContact": "Thêm liên hệ",
   "heading.chat": "Liên hệ",
@@ -13,7 +12,6 @@
   "heading.call": "Cuộc gọi",
   "heading.groupCall": "Gọi nhóm",
   "heading.settings": "Cài đặt",
-
   "btn.unlock": "Mở khóa",
   "btn.addContact": "Thêm liên hệ",
   "btn.copyCode": "Sao chép mã",
@@ -43,7 +41,6 @@
   "btn.videoCall": "Gọi video",
   "btn.rename": "Đổi tên",
   "btn.closeConversation": "Đóng",
-
   "placeholder.passphrase": "Cụm mật khẩu",
   "placeholder.searchContacts": "Tìm kiếm...",
   "placeholder.groupName": "Tên nhóm",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "Mã mở khóa",
   "placeholder.peerId": "Dán Peer ID...",
-
   "status.loading": "Đang tải...",
   "status.loadingCrypto": "Đang tải mô-đun mã hóa...",
   "status.initializing": "Đang khởi tạo...",
@@ -82,7 +78,6 @@
   "status.relay": "Relay",
   "status.contactChannels": "Kênh liên lạc",
   "status.runningWithoutCrypto": "Đang chạy không có mã hóa ({error})",
-
   "error.loadingContact": "Không thể tải liên hệ",
   "error.contactNotFound": "Không tìm thấy liên hệ",
   "error.emptyName": "Tên không được để trống",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "Nhập tên nhóm",
   "error.enterContactCode": "Dán mã từ liên hệ của bạn",
   "error.alreadyMember": "Đã là thành viên",
-
   "toast.starting": "Đang khởi động ParolNet...",
   "toast.bootstrapReceived": "Đã nhận dữ liệu khởi tạo",
   "toast.wrongPassphrase": "Sai cụm mật khẩu",
@@ -158,18 +152,15 @@
   "toast.importComplete": "Nhập dữ liệu hoàn tất! Đang tải lại...",
   "toast.fileReceiving": "Đang nhận...",
   "toast.conversationClosed": "Đã đóng cuộc trò chuyện",
-
   "empty.noContacts": "Chưa có liên hệ nào",
   "empty.addContact": "Nhấn + để thêm ai đó",
   "empty.noMessages": "Chưa có tin nhắn nào",
   "empty.noGroups": "Chưa có nhóm nào",
   "empty.createOrJoinGroup": "Tạo hoặc tham gia nhóm",
-
   "call.incoming": "Cuộc gọi đến...",
   "call.groupInvitation": "Lời mời gọi nhóm",
   "call.groupCallName": "Cuộc gọi {groupName}",
   "call.you": "Bạn",
-
   "settings.peerId": "Peer ID",
   "settings.version": "Phiên bản",
   "settings.devMode": "dev (không có WASM)",
@@ -195,11 +186,9 @@
   "settings.member": "Thành viên",
   "settings.encryptionDescription": "Mã hóa tất cả dữ liệu cục bộ bằng cụm mật khẩu. Nếu không có điều này, bất kỳ ai có quyền truy cập vào thiết bị của bạn đều có thể đọc tin nhắn và khóa của bạn.",
   "settings.dataExportDescription": "Xuất dữ liệu của bạn dưới dạng tệp mã hóa.",
-
   "file.attachment": "{fileName}",
   "file.download": "Tải về ({size})",
   "file.receiving": "Đang nhận... {percentage}%",
-
   "qr.show": "Hiện QR",
   "qr.scan": "Quét QR",
   "qr.paste": "Dán mã",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "Dán mã của liên hệ vào đây. Họ có thể sao chép từ màn hình Hiện QR.",
   "qr.loadingCode": "Đang tải mã của bạn...",
   "qr.shareCodeLabel": "Chia sẻ mã này với liên hệ của bạn",
-
   "contact.noMessagesYet": "Chưa có tin nhắn nào",
   "contact.rename": "Đổi tên liên hệ",
   "contact.renamePrompt": "Đặt tên cho liên hệ này:",
   "contact.sessionEstablished": "Đã thiết lập phiên mã hóa",
   "contact.connectedViaQR": "Kết nối qua QR",
-
   "confirm.importData": "Thao tác này sẽ thay thế TẤT CẢ dữ liệu hiện tại.\n\nBản xuất chứa:\n- {contactCount} liên hệ\n- {messageCount} tin nhắn\n- Khóa danh tính: {hasIdentity}\n\nTiếp tục?",
   "confirm.destroyData": "Xóa toàn bộ dữ liệu? Không thể hoàn tác.",
   "confirm.enterExportPassword": "Nhập mật khẩu để mã hóa bản xuất:",
   "confirm.confirmPassword": "Xác nhận mật khẩu:",
   "confirm.enterImportPassword": "Nhập mật khẩu của bản xuất:",
-
   "group.createDescription": "Tạo một cuộc trò chuyện nhóm mã hóa mới.",
   "group.unnamed": "Nhóm chưa đặt tên",
   "group.noMessages": "Chưa có tin nhắn nào",
   "group.info": "{memberCount} thành viên",
-
-  "misc.calculator": "Máy tính"
+  "misc.calculator": "Máy tính",
+  "btn.verifyIdentity": "Xác minh danh tính",
+  "heading.verifyIdentity": "Xác minh danh tính",
+  "safety.intro": "So sánh các chữ số này với liên hệ qua một kênh bạn tin cậy (cuộc gọi điện thoại, gặp trực tiếp). Nếu cả hai màn hình hiển thị cùng một số, không ai đã thay khóa khi thiết lập phiên của bạn.",
+  "safety.note": "Nếu các con số khác nhau, có thể ai đó đang chặn tin nhắn của bạn. Thêm lại liên hệ bằng mã QR mới từ một thiết bị đáng tin cậy."
 }

@@ -2,7 +2,6 @@
   "tab.messages": "Mensajes",
   "tab.groups": "Grupos",
   "tab.contacts": "Contactos",
-
   "heading.title": "ParolNet",
   "heading.addContact": "Agregar contacto",
   "heading.chat": "Contacto",
@@ -13,7 +12,6 @@
   "heading.call": "Llamada",
   "heading.groupCall": "Llamada grupal",
   "heading.settings": "Ajustes",
-
   "btn.unlock": "Desbloquear",
   "btn.addContact": "Agregar contacto",
   "btn.copyCode": "Copiar codigo",
@@ -43,7 +41,6 @@
   "btn.videoCall": "Videollamada",
   "btn.rename": "Renombrar",
   "btn.closeConversation": "Cerrar",
-
   "placeholder.passphrase": "Frase secreta",
   "placeholder.searchContacts": "Buscar...",
   "placeholder.groupName": "Nombre del grupo",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "Codigo de desbloqueo",
   "placeholder.peerId": "Pega el ID del peer...",
-
   "status.loading": "Cargando...",
   "status.loadingCrypto": "Cargando modulo crypto...",
   "status.initializing": "Inicializando...",
@@ -82,7 +78,6 @@
   "status.relay": "Relay",
   "status.contactChannels": "Canales del contacto",
   "status.runningWithoutCrypto": "Funcionando sin crypto ({error})",
-
   "error.loadingContact": "No se pudo cargar el contacto",
   "error.contactNotFound": "Contacto no encontrado",
   "error.emptyName": "El nombre no puede estar vacio",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "Ingresa un nombre de grupo",
   "error.enterContactCode": "Pega el codigo de tu contacto",
   "error.alreadyMember": "Ya es miembro",
-
   "toast.starting": "Iniciando ParolNet...",
   "toast.bootstrapReceived": "Datos de bootstrap recibidos",
   "toast.wrongPassphrase": "Frase secreta incorrecta",
@@ -158,18 +152,15 @@
   "toast.importComplete": "Importacion completada! Recargando...",
   "toast.fileReceiving": "Recibiendo...",
   "toast.conversationClosed": "Conversacion cerrada",
-
   "empty.noContacts": "Aun no hay contactos",
   "empty.addContact": "Toca + para agregar a alguien",
   "empty.noMessages": "Aun no hay mensajes",
   "empty.noGroups": "Aun no hay grupos",
   "empty.createOrJoinGroup": "Crea o unete a un grupo",
-
   "call.incoming": "Llamada entrante...",
   "call.groupInvitation": "Invitacion a llamada grupal",
   "call.groupCallName": "Llamada {groupName}",
   "call.you": "Tu",
-
   "settings.peerId": "ID del peer",
   "settings.version": "Version",
   "settings.devMode": "dev (sin WASM)",
@@ -195,11 +186,9 @@
   "settings.member": "Miembro",
   "settings.encryptionDescription": "Cifra todos los datos locales con una frase de contraseña. Sin esto, cualquier persona con acceso a tu dispositivo puede leer tus mensajes y claves.",
   "settings.dataExportDescription": "Exporta tus datos como un archivo cifrado.",
-
   "file.attachment": "{fileName}",
   "file.download": "Descargar ({size})",
   "file.receiving": "Recibiendo... {percentage}%",
-
   "qr.show": "Mostrar QR",
   "qr.scan": "Escanear QR",
   "qr.paste": "Pegar codigo",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "Pega el codigo de tu contacto aqui. Puede copiarlo desde su pantalla Mostrar QR.",
   "qr.loadingCode": "Cargando tu codigo...",
   "qr.shareCodeLabel": "Comparte este codigo con tu contacto",
-
   "contact.noMessagesYet": "Aun no hay mensajes",
   "contact.rename": "Renombrar contacto",
   "contact.renamePrompt": "Establece el nombre para este contacto:",
   "contact.sessionEstablished": "Sesion cifrada establecida",
   "contact.connectedViaQR": "Conectado via QR",
-
   "confirm.importData": "Esto reemplazara TODOS los datos actuales.\n\nLa exportacion contiene:\n- {contactCount} contactos\n- {messageCount} mensajes\n- Clave de identidad: {hasIdentity}\n\nContinuar?",
   "confirm.destroyData": "Destruir todos los datos? Esto no se puede deshacer.",
   "confirm.enterExportPassword": "Ingresa una contrasena para cifrar tu exportacion:",
   "confirm.confirmPassword": "Confirma la contrasena:",
   "confirm.enterImportPassword": "Ingresa la contrasena de la exportacion:",
-
   "group.createDescription": "Crear un nuevo chat de grupo cifrado.",
   "group.unnamed": "Grupo sin nombre",
   "group.noMessages": "Aun no hay mensajes",
   "group.info": "{memberCount} miembros",
-
-  "misc.calculator": "Calculadora"
+  "misc.calculator": "Calculadora",
+  "btn.verifyIdentity": "Verificar identidad",
+  "heading.verifyIdentity": "Verificar identidad",
+  "safety.intro": "Compara estos digitos con tu contacto por un canal de confianza (llamada telefonica, en persona). Si ambas pantallas muestran el mismo numero, nadie sustituyo las claves al establecer tu sesion.",
+  "safety.note": "Si los numeros son distintos, alguien podria estar interceptando tus mensajes. Vuelve a anadir el contacto con un codigo QR nuevo desde un dispositivo de confianza."
 }

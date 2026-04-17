@@ -9,16 +9,20 @@ import { onIncomingMessage } from './messaging.js';
 // ── WebRTC Peer Connections ────────────────────────────────
 export const rtcConnections = {}; // peerId -> { pc, dc, status }
 
-// WARNING: Public STUN servers leak your real IP address to the STUN provider.
-const DEFAULT_STUN_SERVERS = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-];
+// No third-party STUN by default. Contacting public STUN (e.g. Google) leaks
+// the client IP to the STUN operator even when the returned candidate is later
+// filtered by iceTransportPolicy. Own TURN is fetched from the relay at boot
+// (see fetchTurnCredentials below) and populates customIceServers.
+const DEFAULT_STUN_SERVERS = [];
 
 let customIceServers = null;
 
-// Privacy mode: when enabled, only relay (TURN) candidates are used.
-let webrtcPrivacyMode = false; // Default OFF until TURN server is integrated
+// Privacy mode: when enabled, only relay (TURN) candidates are used, so no
+// direct peer connection can expose the client's public IP to the remote peer.
+// Default ON — opt-out only. ParolNet's threat model requires that the IP
+// never leak to a contact; accepting call-quality degradation is the safer
+// trade-off when TURN is unavailable.
+let webrtcPrivacyMode = true;
 
 function getRtcConfig() {
     const config = {

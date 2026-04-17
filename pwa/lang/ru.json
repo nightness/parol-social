@@ -2,7 +2,6 @@
   "tab.messages": "Сообщения",
   "tab.groups": "Группы",
   "tab.contacts": "Контакты",
-
   "heading.title": "ParolNet",
   "heading.addContact": "Добавить контакт",
   "heading.chat": "Контакт",
@@ -13,7 +12,6 @@
   "heading.call": "Звонок",
   "heading.groupCall": "Групповой звонок",
   "heading.settings": "Настройки",
-
   "btn.unlock": "Разблокировать",
   "btn.addContact": "Добавить контакт",
   "btn.copyCode": "Копировать код",
@@ -43,7 +41,6 @@
   "btn.videoCall": "Видеозвонок",
   "btn.rename": "Переименовать",
   "btn.closeConversation": "Закрыть",
-
   "placeholder.passphrase": "Пароль-фраза",
   "placeholder.searchContacts": "Поиск...",
   "placeholder.groupName": "Название группы",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "Код разблокировки",
   "placeholder.peerId": "Вставьте Peer ID...",
-
   "status.loading": "Загрузка...",
   "status.loadingCrypto": "Загрузка модуля шифрования...",
   "status.initializing": "Инициализация...",
@@ -82,7 +78,6 @@
   "status.relay": "Ретранслятор",
   "status.contactChannels": "Каналы связи",
   "status.runningWithoutCrypto": "Работает без шифрования ({error})",
-
   "error.loadingContact": "Не удалось загрузить контакт",
   "error.contactNotFound": "Контакт не найден",
   "error.emptyName": "Имя не может быть пустым",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "Введите название группы",
   "error.enterContactCode": "Вставьте код от вашего контакта",
   "error.alreadyMember": "Уже участник",
-
   "toast.starting": "Запуск ParolNet...",
   "toast.bootstrapReceived": "Начальные данные получены",
   "toast.wrongPassphrase": "Неверная пароль-фраза",
@@ -158,18 +152,15 @@
   "toast.importComplete": "Импорт завершён! Перезагрузка...",
   "toast.fileReceiving": "Получение...",
   "toast.conversationClosed": "Беседа закрыта",
-
   "empty.noContacts": "Контактов пока нет",
   "empty.addContact": "Нажмите + чтобы добавить кого-нибудь",
   "empty.noMessages": "Сообщений пока нет",
   "empty.noGroups": "Групп пока нет",
   "empty.createOrJoinGroup": "Создайте или присоединитесь к группе",
-
   "call.incoming": "Входящий звонок...",
   "call.groupInvitation": "Приглашение в групповой звонок",
   "call.groupCallName": "Звонок {groupName}",
   "call.you": "Вы",
-
   "settings.peerId": "Peer ID",
   "settings.version": "Версия",
   "settings.devMode": "dev (без WASM)",
@@ -195,11 +186,9 @@
   "settings.member": "Участник",
   "settings.encryptionDescription": "Зашифруйте все локальные данные с помощью парольной фразы. Без этого любой, кто получит доступ к вашему устройству, сможет прочитать ваши сообщения и ключи.",
   "settings.dataExportDescription": "Экспортируйте данные в зашифрованный файл.",
-
   "file.attachment": "{fileName}",
   "file.download": "Скачать ({size})",
   "file.receiving": "Получение... {percentage}%",
-
   "qr.show": "Показать QR",
   "qr.scan": "Сканировать QR",
   "qr.paste": "Вставить код",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "Вставьте код вашего контакта сюда. Он может скопировать его на экране «Показать QR».",
   "qr.loadingCode": "Загрузка кода...",
   "qr.shareCodeLabel": "Поделитесь этим кодом с контактом",
-
   "contact.noMessagesYet": "Сообщений пока нет",
   "contact.rename": "Переименовать контакт",
   "contact.renamePrompt": "Задайте имя для этого контакта:",
   "contact.sessionEstablished": "Зашифрованная сессия установлена",
   "contact.connectedViaQR": "Подключено через QR",
-
   "confirm.importData": "Это заменит ВСЕ текущие данные.\n\nЭкспорт содержит:\n- {contactCount} контактов\n- {messageCount} сообщений\n- Ключ личности: {hasIdentity}\n\nПродолжить?",
   "confirm.destroyData": "Уничтожить все данные? Это нельзя отменить.",
   "confirm.enterExportPassword": "Введите пароль для шифрования экспорта:",
   "confirm.confirmPassword": "Подтвердите пароль:",
   "confirm.enterImportPassword": "Введите пароль экспорта:",
-
   "group.createDescription": "Создать новый зашифрованный групповой чат.",
   "group.unnamed": "Группа без названия",
   "group.noMessages": "Сообщений пока нет",
   "group.info": "{memberCount} участников",
-
-  "misc.calculator": "Калькулятор"
+  "misc.calculator": "Калькулятор",
+  "btn.verifyIdentity": "Проверить личность",
+  "heading.verifyIdentity": "Проверить личность",
+  "safety.intro": "Сравните эти цифры с собеседником по каналу, которому вы доверяете (телефонный звонок, лично). Если на обоих экранах одно и то же число, никто не подменил ключи при установлении сессии.",
+  "safety.note": "Если числа различаются, возможно, кто-то перехватывает ваши сообщения. Добавьте контакт заново по новому QR-коду с доверенного устройства."
 }

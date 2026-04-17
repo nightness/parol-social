@@ -2,7 +2,6 @@
   "tab.messages": "訊息",
   "tab.groups": "群組",
   "tab.contacts": "聯絡人",
-
   "heading.title": "ParolNet",
   "heading.addContact": "新增聯絡人",
   "heading.chat": "聯絡人",
@@ -13,7 +12,6 @@
   "heading.call": "通話",
   "heading.groupCall": "群組通話",
   "heading.settings": "設定",
-
   "btn.unlock": "解鎖",
   "btn.addContact": "新增聯絡人",
   "btn.copyCode": "複製代碼",
@@ -43,7 +41,6 @@
   "btn.videoCall": "視訊通話",
   "btn.rename": "重新命名",
   "btn.closeConversation": "關閉",
-
   "placeholder.passphrase": "密碼短語",
   "placeholder.searchContacts": "搜尋...",
   "placeholder.groupName": "群組名稱",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "解鎖碼",
   "placeholder.peerId": "貼上 Peer ID...",
-
   "status.loading": "載入中...",
   "status.loadingCrypto": "載入加密模組...",
   "status.initializing": "初始化中...",
@@ -82,7 +78,6 @@
   "status.relay": "中繼",
   "status.contactChannels": "聯絡人通道",
   "status.runningWithoutCrypto": "無加密模組執行中（{error}）",
-
   "error.loadingContact": "載入聯絡人失敗",
   "error.contactNotFound": "找不到聯絡人",
   "error.emptyName": "名稱不能為空",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "請輸入群組名稱",
   "error.enterContactCode": "請貼上聯絡人的代碼",
   "error.alreadyMember": "已經是成員",
-
   "toast.starting": "正在啟動 ParolNet...",
   "toast.bootstrapReceived": "已收到引導資料",
   "toast.wrongPassphrase": "密碼短語錯誤",
@@ -158,18 +152,15 @@
   "toast.importComplete": "匯入完成！正在重新載入...",
   "toast.fileReceiving": "接收中...",
   "toast.conversationClosed": "對話已關閉",
-
   "empty.noContacts": "還沒有聯絡人",
   "empty.addContact": "點 + 新增聯絡人",
   "empty.noMessages": "還沒有訊息",
   "empty.noGroups": "還沒有群組",
   "empty.createOrJoinGroup": "建立或加入群組",
-
   "call.incoming": "來電...",
   "call.groupInvitation": "群組通話邀請",
   "call.groupCallName": "{groupName} 通話",
   "call.you": "你",
-
   "settings.peerId": "Peer ID",
   "settings.version": "版本",
   "settings.devMode": "開發模式（無 WASM）",
@@ -195,11 +186,9 @@
   "settings.member": "成員",
   "settings.encryptionDescription": "使用密碼短語加密所有本機資料。如果不啟用此功能，任何能夠存取您裝置的人都可以讀取您的訊息和金鑰。",
   "settings.dataExportDescription": "將資料匯出為加密檔案。",
-
   "file.attachment": "{fileName}",
   "file.download": "下載（{size}）",
   "file.receiving": "接收中... {percentage}%",
-
   "qr.show": "顯示 QR",
   "qr.scan": "掃描 QR",
   "qr.paste": "貼上代碼",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "在此貼上聯絡人的代碼。他們可以從「顯示 QR」畫面複製。",
   "qr.loadingCode": "正在載入你的代碼...",
   "qr.shareCodeLabel": "將此代碼分享給你的聯絡人",
-
   "contact.noMessagesYet": "還沒有訊息",
   "contact.rename": "重新命名聯絡人",
   "contact.renamePrompt": "設定此聯絡人的名稱：",
   "contact.sessionEstablished": "已建立加密工作階段",
   "contact.connectedViaQR": "透過 QR 連線",
-
   "confirm.importData": "這將取代所有目前的資料。\n\n匯出包含：\n- {contactCount} 個聯絡人\n- {messageCount} 則訊息\n- 身分金鑰：{hasIdentity}\n\n繼續？",
   "confirm.destroyData": "銷毀所有資料？此操作無法復原。",
   "confirm.enterExportPassword": "輸入密碼以加密匯出檔案：",
   "confirm.confirmPassword": "確認密碼：",
   "confirm.enterImportPassword": "輸入匯出時設定的密碼：",
-
   "group.createDescription": "建立一個新的加密群組聊天。",
   "group.unnamed": "未命名群組",
   "group.noMessages": "還沒有訊息",
   "group.info": "{memberCount} 位成員",
-
-  "misc.calculator": "計算機"
+  "misc.calculator": "計算機",
+  "btn.verifyIdentity": "驗證身分",
+  "heading.verifyIdentity": "驗證身分",
+  "safety.intro": "透過你信任的管道（電話、當面）與對方核對這些數字。如果兩個螢幕上的數字相同，代表建立工作階段時沒有人替換金鑰。",
+  "safety.note": "如果數字不同，可能有人在攔截你的訊息。請從可信的裝置用新的 QR 碼重新加入聯絡人。"
 }

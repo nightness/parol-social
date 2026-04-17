@@ -2,7 +2,6 @@
   "tab.messages": "Mesajlar",
   "tab.groups": "Gruplar",
   "tab.contacts": "Kişiler",
-
   "heading.title": "ParolNet",
   "heading.addContact": "Kişi Ekle",
   "heading.chat": "Kişi",
@@ -13,7 +12,6 @@
   "heading.call": "Arama",
   "heading.groupCall": "Grup Araması",
   "heading.settings": "Ayarlar",
-
   "btn.unlock": "Kilidi Aç",
   "btn.addContact": "Kişi Ekle",
   "btn.copyCode": "Kodu Kopyala",
@@ -43,7 +41,6 @@
   "btn.videoCall": "Görüntülü Arama",
   "btn.rename": "Yeniden Adlandır",
   "btn.closeConversation": "Kapat",
-
   "placeholder.passphrase": "Parola",
   "placeholder.searchContacts": "Ara...",
   "placeholder.groupName": "Grup adı",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "Kilit Açma Kodu",
   "placeholder.peerId": "Peer ID yapıştırın...",
-
   "status.loading": "Yükleniyor...",
   "status.loadingCrypto": "Şifreleme modülü yükleniyor...",
   "status.initializing": "Başlatılıyor...",
@@ -82,7 +78,6 @@
   "status.relay": "Relay",
   "status.contactChannels": "İletişim Kanalları",
   "status.runningWithoutCrypto": "Şifreleme olmadan çalışıyor ({error})",
-
   "error.loadingContact": "Kişi yüklenemedi",
   "error.contactNotFound": "Kişi bulunamadı",
   "error.emptyName": "İsim boş olamaz",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "Bir grup adı girin",
   "error.enterContactCode": "Kişinizden aldığınız kodu yapıştırın",
   "error.alreadyMember": "Zaten üye",
-
   "toast.starting": "ParolNet başlatılıyor...",
   "toast.bootstrapReceived": "Başlangıç verileri alındı",
   "toast.wrongPassphrase": "Yanlış parola",
@@ -158,18 +152,15 @@
   "toast.importComplete": "İçe aktarma tamamlandı! Yeniden yükleniyor...",
   "toast.fileReceiving": "Alınıyor...",
   "toast.conversationClosed": "Sohbet kapatıldı",
-
   "empty.noContacts": "Henüz kişi yok",
   "empty.addContact": "Birini eklemek için + simgesine dokunun",
   "empty.noMessages": "Henüz mesaj yok",
   "empty.noGroups": "Henüz grup yok",
   "empty.createOrJoinGroup": "Bir grup oluşturun veya katılın",
-
   "call.incoming": "Gelen arama...",
   "call.groupInvitation": "Grup araması daveti",
   "call.groupCallName": "{groupName} araması",
   "call.you": "Sen",
-
   "settings.peerId": "Peer ID",
   "settings.version": "Sürüm",
   "settings.devMode": "geliştirici (WASM yok)",
@@ -195,11 +186,9 @@
   "settings.member": "Üye",
   "settings.encryptionDescription": "Tüm yerel verileri bir parola ile şifreleyin. Bu olmadan, cihazınıza erişimi olan herkes mesajlarınızı ve anahtarlarınızı okuyabilir.",
   "settings.dataExportDescription": "Verilerinizi şifreli bir dosya olarak dışa aktarın.",
-
   "file.attachment": "{fileName}",
   "file.download": "İndir ({size})",
   "file.receiving": "Alınıyor... {percentage}%",
-
   "qr.show": "QR Göster",
   "qr.scan": "QR Tara",
   "qr.paste": "Kod Yapıştır",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "Kişinizin kodunu buraya yapıştırın. Kodunu QR Göster ekranından kopyalayabilir.",
   "qr.loadingCode": "Kodunuz yükleniyor...",
   "qr.shareCodeLabel": "Bu kodu kişinizle paylaşın",
-
   "contact.noMessagesYet": "Henüz mesaj yok",
   "contact.rename": "Kişiyi yeniden adlandır",
   "contact.renamePrompt": "Bu kişi için isim belirleyin:",
   "contact.sessionEstablished": "Şifreli oturum kuruldu",
   "contact.connectedViaQR": "QR ile bağlandı",
-
   "confirm.importData": "Bu işlem TÜM mevcut verilerin yerine geçecektir.\n\nDışa aktarma içeriği:\n- {contactCount} kişi\n- {messageCount} mesaj\n- Kimlik anahtarı: {hasIdentity}\n\nDevam edilsin mi?",
   "confirm.destroyData": "Tüm veriler silinsin mi? Bu işlem geri alınamaz.",
   "confirm.enterExportPassword": "Dışa aktarmanızı şifrelemek için bir şifre girin:",
   "confirm.confirmPassword": "Şifreyi onaylayın:",
   "confirm.enterImportPassword": "Dışa aktarma şifresini girin:",
-
   "group.createDescription": "Yeni bir şifreli grup sohbeti oluşturun.",
   "group.unnamed": "Adsız Grup",
   "group.noMessages": "Henüz mesaj yok",
   "group.info": "{memberCount} üye",
-
-  "misc.calculator": "Hesap Makinesi"
+  "misc.calculator": "Hesap Makinesi",
+  "btn.verifyIdentity": "Kimliği doğrula",
+  "heading.verifyIdentity": "Kimliği doğrula",
+  "safety.intro": "Bu rakamları kişinle güvendiğin bir kanal (telefon görüşmesi, yüz yüze) üzerinden karşılaştır. İki ekranda da aynı sayı görünüyorsa, oturum kurulurken kimse anahtarları değiştirmemiştir.",
+  "safety.note": "Sayılar farklıysa biri mesajlarını dinliyor olabilir. Kişiyi güvendiğin bir cihazdaki yeni bir QR koduyla tekrar ekle."
 }

@@ -2,7 +2,6 @@
   "tab.messages": "မက်ဆေ့ချ်များ",
   "tab.groups": "အဖွဲ့များ",
   "tab.contacts": "အဆက်အသွယ်များ",
-
   "heading.title": "ParolNet",
   "heading.addContact": "အဆက်အသွယ်ထည့်ရန်",
   "heading.chat": "အဆက်အသွယ်",
@@ -13,7 +12,6 @@
   "heading.call": "ခေါ်ဆိုမှု",
   "heading.groupCall": "အဖွဲ့ခေါ်ဆိုမှု",
   "heading.settings": "ဆက်တင်များ",
-
   "btn.unlock": "လော့ခ်ဖွင့်ရန်",
   "btn.addContact": "အဆက်အသွယ်ထည့်ရန်",
   "btn.copyCode": "ကုဒ်ကူးရန်",
@@ -43,7 +41,6 @@
   "btn.videoCall": "ဗီဒီယိုခေါ်ဆိုမှု",
   "btn.rename": "အမည်ပြောင်းရန်",
   "btn.closeConversation": "ပိတ်ရန်",
-
   "placeholder.passphrase": "စကားဝှက်",
   "placeholder.searchContacts": "ရှာရန်...",
   "placeholder.groupName": "အဖွဲ့အမည်",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "လော့ခ်ဖွင့်ကုဒ်",
   "placeholder.peerId": "Peer ID ကပ်ရန်...",
-
   "status.loading": "ဖွင့်နေသည်...",
   "status.loadingCrypto": "ကုဒ်ဝှက်မော်ဂျူးဖွင့်နေသည်...",
   "status.initializing": "စတင်နေသည်...",
@@ -82,7 +78,6 @@
   "status.relay": "Relay",
   "status.contactChannels": "ဆက်သွယ်ရေးလမ်းကြောင်းများ",
   "status.runningWithoutCrypto": "ကုဒ်ဝှက်ခြင်းမပါဘဲ အလုပ်လုပ်နေသည် ({error})",
-
   "error.loadingContact": "အဆက်အသွယ်ဖွင့်၍မရပါ",
   "error.contactNotFound": "အဆက်အသွယ်မတွေ့ပါ",
   "error.emptyName": "အမည်ကိုအလွတ်ထား၍မရပါ",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "အဖွဲ့အမည်ထည့်ပါ",
   "error.enterContactCode": "အဆက်အသွယ်ထံမှရသောကုဒ်ကို ကပ်ပါ",
   "error.alreadyMember": "အဖွဲ့ဝင်ဖြစ်ပြီးသားဖြစ်သည်",
-
   "toast.starting": "ParolNet စတင်နေသည်...",
   "toast.bootstrapReceived": "အစပြုဒေတာလက်ခံရရှိပြီ",
   "toast.wrongPassphrase": "စကားဝှက်မှားနေသည်",
@@ -158,18 +152,15 @@
   "toast.importComplete": "ဒေတာသွင်းပြီး! ပြန်တင်နေသည်...",
   "toast.fileReceiving": "လက်ခံနေသည်...",
   "toast.conversationClosed": "စကားပြောမှုပိတ်ပြီး",
-
   "empty.noContacts": "အဆက်အသွယ်မရှိသေးပါ",
   "empty.addContact": "+ ကိုနှိပ်ပြီး တစ်ယောက်ထည့်ပါ",
   "empty.noMessages": "မက်ဆေ့ချ်မရှိသေးပါ",
   "empty.noGroups": "အဖွဲ့မရှိသေးပါ",
   "empty.createOrJoinGroup": "အဖွဲ့ဖန်တီးပါ သို့မဟုတ် ပါဝင်ပါ",
-
   "call.incoming": "အဝင်ခေါ်ဆိုမှု...",
   "call.groupInvitation": "အဖွဲ့ခေါ်ဆိုမှုဖိတ်ကြားချက်",
   "call.groupCallName": "{groupName} ခေါ်ဆိုမှု",
   "call.you": "သင်",
-
   "settings.peerId": "Peer ID",
   "settings.version": "ဗားရှင်း",
   "settings.devMode": "dev (WASM မပါ)",
@@ -195,11 +186,9 @@
   "settings.member": "အဖွဲ့ဝင်",
   "settings.encryptionDescription": "စကားဝှက်ဖြင့် ဒေသတွင်းဒေတာအားလုံးကို ကုဒ်ဝှက်ပါ။ ၎င်းမရှိပါက သင့်စက်ကို ဝင်ရောက်နိုင်သူမည်သူမဆို သင့်မက်ဆေ့ချ်များနှင့် သော့များကို ဖတ်နိုင်ပါသည်။",
   "settings.dataExportDescription": "သင့်ဒေတာကို ကုဒ်ဝှက်ထားသောဖိုင်အဖြစ် ထုတ်ပါ။",
-
   "file.attachment": "{fileName}",
   "file.download": "ဒေါင်းလုဒ် ({size})",
   "file.receiving": "လက်ခံနေသည်... {percentage}%",
-
   "qr.show": "QR ပြရန်",
   "qr.scan": "QR စကင်ဖတ်ရန်",
   "qr.paste": "ကုဒ်ကပ်ရန်",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "အဆက်အသွယ်၏ကုဒ်ကို ဒီမှာကပ်ပါ။ သူတို့သည် QR ပြရန် မျက်နှာပြင်မှ ကူးယူနိုင်ပါသည်။",
   "qr.loadingCode": "သင့်ကုဒ်ဖွင့်နေသည်...",
   "qr.shareCodeLabel": "ဤကုဒ်ကို သင့်အဆက်အသွယ်နှင့်မျှဝေပါ",
-
   "contact.noMessagesYet": "မက်ဆေ့ချ်မရှိသေးပါ",
   "contact.rename": "အဆက်အသွယ်အမည်ပြောင်းရန်",
   "contact.renamePrompt": "ဤအဆက်အသွယ်အတွက် အမည်သတ်မှတ်ပါ:",
   "contact.sessionEstablished": "ကုဒ်ဝှက်ဆက်ရှင် တည်ဆောက်ပြီး",
   "contact.connectedViaQR": "QR ဖြင့်ချိတ်ဆက်ပြီး",
-
   "confirm.importData": "ဒါက လက်ရှိဒေတာအားလုံးကို အစားထိုးပါမည်။\n\nထုတ်ယူမှုတွင်ပါဝင်သည်:\n- အဆက်အသွယ် {contactCount} ခု\n- မက်ဆေ့ချ် {messageCount} ခု\n- အထောက်အထားသော့: {hasIdentity}\n\nဆက်လုပ်မလား?",
   "confirm.destroyData": "ဒေတာအားလုံးဖျက်ဆီးမလား? ပြန်ပြောင်း၍မရပါ။",
   "confirm.enterExportPassword": "ထုတ်ယူမှုကို ကုဒ်ဝှက်ရန် စကားဝှက်ထည့်ပါ:",
   "confirm.confirmPassword": "စကားဝှက်အတည်ပြုပါ:",
   "confirm.enterImportPassword": "ထုတ်ယူမှု စကားဝှက်ထည့်ပါ:",
-
   "group.createDescription": "ကုဒ်ဝှက်ထားသော အဖွဲ့ချက်တင်အသစ်တစ်ခု ဖန်တီးပါ။",
   "group.unnamed": "အမည်မရှိအဖွဲ့",
   "group.noMessages": "မက်ဆေ့ချ်မရှိသေးပါ",
   "group.info": "အဖွဲ့ဝင် {memberCount} ဦး",
-
-  "misc.calculator": "ဂဏန်းတွက်စက်"
+  "misc.calculator": "ဂဏန်းတွက်စက်",
+  "btn.verifyIdentity": "အထောက်အထား စစ်ဆေးရန်",
+  "heading.verifyIdentity": "အထောက်အထား စစ်ဆေးရန်",
+  "safety.intro": "ယုံကြည်ရသော ဆက်သွယ်မှုလမ်းကြောင်း (ဖုန်းခေါ်ဆိုမှု၊ မျက်နှာချင်းဆိုင်) မှတစ်ဆင့် အဆက်အသွယ်နှင့် ဤဂဏန်းများကို နှိုင်းယှဉ်ပါ။ ဖန်သားပြင်နှစ်ခုလုံးတွင် တူညီသော ဂဏန်းဖော်ပြပါက session ဖွဲ့စည်းစဉ် မည်သူမျှ သော့များကို အစားထိုးခြင်းမရှိပါ။",
+  "safety.note": "ဂဏန်းများ မတူညီပါက တစ်ဦးဦးသည် သင့်မက်ဆေ့ဂျ်များကို ကြားဖြတ်ဖမ်းယူနေနိုင်ပါသည်။ ယုံကြည်ရသော စက်မှ QR ကုဒ် အသစ်တစ်ခုဖြင့် အဆက်အသွယ်ကို ပြန်ထည့်ပါ။"
 }

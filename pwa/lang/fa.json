@@ -2,7 +2,6 @@
   "tab.messages": "پیام‌ها",
   "tab.groups": "گروه‌ها",
   "tab.contacts": "مخاطبان",
-
   "heading.title": "ParolNet",
   "heading.addContact": "افزودن مخاطب",
   "heading.chat": "مخاطب",
@@ -13,7 +12,6 @@
   "heading.call": "تماس",
   "heading.groupCall": "تماس گروهی",
   "heading.settings": "تنظیمات",
-
   "btn.unlock": "باز کردن قفل",
   "btn.addContact": "افزودن مخاطب",
   "btn.copyCode": "کپی کد",
@@ -43,7 +41,6 @@
   "btn.videoCall": "تماس تصویری",
   "btn.rename": "تغییر نام",
   "btn.closeConversation": "بستن",
-
   "placeholder.passphrase": "عبارت رمز",
   "placeholder.searchContacts": "جستجو...",
   "placeholder.groupName": "نام گروه",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "کد باز کردن قفل",
   "placeholder.peerId": "Peer ID را بچسبانید...",
-
   "status.loading": "بارگذاری...",
   "status.loadingCrypto": "بارگذاری ماژول رمزنگاری...",
   "status.initializing": "راه‌اندازی...",
@@ -82,7 +78,6 @@
   "status.relay": "رله",
   "status.contactChannels": "کانال‌های ارتباطی",
   "status.runningWithoutCrypto": "بدون رمزنگاری اجرا می‌شود ({error})",
-
   "error.loadingContact": "بارگذاری مخاطب ناموفق بود",
   "error.contactNotFound": "مخاطب یافت نشد",
   "error.emptyName": "نام نمی‌تواند خالی باشد",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "نام گروه را وارد کنید",
   "error.enterContactCode": "کد مخاطبتان را بچسبانید",
   "error.alreadyMember": "از قبل عضو است",
-
   "toast.starting": "راه‌اندازی ParolNet...",
   "toast.bootstrapReceived": "داده‌های اولیه دریافت شد",
   "toast.wrongPassphrase": "عبارت رمز اشتباه است",
@@ -158,18 +152,15 @@
   "toast.importComplete": "ورود داده‌ها تمام شد! بارگذاری مجدد...",
   "toast.fileReceiving": "دریافت...",
   "toast.conversationClosed": "مکالمه بسته شد",
-
   "empty.noContacts": "هنوز مخاطبی ندارید",
   "empty.addContact": "روی + بزنید تا کسی را اضافه کنید",
   "empty.noMessages": "هنوز پیامی نیست",
   "empty.noGroups": "هنوز گروهی نیست",
   "empty.createOrJoinGroup": "یک گروه بسازید یا به گروهی بپیوندید",
-
   "call.incoming": "تماس ورودی...",
   "call.groupInvitation": "دعوت به تماس گروهی",
   "call.groupCallName": "تماس {groupName}",
   "call.you": "شما",
-
   "settings.peerId": "Peer ID",
   "settings.version": "نسخه",
   "settings.devMode": "dev (بدون WASM)",
@@ -195,11 +186,9 @@
   "settings.member": "عضو",
   "settings.encryptionDescription": "تمام داده‌های محلی را با یک عبارت عبور رمزنگاری کنید. بدون این، هر کسی که به دستگاه شما دسترسی داشته باشد می‌تواند پیام‌ها و کلیدهای شما را بخواند.",
   "settings.dataExportDescription": "داده‌هایتان را به صورت فایل رمزنگاری شده خروجی بگیرید.",
-
   "file.attachment": "{fileName}",
   "file.download": "دانلود ({size})",
   "file.receiving": "دریافت... {percentage}%",
-
   "qr.show": "نمایش QR",
   "qr.scan": "اسکن QR",
   "qr.paste": "چسباندن کد",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "کد مخاطبتان را اینجا بچسبانید. آن‌ها می‌توانند آن را از صفحه «نمایش QR» کپی کنند.",
   "qr.loadingCode": "بارگذاری کد...",
   "qr.shareCodeLabel": "این کد را با مخاطبتان به اشتراک بگذارید",
-
   "contact.noMessagesYet": "هنوز پیامی نیست",
   "contact.rename": "تغییر نام مخاطب",
   "contact.renamePrompt": "نام این مخاطب را تعیین کنید:",
   "contact.sessionEstablished": "نشست رمزنگاری شده برقرار شد",
   "contact.connectedViaQR": "متصل شده از طریق QR",
-
   "confirm.importData": "این کار همه داده‌های فعلی را جایگزین می‌کند.\n\nفایل خروجی شامل:\n- {contactCount} مخاطب\n- {messageCount} پیام\n- کلید هویت: {hasIdentity}\n\nادامه می‌دهید؟",
   "confirm.destroyData": "همه داده‌ها نابود شوند؟ این قابل بازگشت نیست.",
   "confirm.enterExportPassword": "رمز عبوری برای رمزنگاری خروجی وارد کنید:",
   "confirm.confirmPassword": "تأیید رمز عبور:",
   "confirm.enterImportPassword": "رمز عبور فایل خروجی را وارد کنید:",
-
   "group.createDescription": "یک گفتگوی گروهی رمزنگاری شده جدید ایجاد کنید.",
   "group.unnamed": "گروه بدون نام",
   "group.noMessages": "هنوز پیامی نیست",
   "group.info": "{memberCount} عضو",
-
-  "misc.calculator": "ماشین‌حساب"
+  "misc.calculator": "ماشین‌حساب",
+  "btn.verifyIdentity": "تأیید هویت",
+  "heading.verifyIdentity": "تأیید هویت",
+  "safety.intro": "این اعداد را با مخاطب خود از طریق یک کانال مورد اعتماد (تماس تلفنی، حضوری) مقایسه کنید. اگر هر دو صفحه عدد یکسانی را نشان دهند، هیچ‌کس هنگام برقراری نشست کلیدها را جایگزین نکرده است.",
+  "safety.note": "اگر اعداد متفاوت باشند، ممکن است کسی پیام‌های شما را شنود کند. مخاطب را از یک دستگاه مورد اعتماد با کد QR جدید دوباره اضافه کنید."
 }

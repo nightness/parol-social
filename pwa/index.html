@@ -148,6 +148,7 @@
             <button onclick="showView('contacts')">←</button>
             <h1 id="chat-peer-name" data-i18n="heading.chat">Contact</h1>
             <div class="header-actions">
+                <button onclick="showSafetyNumber(currentPeerId)" data-i18n-title="btn.verifyIdentity" title="Verify identity">🛡️</button>
                 <button onclick="initiateCall(currentPeerId, false)" data-i18n-title="btn.voiceCall" title="Voice call">📞</button>
                 <button onclick="initiateCall(currentPeerId, true)" data-i18n-title="btn.videoCall" title="Video call">📹</button>
             </div>

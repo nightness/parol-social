@@ -2,7 +2,6 @@
   "tab.messages": "الرسائل",
   "tab.groups": "المجموعات",
   "tab.contacts": "جهات الاتصال",
-
   "heading.title": "ParolNet",
   "heading.addContact": "إضافة جهة اتصال",
   "heading.chat": "جهة اتصال",
@@ -13,7 +12,6 @@
   "heading.call": "مكالمة",
   "heading.groupCall": "مكالمة جماعية",
   "heading.settings": "الإعدادات",
-
   "btn.unlock": "فتح القفل",
   "btn.addContact": "إضافة جهة اتصال",
   "btn.copyCode": "نسخ الرمز",
@@ -43,7 +41,6 @@
   "btn.videoCall": "مكالمة فيديو",
   "btn.rename": "إعادة تسمية",
   "btn.closeConversation": "إغلاق",
-
   "placeholder.passphrase": "عبارة المرور",
   "placeholder.searchContacts": "بحث...",
   "placeholder.groupName": "اسم المجموعة",
@@ -54,7 +51,6 @@
   "placeholder.relayUrl": "wss://www.parol.social/ws",
   "placeholder.unlockCode": "رمز فتح القفل",
   "placeholder.peerId": "الصق Peer ID...",
-
   "status.loading": "جارٍ التحميل...",
   "status.loadingCrypto": "جارٍ تحميل وحدة التشفير...",
   "status.initializing": "جارٍ التهيئة...",
@@ -82,7 +78,6 @@
   "status.relay": "المُرحّل",
   "status.contactChannels": "قنوات الاتصال",
   "status.runningWithoutCrypto": "يعمل بدون تشفير ({error})",
-
   "error.loadingContact": "فشل تحميل جهة الاتصال",
   "error.contactNotFound": "جهة الاتصال غير موجودة",
   "error.emptyName": "لا يمكن أن يكون الاسم فارغاً",
@@ -121,7 +116,6 @@
   "error.enterGroupName": "أدخل اسم المجموعة",
   "error.enterContactCode": "الصق الرمز من جهة اتصالك",
   "error.alreadyMember": "عضو بالفعل",
-
   "toast.starting": "جارٍ تشغيل ParolNet...",
   "toast.bootstrapReceived": "تم استلام البيانات الأولية",
   "toast.wrongPassphrase": "عبارة المرور خاطئة",
@@ -158,18 +152,15 @@
   "toast.importComplete": "اكتمل الاستيراد! جارٍ إعادة التحميل...",
   "toast.fileReceiving": "جارٍ الاستلام...",
   "toast.conversationClosed": "تم إغلاق المحادثة",
-
   "empty.noContacts": "لا توجد جهات اتصال بعد",
   "empty.addContact": "اضغط + لإضافة شخص",
   "empty.noMessages": "لا توجد رسائل بعد",
   "empty.noGroups": "لا توجد مجموعات بعد",
   "empty.createOrJoinGroup": "أنشئ مجموعة أو انضم إلى واحدة",
-
   "call.incoming": "مكالمة واردة...",
   "call.groupInvitation": "دعوة لمكالمة جماعية",
   "call.groupCallName": "مكالمة {groupName}",
   "call.you": "أنت",
-
   "settings.peerId": "Peer ID",
   "settings.version": "الإصدار",
   "settings.devMode": "dev (بدون WASM)",
@@ -195,11 +186,9 @@
   "settings.member": "عضو",
   "settings.encryptionDescription": "شفّر جميع البيانات المحلية بعبارة مرور. بدون ذلك، يمكن لأي شخص لديه وصول إلى جهازك قراءة رسائلك ومفاتيحك.",
   "settings.dataExportDescription": "صدّر بياناتك كملف مشفّر.",
-
   "file.attachment": "{fileName}",
   "file.download": "تحميل ({size})",
   "file.receiving": "جارٍ الاستلام... {percentage}%",
-
   "qr.show": "عرض QR",
   "qr.scan": "مسح QR",
   "qr.paste": "لصق الرمز",
@@ -208,23 +197,23 @@
   "qr.pasteInfo": "الصق رمز جهة اتصالك هنا. يمكنهم نسخه من شاشة «عرض QR».",
   "qr.loadingCode": "جارٍ تحميل الرمز...",
   "qr.shareCodeLabel": "شارك هذا الرمز مع جهة اتصالك",
-
   "contact.noMessagesYet": "لا توجد رسائل بعد",
   "contact.rename": "إعادة تسمية جهة الاتصال",
   "contact.renamePrompt": "عيّن اسماً لجهة الاتصال هذه:",
   "contact.sessionEstablished": "تم إنشاء جلسة مشفّرة",
   "contact.connectedViaQR": "متصل عبر QR",
-
   "confirm.importData": "سيؤدي هذا إلى استبدال جميع البيانات الحالية.\n\nملف التصدير يحتوي على:\n- {contactCount} جهة اتصال\n- {messageCount} رسالة\n- مفتاح الهوية: {hasIdentity}\n\nهل تريد المتابعة؟",
   "confirm.destroyData": "تدمير جميع البيانات؟ لا يمكن التراجع عن هذا.",
   "confirm.enterExportPassword": "أدخل كلمة مرور لتشفير ملف التصدير:",
   "confirm.confirmPassword": "تأكيد كلمة المرور:",
   "confirm.enterImportPassword": "أدخل كلمة مرور ملف التصدير:",
-
   "group.createDescription": "أنشئ محادثة جماعية مشفّرة جديدة.",
   "group.unnamed": "مجموعة بدون اسم",
   "group.noMessages": "لا توجد رسائل بعد",
   "group.info": "{memberCount} عضو",
-
-  "misc.calculator": "آلة حاسبة"
+  "misc.calculator": "آلة حاسبة",
+  "btn.verifyIdentity": "التحقق من الهوية",
+  "heading.verifyIdentity": "التحقق من الهوية",
+  "safety.intro": "قارن هذه الأرقام مع جهة الاتصال عبر قناة تثق بها (مكالمة هاتفية أو وجهًا لوجه). إذا أظهرت كلتا الشاشتين الرقم نفسه، فلم يستبدل أحد المفاتيح عند إعداد جلستك.",
+  "safety.note": "إذا اختلفت الأرقام، فقد يكون هناك من يعترض رسائلك. أضف جهة الاتصال من جديد باستخدام رمز QR جديد من جهاز موثوق."
 }
