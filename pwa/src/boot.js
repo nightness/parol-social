@@ -28,7 +28,7 @@ import {
     openSettings, enableDecoyMode, executePanicWipe, enableEncryption,
     handleExportData, handleImportData, updateNetworkSettings,
     addDuressCredential, setCoverTrafficEnabled, loadCoverTrafficSetting,
-    startCoverTrafficFromSettings
+    startCoverTrafficFromSettings, regenerateIdentity, zeroizeExpiredRetiredIdentity
 } from './settings.js';
 import { initI18n, t, changeLanguage, applyToDOM } from './i18n.js';
 import { showSafetyNumberModal } from './safety-number.js';
@@ -134,6 +134,12 @@ async function onWasmReady() {
     }
     loadContacts();
     renderBootstrapQR();
+
+    // Enforce H5 grace-window zeroize across restarts: if the retired
+    // identity record has expired, erase it now (PNP-002-MUST-039).
+    try { await zeroizeExpiredRetiredIdentity(); } catch (e) {
+        console.warn('[Boot] retired-identity zeroize failed:', e && e.message);
+    }
 
     // Load & start wire-level cover traffic (PNP-006). Default ON.
     // Safe to start before relay reports connected — the timer tolerates
@@ -409,6 +415,7 @@ window.hangupCall = hangupCall;
 window.answerIncomingCall = answerIncomingCall;
 window.enableDecoyMode = enableDecoyMode;
 window.executePanicWipe = executePanicWipe;
+window.regenerateIdentity = regenerateIdentity;
 window.setCoverTrafficEnabled = setCoverTrafficEnabled;
 window.addDuressCredential = addDuressCredential;
 window.toggleMute = toggleMute;

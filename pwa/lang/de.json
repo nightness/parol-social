@@ -152,6 +152,8 @@
   "toast.importComplete": "Import abgeschlossen! Wird neu geladen...",
   "toast.fileReceiving": "Empfange...",
   "toast.conversationClosed": "Unterhaltung geschlossen",
+  "toast.identityRotated": "Identität gewechselt. Alte Identität läuft in 7 Tagen ab.",
+  "toast.contactRotated": "{name} hat die Identität gewechselt — überprüfe die neue Sicherheitsnummer",
   "empty.noContacts": "Noch keine Kontakte",
   "empty.addContact": "Tippe auf + um jemanden hinzuzufuegen",
   "empty.noMessages": "Noch keine Nachrichten",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "Lege eine separate Passphrase fest, die beim Entsperren alle Daten unbemerkt loscht. Nur unter Zwang verwenden — die App wirkt, als wurde sie normal entsperrt, zerstort aber sofort jede Nachricht, jeden Kontakt und jeden Schlussel.",
   "settings.duressVerifyPlaceholder": "Aktuelle Passphrase",
   "settings.duressPlaceholder": "Zwangs-Passphrase",
+  "settings.regenerateIdentity": "Identität neu erzeugen",
+  "settings.regenerateIdentityDescription": "Erzeugt eine neue Identität und benachrichtigt deine Kontakte. Nützlich bei Verdacht auf Kompromittierung. Deine Kontakte behalten ihren Chat-Verlauf; die alte Identität bleibt 7 weitere Tage gültig, damit Nachrichten unterwegs noch ankommen.",
+  "settings.regenerateIdentityConfirm": "Identität neu erzeugen? Deine Kontakte erhalten eine Rotations-Mitteilung. Die alte Identität läuft in 7 Tagen ab.",
   "toast.duressCodeUpdated": "Zwangs-Passphrase gespeichert"
 }

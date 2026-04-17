@@ -152,6 +152,8 @@
   "toast.importComplete": "Importazione completata! Ricaricamento...",
   "toast.fileReceiving": "Ricezione...",
   "toast.conversationClosed": "Conversazione chiusa",
+  "toast.identityRotated": "Identita rigenerata. La vecchia scade tra 7 giorni.",
+  "toast.contactRotated": "{name} ha rigenerato l'identita — verifica il nuovo numero di sicurezza",
   "empty.noContacts": "Ancora nessun contatto",
   "empty.addContact": "Tocca + per aggiungere qualcuno",
   "empty.noMessages": "Ancora nessun messaggio",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "Imposta una passphrase separata che cancella silenziosamente tutti i dati quando viene digitata allo sblocco. Usala solo sotto coercizione — l'app sembrera sbloccarsi normalmente ma distruggera immediatamente ogni messaggio, contatto e chiave.",
   "settings.duressVerifyPlaceholder": "Passphrase attuale",
   "settings.duressPlaceholder": "Passphrase sotto coercizione",
+  "settings.regenerateIdentity": "Rigenera identita",
+  "settings.regenerateIdentityDescription": "Genera una nuova identita e avvisa i tuoi contatti. Utile dopo un sospetto compromesso. I contatti mantengono la cronologia; la vecchia identita rimane valida per altri 7 giorni affinche i messaggi in transito arrivino.",
+  "settings.regenerateIdentityConfirm": "Rigenerare la tua identita? I tuoi contatti riceveranno un avviso di rotazione. La vecchia identita scade tra 7 giorni.",
   "toast.duressCodeUpdated": "Passphrase sotto coercizione salvata"
 }

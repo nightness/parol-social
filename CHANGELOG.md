@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Identity Rotation (PNP-002 §8, H5)
+- New `IdentityRotationPayload` in `parolnet-protocol`: old/new PeerId, new Ed25519 pubkey, rotated_at, grace_expires_at, Ed25519 signature over canonical domain-separated byte sequence (`ParolNet-IdentityRotation-v1`).
+- `rotate_identity()` generates a new `IdentityKeyPair` and produces a signed rotation payload; `verify_identity_rotation()` checks signature under the old identity's Ed25519 public key.
+- New PNP-001 §3.4 wire code `0x13 IDENTITY_ROTATE`; delivered per-contact over existing Double Ratchet sessions so the old identity authenticates the rotation.
+- `parolnet-core::rotate_identity_for_peers()` orchestrator: builds one PNP-001 envelope per active session; `ParolNet::replace_identity_preserving_sessions()` swaps identity without tearing down sessions (sessions re-peg to the new PeerId).
+- WASM exports `rotate_identity(now_secs)` and `handle_identity_rotation(source_old_ed25519_pub_hex, payload_json)`.
+- PWA: Settings → "Regenerate identity" button generates a new identity, signs a rotation notice per contact, and dispatches over existing sessions. Receiver dispatch (`MSG_TYPE_IDENTITY_ROTATE` case) verifies the signature against the contact's stored `identityPubKey` trust anchor and remaps the contact record to the new PeerId.
+- 7-day grace window: the retired identity secret is retained so in-flight messages can still decrypt; `zeroizeExpiredRetiredIdentity()` runs at boot and wipes the secret once `grace_expires_at` has passed.
+- Contact trust anchor: `identityPubKey` is now captured at contact-add time from both scanner and presenter paths (QR-based handshake) to authenticate future rotations.
+- Spec: PNP-001 v0.4 adds code `0x13`; PNP-002 v0.3 adds §8 Identity Rotation with MUST-036..039 and SHOULD-011..012.
+- Conformance: 12 tests in `pnp_002_identity_rotation.rs` covering canonical signing bytes, domain separation, PeerId binding, grace window, signature verification, and freshness.
+- i18n: 5 new keys (`toast.identityRotated`, `toast.contactRotated`, `settings.regenerateIdentity`, `settings.regenerateIdentityDescription`, `settings.regenerateIdentityConfirm`) natively translated in all 16 languages.
+- Relay-side multi-subscription during the grace window (so the retiring node can still pull queued traffic addressed to the old PeerId) is tracked as a follow-up; client-side lifecycle is complete.
+
 ### Added — Wire-level cover traffic (PNP-006, H7)
 - New `pwa/src/cover-traffic.js`: NORMAL-mode timer (500ms base + ≤100ms jitter) emits `MSG_TYPE_DECOY` (0x04) envelopes to a rotating contact with an established Double Ratchet session.
 - Real sends suppress the next decoy tick via `markRealSend()` — PNP-006-MUST-005 (real data has priority over padding).

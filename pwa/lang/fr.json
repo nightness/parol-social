@@ -152,6 +152,8 @@
   "toast.importComplete": "Import termine ! Rechargement...",
   "toast.fileReceiving": "Reception...",
   "toast.conversationClosed": "Conversation fermee",
+  "toast.identityRotated": "Identite remplacee. L'ancienne expire dans 7 jours.",
+  "toast.contactRotated": "{name} a remplace son identite — verifie son nouveau numero de securite",
   "empty.noContacts": "Aucun contact pour l'instant",
   "empty.addContact": "Appuie sur + pour ajouter quelqu'un",
   "empty.noMessages": "Aucun message pour l'instant",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "Definis une phrase de passe distincte qui efface silencieusement toutes les donnees quand elle est saisie au deverrouillage. A utiliser uniquement sous la contrainte — l'appli semblera se deverrouiller normalement mais detruira aussitot chaque message, contact et cle.",
   "settings.duressVerifyPlaceholder": "Phrase de passe actuelle",
   "settings.duressPlaceholder": "Phrase de contrainte",
+  "settings.regenerateIdentity": "Regenerer l'identite",
+  "settings.regenerateIdentityDescription": "Cree une nouvelle identite et avertit tes contacts. Utile en cas de compromission suspectee. Tes contacts conservent leur historique ; l'ancienne identite reste valable 7 jours pour que les messages en transit arrivent.",
+  "settings.regenerateIdentityConfirm": "Regenerer ton identite ? Tes contacts recevront un avis de rotation. L'ancienne identite expire dans 7 jours.",
   "toast.duressCodeUpdated": "Phrase de contrainte enregistree"
 }

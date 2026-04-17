@@ -18,7 +18,8 @@ import {
     MSG_TYPE_CHAT, MSG_TYPE_SYSTEM, MSG_TYPE_FILE_CHUNK, MSG_TYPE_FILE_CONTROL,
     MSG_TYPE_CALL_SIGNAL, MSG_TYPE_GROUP_TEXT, MSG_TYPE_GROUP_CALL_SIGNAL,
     MSG_TYPE_GROUP_FILE_OFFER, MSG_TYPE_GROUP_FILE_CHUNK,
-    MSG_TYPE_SENDER_KEY_DISTRIBUTION, MSG_TYPE_GROUP_ADMIN, MSG_TYPE_DECOY
+    MSG_TYPE_SENDER_KEY_DISTRIBUTION, MSG_TYPE_GROUP_ADMIN, MSG_TYPE_DECOY,
+    MSG_TYPE_IDENTITY_ROTATE
 } from './protocol-constants.js';
 import { markRealSend } from './cover-traffic.js';
 
@@ -987,6 +988,8 @@ export function dispatchByMsgType(msgType, fromPeerId, plaintext, handlers) {
             return h.senderKey(fromPeerId, plaintext);
         case MSG_TYPE_GROUP_ADMIN:
             return h.groupAdmin(fromPeerId, plaintext);
+        case MSG_TYPE_IDENTITY_ROTATE:
+            return h.identityRotate(fromPeerId, plaintext);
         default:
             // PNP-001 MUST-008: unknown types are silently discarded.
             console.warn('[Dispatch] unknown msg_type', msgType, 'from', fromPeerId.slice(0, 8));
@@ -1045,7 +1048,9 @@ function handleSystemPlaintext(fromPeerId, plaintext) {
                     name: result.peer_id.slice(0, 8) + '...',
                     lastMessage: 'Encrypted session established',
                     lastTime: formatTime(Date.now()),
-                    unread: 0
+                    unread: 0,
+                    // PNP-002 §8 trust anchor for identity-rotation verification.
+                    identityPubKey: theirIkHex
                 }).then(async () => {
                     showToast(t('toast.secureContact', { name: result.peer_id.slice(0, 8) }));
                     loadContacts();
@@ -1132,6 +1137,74 @@ function handleGroupAdminPlaintext(fromPeerId, plaintext) {
     }
 }
 
+// PNP-002 §8: signed identity-rotation attestation. The OLD Ed25519 key of
+// the sender signs a payload stating the new PeerId + new Ed25519 pubkey.
+// We look up the contact's stored OLD pubkey (trust anchor, stored at
+// contact-add time), verify the signature via WASM, and if valid remap the
+// contact's peer_id field to the new PeerId while preserving the session.
+async function handleIdentityRotatePlaintext(fromPeerId, plaintext) {
+    if (!wasm || !wasm.handle_identity_rotation) {
+        console.warn('[IdentityRotate] WASM not available — dropping');
+        return;
+    }
+    const payloadJson = new TextDecoder().decode(plaintext);
+    let contact;
+    try {
+        contact = await dbGet('contacts', fromPeerId);
+    } catch (e) {
+        console.warn('[IdentityRotate] contact lookup failed:', e);
+        return;
+    }
+    if (!contact || !contact.identityPubKey) {
+        // No stored trust anchor — drop silently. Matches PNP-001-MUST-008.
+        console.warn('[IdentityRotate] no stored identityPubKey for', fromPeerId.slice(0, 8));
+        return;
+    }
+
+    let result;
+    try {
+        result = wasm.handle_identity_rotation(contact.identityPubKey, payloadJson);
+    } catch (e) {
+        console.warn('[IdentityRotate] verify failed:', e && e.message);
+        return;
+    }
+    if (!result || !result.ok) {
+        console.warn('[IdentityRotate] signature verification failed from', fromPeerId.slice(0, 8));
+        return;
+    }
+
+    const newPeerId = result.new_peer_id_hex;
+    const newPubHex = result.new_ed25519_pub_hex;
+    if (!newPeerId || newPeerId === fromPeerId) return;
+
+    // Remap the contact record to the new PeerId. The Double Ratchet session
+    // is keyed by the peer identity object in WASM state; re-storing under
+    // the new PeerId keeps everything reachable via the new key.
+    const updated = {
+        ...contact,
+        peerId: newPeerId,
+        identityPubKey: newPubHex,
+        // Keep the old identity pubkey for the grace window so receivers of
+        // stale (in-flight) rotation retransmissions don't drop silently.
+        previousIdentityPubKey: contact.identityPubKey,
+        rotatedAt: result.rotated_at,
+        rotatedGraceExpiresAt: result.grace_expires_at,
+        lastMessage: 'Identity rotated',
+        lastTime: formatTime(Date.now())
+    };
+    try {
+        await dbDelete('contacts', fromPeerId);
+        await dbPut('contacts', updated);
+    } catch (e) {
+        console.warn('[IdentityRotate] contact remap failed:', e);
+        return;
+    }
+    const name = contact.name || fromPeerId.slice(0, 8);
+    showToast(t('toast.contactRotated', { name }));
+    showLocalNotification('Identity rotated', name, newPeerId);
+    if (currentView === 'contacts') loadContacts();
+}
+
 const DEFAULT_DISPATCH_HANDLERS = {
     chat: handleChatPlaintext,
     system: handleSystemPlaintext,
@@ -1144,6 +1217,7 @@ const DEFAULT_DISPATCH_HANDLERS = {
     groupFileChunk: handleGroupFileChunkPlaintext,
     senderKey: handleSenderKeyPlaintext,
     groupAdmin: handleGroupAdminPlaintext,
+    identityRotate: handleIdentityRotatePlaintext,
 };
 
 function hexToBytes(hex) {

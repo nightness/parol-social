@@ -152,6 +152,8 @@
   "toast.importComplete": "Importacion completada! Recargando...",
   "toast.fileReceiving": "Recibiendo...",
   "toast.conversationClosed": "Conversacion cerrada",
+  "toast.identityRotated": "Identidad rotada. La antigua expira en 7 dias.",
+  "toast.contactRotated": "{name} roto su identidad — verifica su nuevo numero de seguridad",
   "empty.noContacts": "Aun no hay contactos",
   "empty.addContact": "Toca + para agregar a alguien",
   "empty.noMessages": "Aun no hay mensajes",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "Configura una frase de contraseña distinta que borra silenciosamente todos los datos al ingresarla en el desbloqueo. Usala solo bajo coaccion — la app parecera desbloquearse normalmente pero destruira de inmediato cada mensaje, contacto y clave.",
   "settings.duressVerifyPlaceholder": "Frase de contraseña actual",
   "settings.duressPlaceholder": "Frase de coaccion",
+  "settings.regenerateIdentity": "Regenerar identidad",
+  "settings.regenerateIdentityDescription": "Genera una nueva identidad y avisa a tus contactos. Util tras sospecha de compromiso. Tus contactos conservan el historial; la identidad antigua sigue valida 7 dias mas para que lleguen los mensajes en transito.",
+  "settings.regenerateIdentityConfirm": "¿Regenerar tu identidad? Tus contactos veran un aviso de rotacion. La identidad antigua expira en 7 dias.",
   "toast.duressCodeUpdated": "Frase de coaccion guardada"
 }

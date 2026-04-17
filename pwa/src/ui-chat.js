@@ -633,12 +633,14 @@ function handleScannedQR(data) {
     let peerId = null;
     let sessionEstablished = false;
     let bootstrapSecret = null;
+    let theirIdentityKey = null;
 
     if (/^[0-9a-fA-F]+$/.test(data) && data.length > 64 && wasm && wasm.process_scanned_qr) {
         try {
             const result = wasm.process_scanned_qr(data);
             peerId = result.peer_id;
             bootstrapSecret = result.bootstrap_secret;
+            theirIdentityKey = result.their_identity_key || null;
             sessionEstablished = true;
             console.log('[QR] Session established with:', peerId.slice(0, 8));
             persistSessions();
@@ -671,7 +673,11 @@ function handleScannedQR(data) {
         name: peerId.slice(0, 8) + '...',
         lastMessage: sessionEstablished ? 'Encrypted session established' : 'Connected via QR',
         lastTime: formatTime(Date.now()),
-        unread: 0
+        unread: 0,
+        // PNP-002 §8: the contact's Ed25519 pubkey at original add-time is
+        // the trust anchor for future identity-rotation attestations. Without
+        // this stored anchor we cannot verify a rotation notice from them.
+        identityPubKey: theirIdentityKey
     }).then(async () => {
         loadContacts();
         if (sessionEstablished && wasm && wasm.get_public_key && wasm.envelope_encode) {

@@ -45,6 +45,10 @@ export const MSG_TYPE_SENDER_KEY_DISTRIBUTION = 0x11;
 // 0x12 GROUP_ADMIN — group admin operation (invite, member add/remove).
 export const MSG_TYPE_GROUP_ADMIN = 0x12;
 
+// ── PNP-002 §8 identity rotation (H5) ─────────────────────────
+// 0x13 IDENTITY_ROTATE — signed identity rotation notification.
+export const MSG_TYPE_IDENTITY_ROTATE = 0x13;
+
 // All message-type codes in PNP-001 §3.4 (registry mirror — tests enumerate this).
 export const ALL_MSG_TYPES = Object.freeze({
     TEXT:                    MSG_TYPE_CHAT,
@@ -65,4 +69,5 @@ export const ALL_MSG_TYPES = Object.freeze({
     GROUP_FILE_CONTROL:      MSG_TYPE_GROUP_FILE_CONTROL,
     SENDER_KEY_DISTRIBUTION: MSG_TYPE_SENDER_KEY_DISTRIBUTION,
     GROUP_ADMIN:             MSG_TYPE_GROUP_ADMIN,
+    IDENTITY_ROTATE:         MSG_TYPE_IDENTITY_ROTATE,
 });

@@ -22,6 +22,7 @@ pub mod file;
 pub mod gossip;
 pub mod group;
 pub mod handshake;
+pub mod identity_rotation;
 pub mod media;
 pub mod message;
 pub mod padding;

@@ -152,6 +152,8 @@
   "toast.importComplete": "Nhập dữ liệu hoàn tất! Đang tải lại...",
   "toast.fileReceiving": "Đang nhận...",
   "toast.conversationClosed": "Đã đóng cuộc trò chuyện",
+  "toast.identityRotated": "Đã đổi danh tính. Danh tính cũ hết hạn sau 7 ngày.",
+  "toast.contactRotated": "{name} đã đổi danh tính — hãy xác minh số an toàn mới của họ",
   "empty.noContacts": "Chưa có liên hệ nào",
   "empty.addContact": "Nhấn + để thêm ai đó",
   "empty.noMessages": "Chưa có tin nhắn nào",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "Đặt một cụm mật khẩu riêng, khi nhập lúc mở khóa sẽ xóa sạch mọi dữ liệu một cách âm thầm. Chỉ dùng khi bị cưỡng ép — ứng dụng sẽ trông như mở khóa bình thường nhưng sẽ ngay lập tức hủy mọi tin nhắn, liên hệ và khóa.",
   "settings.duressVerifyPlaceholder": "Cụm mật khẩu hiện tại",
   "settings.duressPlaceholder": "Cụm mật khẩu cưỡng ép",
+  "settings.regenerateIdentity": "Đổi danh tính",
+  "settings.regenerateIdentityDescription": "Tạo một danh tính mới và thông báo cho các liên hệ. Hữu ích khi nghi ngờ bị xâm phạm. Liên hệ của bạn giữ nguyên lịch sử trò chuyện; danh tính cũ vẫn hoạt động thêm 7 ngày để các tin nhắn đang chuyển tiếp vẫn đến nơi.",
+  "settings.regenerateIdentityConfirm": "Đổi danh tính của bạn? Các liên hệ sẽ thấy thông báo đổi danh tính. Danh tính cũ hết hạn sau 7 ngày.",
   "toast.duressCodeUpdated": "Đã lưu cụm mật khẩu cưỡng ép"
 }

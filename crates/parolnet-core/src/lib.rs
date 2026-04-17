@@ -26,6 +26,7 @@ pub mod file_transfer;
 pub mod group;
 pub mod group_call;
 pub mod group_file;
+pub mod identity_rotation;
 pub mod panic;
 pub mod session;
 #[cfg(feature = "native")]
@@ -105,6 +106,19 @@ impl ParolNet {
     /// Export the identity secret key bytes for persistence.
     pub fn export_identity_secret(&self) -> [u8; 32] {
         self.identity.secret_bytes()
+    }
+
+    /// Replace the active identity keypair while preserving all Double
+    /// Ratchet session state and group managers.
+    ///
+    /// Used by the H5 identity-rotation flow (PNP-002 §7): after the caller
+    /// has signed `IdentityRotationPayload` messages with the OLD identity
+    /// and queued them for delivery, they swap in the new identity. Existing
+    /// sessions re-peg to the new PeerId client-side; contacts auto-remap
+    /// their stored peer_id when they verify the rotation payload.
+    pub fn replace_identity_preserving_sessions(&mut self, new_identity: IdentityKeyPair) {
+        self.peer_id = PeerId::from_public_key(&new_identity.public_key_bytes());
+        self.identity = new_identity;
     }
 
     /// Get our PeerId.

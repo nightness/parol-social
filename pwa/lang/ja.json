@@ -152,6 +152,8 @@
   "toast.importComplete": "インポートが完了しました！再読み込みします...",
   "toast.fileReceiving": "受信中...",
   "toast.conversationClosed": "会話を閉じました",
+  "toast.identityRotated": "身元を再生成しました。旧身元は7日後に失効します。",
+  "toast.contactRotated": "{name} さんが身元を再生成しました — 新しい安全番号を確認してください",
   "empty.noContacts": "まだ連絡先がありません",
   "empty.addContact": "+ をタップして追加しましょう",
   "empty.noMessages": "まだメッセージがありません",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "ロック解除時に入力すると、すべてのデータを静かに消去する別のパスフレーズを設定します。強要されたときのみ使用してください——アプリは通常通り解錠されたように見えますが、即座にすべてのメッセージ、連絡先、鍵を破壊します。",
   "settings.duressVerifyPlaceholder": "現在のパスフレーズ",
   "settings.duressPlaceholder": "強制時パスフレーズ",
+  "settings.regenerateIdentity": "身元を再生成",
+  "settings.regenerateIdentityDescription": "新しい身元を生成し、連絡先に通知します。侵害の疑いがある場合に有用です。連絡先は会話履歴を保持し、旧身元はあと7日間有効なので送信中のメッセージも到着します。",
+  "settings.regenerateIdentityConfirm": "身元を再生成しますか？連絡先に再生成通知が届きます。旧身元は7日後に失効します。",
   "toast.duressCodeUpdated": "強制時パスフレーズを保存しました"
 }

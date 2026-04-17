@@ -171,6 +171,150 @@ pub fn get_public_key() -> String {
         .unwrap_or_default()
 }
 
+// ── Identity Rotation (H5, PNP-002 §7) ─────────────────────
+
+/// Rotate the active identity.
+///
+/// Generates a fresh Ed25519 keypair + PeerId, produces a signed
+/// `IdentityRotationPayload`, and wraps the payload in a PNP-001 envelope
+/// (`msg_type = 0x13 IDENTITY_ROTATE`) for every contact with an active
+/// Double Ratchet session. The new identity is then installed on the client
+/// while all session state is preserved.
+///
+/// Returns an object:
+/// ```json
+/// {
+///   "old_peer_id_hex": "...",
+///   "new_peer_id_hex": "...",
+///   "new_ed25519_pub_hex": "...",
+///   "rotated_at": 1700000000,
+///   "grace_expires_at": 1700604800,
+///   "per_contact_envelopes": [["<peer_id_hex>", "<envelope_hex>"], ...]
+/// }
+/// ```
+///
+/// The caller MUST:
+///   1. Deliver each returned envelope to the addressed peer.
+///   2. Persist a retired-identity record with `grace_expires_at` so the
+///      old Ed25519 secret can be zeroized once the window lapses
+///      (PNP-002-MUST-039).
+///   3. Save the new identity via the normal identity-persistence path.
+#[wasm_bindgen]
+pub fn rotate_identity(now_secs: u64) -> Result<JsValue, JsError> {
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let client = state
+        .client
+        .as_mut()
+        .ok_or_else(|| JsError::new("not initialized"))?;
+
+    // Snapshot the old secret bytes so we can rebuild an IdentityKeyPair for
+    // signing (&current_identity is held through `sessions()` borrow below).
+    let old_secret = client.export_identity_secret();
+    let old_identity = parolnet_crypto::IdentityKeyPair::from_secret_bytes(&old_secret);
+
+    let (new_identity, payload, envelopes) =
+        parolnet_core::identity_rotation::rotate_identity_for_peers(
+            &old_identity,
+            client.sessions(),
+            now_secs,
+        )
+        .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    let old_peer_id_hex = hex::encode(payload.old_peer_id);
+    let new_peer_id_hex = hex::encode(payload.new_peer_id);
+    let new_pub_hex = hex::encode(payload.new_ed25519_pub);
+    let per_contact: Vec<(String, String)> = envelopes
+        .into_iter()
+        .map(|e| (hex::encode(e.peer_id.0), hex::encode(e.envelope_bytes)))
+        .collect();
+
+    // Swap in the new identity. Sessions remain intact (keyed by peer, not
+    // by our identity). The OLD identity secret is returned to the caller
+    // via `retired_identity_secret_hex` so JS can persist it and zeroize at
+    // grace-window expiry.
+    client.replace_identity_preserving_sessions(new_identity);
+
+    #[derive(serde::Serialize)]
+    struct RotateResult {
+        old_peer_id_hex: String,
+        new_peer_id_hex: String,
+        new_ed25519_pub_hex: String,
+        rotated_at: u64,
+        grace_expires_at: u64,
+        retired_identity_secret_hex: String,
+        per_contact_envelopes: Vec<(String, String)>,
+    }
+
+    let result = RotateResult {
+        old_peer_id_hex,
+        new_peer_id_hex,
+        new_ed25519_pub_hex: new_pub_hex,
+        rotated_at: payload.rotated_at,
+        grace_expires_at: payload.grace_expires_at,
+        retired_identity_secret_hex: hex::encode(old_secret),
+        per_contact_envelopes: per_contact,
+    };
+
+    serde_wasm_bindgen::to_value(&result).map_err(|e| JsError::new(&format!("serialize: {e}")))
+}
+
+/// Verify a received identity-rotation payload against the stored old pubkey
+/// of the source contact and return its remap fields.
+///
+/// `source_old_ed25519_pub_hex` is the 32-byte Ed25519 public key you stored
+/// when you first added the contact (i.e., the contact's old identity).
+/// `payload_json` is the UTF-8 JSON string produced by the envelope-decoded
+/// IDENTITY_ROTATE plaintext.
+///
+/// On success returns `{ ok: true, new_peer_id_hex, new_ed25519_pub_hex,
+/// grace_expires_at, rotated_at }`. On failure returns `{ ok: false }` so
+/// the caller can log & drop without leaking verification failure details.
+#[wasm_bindgen]
+pub fn handle_identity_rotation(
+    source_old_ed25519_pub_hex: &str,
+    payload_json: &str,
+) -> Result<JsValue, JsError> {
+    let old_pub = decode_32(source_old_ed25519_pub_hex)?;
+
+    let json: parolnet_core::identity_rotation::PayloadJson = serde_json::from_str(payload_json)
+        .map_err(|e| JsError::new(&format!("invalid rotation JSON: {e}")))?;
+
+    let payload: parolnet_protocol::identity_rotation::IdentityRotationPayload = (&json)
+        .try_into()
+        .map_err(|e: parolnet_core::CoreError| JsError::new(&format!("{e}")))?;
+
+    #[derive(serde::Serialize)]
+    struct VerifyOk {
+        ok: bool,
+        new_peer_id_hex: String,
+        new_ed25519_pub_hex: String,
+        rotated_at: u64,
+        grace_expires_at: u64,
+    }
+
+    #[derive(serde::Serialize)]
+    struct VerifyFail {
+        ok: bool,
+    }
+
+    match parolnet_protocol::identity_rotation::verify_identity_rotation(&payload, &old_pub) {
+        Ok(()) => {
+            let out = VerifyOk {
+                ok: true,
+                new_peer_id_hex: hex::encode(payload.new_peer_id),
+                new_ed25519_pub_hex: hex::encode(payload.new_ed25519_pub),
+                rotated_at: payload.rotated_at,
+                grace_expires_at: payload.grace_expires_at,
+            };
+            serde_wasm_bindgen::to_value(&out).map_err(|e| JsError::new(&format!("serialize: {e}")))
+        }
+        Err(_) => {
+            let out = VerifyFail { ok: false };
+            serde_wasm_bindgen::to_value(&out).map_err(|e| JsError::new(&format!("serialize: {e}")))
+        }
+    }
+}
+
 /// Sign arbitrary bytes (hex-encoded) with our Ed25519 identity key.
 /// Returns the 64-byte signature as hex.
 #[wasm_bindgen]

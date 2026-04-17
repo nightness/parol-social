@@ -152,6 +152,8 @@
   "toast.importComplete": "匯入完成！正在重新載入...",
   "toast.fileReceiving": "接收中...",
   "toast.conversationClosed": "對話已關閉",
+  "toast.identityRotated": "身分已更換。舊身分將在 7 天後失效。",
+  "toast.contactRotated": "{name} 更換了身分——請核對其新的安全碼",
   "empty.noContacts": "還沒有聯絡人",
   "empty.addContact": "點 + 新增聯絡人",
   "empty.noMessages": "還沒有訊息",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "設定一個獨立的密碼短語，在解鎖時輸入它會靜默清除所有資料。僅在受脅迫時使用——應用程式看起來會正常解鎖，但會立即銷毀所有訊息、聯絡人和金鑰。",
   "settings.duressVerifyPlaceholder": "目前密碼短語",
   "settings.duressPlaceholder": "脅迫密碼短語",
+  "settings.regenerateIdentity": "重新產生身分",
+  "settings.regenerateIdentityDescription": "產生新身分並通知你的聯絡人。懷疑身分遭入侵時非常有用。聯絡人會保留聊天記錄；舊身分在接下來的 7 天內仍有效，讓傳送中的訊息仍可送達。",
+  "settings.regenerateIdentityConfirm": "重新產生身分？你的聯絡人將收到身分更換通知。舊身分將在 7 天後失效。",
   "toast.duressCodeUpdated": "脅迫密碼短語已儲存"
 }

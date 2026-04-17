@@ -152,6 +152,8 @@
   "toast.importComplete": "가져오기 완료! 새로고침 중...",
   "toast.fileReceiving": "수신 중...",
   "toast.conversationClosed": "대화가 닫혔습니다",
+  "toast.identityRotated": "신원이 교체되었습니다. 이전 신원은 7일 후 만료됩니다.",
+  "toast.contactRotated": "{name}님이 신원을 교체했습니다 — 새 보안 번호를 확인하세요",
   "empty.noContacts": "아직 연락처가 없습니다",
   "empty.addContact": "+ 버튼을 눌러 추가하세요",
   "empty.noMessages": "아직 메시지가 없습니다",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "잠금 해제 시 입력하면 모든 데이터를 조용히 삭제하는 별도의 암호문을 설정합니다. 강요받을 때만 사용하세요——앱은 정상적으로 잠금 해제된 것처럼 보이지만 즉시 모든 메시지, 연락처, 키를 파괴합니다.",
   "settings.duressVerifyPlaceholder": "현재 암호문",
   "settings.duressPlaceholder": "강요 시 암호문",
+  "settings.regenerateIdentity": "신원 재생성",
+  "settings.regenerateIdentityDescription": "새 신원을 만들고 연락처에 알립니다. 유출이 의심될 때 유용합니다. 연락처는 대화 기록을 유지하며, 이전 신원은 7일간 더 작동하여 전송 중인 메시지도 도착합니다.",
+  "settings.regenerateIdentityConfirm": "신원을 재생성하시겠습니까? 연락처에게 재생성 알림이 전달됩니다. 이전 신원은 7일 후 만료됩니다.",
   "toast.duressCodeUpdated": "강요 시 암호문이 저장되었습니다"
 }

@@ -152,6 +152,8 @@
   "toast.importComplete": "اكتمل الاستيراد! جارٍ إعادة التحميل...",
   "toast.fileReceiving": "جارٍ الاستلام...",
   "toast.conversationClosed": "تم إغلاق المحادثة",
+  "toast.identityRotated": "تم تدوير الهوية. تنتهي صلاحية الهوية القديمة بعد 7 أيام.",
+  "toast.contactRotated": "{name} قام بتدوير الهوية — تحقق من رقم الأمان الجديد",
   "empty.noContacts": "لا توجد جهات اتصال بعد",
   "empty.addContact": "اضغط + لإضافة شخص",
   "empty.noMessages": "لا توجد رسائل بعد",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "عيّن عبارة مرور منفصلة تمحو جميع البيانات بصمت عند إدخالها عند فتح القفل. استخدمها فقط تحت الإكراه — سيبدو أن التطبيق يفتح بشكل طبيعي لكنه سيدمر على الفور كل رسالة وجهة اتصال ومفتاح.",
   "settings.duressVerifyPlaceholder": "عبارة المرور الحالية",
   "settings.duressPlaceholder": "عبارة مرور الإكراه",
+  "settings.regenerateIdentity": "إعادة توليد الهوية",
+  "settings.regenerateIdentityDescription": "أنشئ هوية جديدة وأبلغ جهات اتصالك. مفيد بعد الاشتباه في اختراق. تحتفظ جهات اتصالك بسجل المحادثات؛ تظل الهوية القديمة صالحة لمدة 7 أيام حتى تصل الرسائل العابرة.",
+  "settings.regenerateIdentityConfirm": "هل تريد إعادة توليد هويتك؟ ستظهر لجهات اتصالك إشعار تدوير. تنتهي صلاحية الهوية القديمة بعد 7 أيام.",
   "toast.duressCodeUpdated": "تم حفظ عبارة مرور الإكراه"
 }

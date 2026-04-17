@@ -16,7 +16,7 @@ use serde::Deserialize;
 fn message_type_registry_round_trips_every_defined_code() {
     for code in [
         0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-        0x10, 0x11,
+        0x10, 0x11, 0x13,
     ] {
         let t = MessageType::from_u8(code)
             .unwrap_or_else(|| panic!("code {code:#04x} rejected by registry"));

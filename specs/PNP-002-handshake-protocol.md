@@ -1,12 +1,17 @@
 # PNP-002: ParolNet Handshake Protocol
 
 ### Status: CANDIDATE
-### Version: 0.2
+### Version: 0.3
 ### Date: 2026-04-17
 
 ---
 
 ## Changelog
+
+**v0.3 (2026-04-17) — Identity rotation (H5)**
+
+- Added §8 "Identity Rotation": specifies the signed key-update message flow that lets a user regenerate their Ed25519 identity (and therefore their PeerId) while preserving established Double Ratchet sessions with existing contacts. New clauses: `PNP-002-MUST-036` through `PNP-002-MUST-039`, `PNP-002-SHOULD-011` and `PNP-002-SHOULD-012`. Existing "Cross-Protocol References" table renumbered from §8 to §9.
+- PNP-001 §3.4 cross-referenced: code `0x13 IDENTITY_ROTATE` carries the signed rotation payload.
 
 **v0.2 (2026-04-17) — Harmonization pass**
 
@@ -322,11 +327,85 @@ The leading 32 bytes of 0xFF serve as a domain separator (consistent with the Si
 
 4. **Session Duration**: Long-lived sessions can be correlated by traffic patterns. Periodic rekeying (§5.5) does not change the session's traffic pattern. For stronger privacy, peers MAY close and re-establish sessions periodically through different relay paths. **PNP-002-MAY-004**
 
-## 8. Cross-Protocol References
+## 8. Identity Rotation
+
+### 8.1 Motivation
+
+A ParolNet PeerId is stable: `PeerId = SHA-256(Ed25519_identity_public_key)`. A single one-time correlation (e.g., an observer logging a PeerId alongside an IP address at any point in a user's life) therefore links that user's activity forever under that identity. Identity rotation is an opt-in, user-initiated operation that lets a user discard the correlated PeerId and continue communicating with all existing contacts under a fresh identity without re-running the X3DH handshake.
+
+The mechanism preserves Double Ratchet session state (forward secrecy is not compromised) while unlinking future activity from the old PeerId for any network observer that is not already a contact. Contacts, by construction, learn that the two identities are the same user — this is acceptable because they already know the user through the previous identity.
+
+Identity rotation is orthogonal to SPK rotation (§6.4). SPK rotation happens automatically every 7–30 days and keeps the same IK; identity rotation replaces the IK and is user-initiated (e.g., after a suspected device compromise).
+
+### 8.2 Rotation Message Format
+
+The rotating party (Alice) signs an `IdentityRotationPayload` with her OLD Ed25519 secret key. The payload is serialized (CBOR for the native wire, JSON-with-hex for the PWA/WASM wire — both encode the same six fields) and delivered inside each contact's existing Double Ratchet session as a PNP-001 envelope with `msg_type = 0x13` (IDENTITY_ROTATE, see PNP-001 §3.4).
+
+```
+IdentityRotationPayload = CBOR Map:
+  {
+    "old_peer_id"      : bstr(32),  -- SHA-256(old Ed25519 pub).
+    "new_peer_id"      : bstr(32),  -- SHA-256(new Ed25519 pub).
+    "new_ed25519_pub"  : bstr(32),  -- New Ed25519 identity public key.
+    "rotated_at"       : uint64,    -- Unix seconds at signing time.
+    "grace_expires_at" : uint64,    -- rotated_at + 604800 (7 days).
+    "signature"        : bstr(64)   -- Ed25519 signature by OLD secret key.
+  }
+```
+
+### 8.3 Signed Byte Sequence (Domain Separation)
+
+The signature covers the following concatenation (all integers big-endian, matching PNP-001 conventions):
+
+```
+signed_bytes =
+    "ParolNet-IdentityRotation-v1"
+    || old_peer_id           (32 bytes)
+    || new_peer_id           (32 bytes)
+    || new_ed25519_pub       (32 bytes)
+    || rotated_at            (8 bytes, big-endian)
+    || grace_expires_at      (8 bytes, big-endian)
+```
+
+The fixed ASCII prefix `ParolNet-IdentityRotation-v1` is a domain-separation tag. Its purpose is to guarantee that an Ed25519 signature produced in any other PNP-XXX protocol context (e.g., SPK attestation, authority directory signing, relay challenge-response) cannot be repurposed as a valid identity-rotation attestation. Implementations MUST use exactly this byte sequence for both signing and verification.
+
+### 8.4 Normative Rules
+
+1. A rotation message MUST be signed by the OLD Ed25519 secret key. **PNP-002-MUST-036**
+2. A receiver MUST verify the signature with the OLD Ed25519 public key that was stored at original contact-add time (i.e., the pubkey from which the contact's current PeerId was derived). **PNP-002-MUST-037**
+3. `grace_expires_at` MUST equal `rotated_at + 604800` (exactly 7 days in seconds). A receiver MUST reject any payload where this invariant does not hold. **PNP-002-MUST-038**
+4. After `grace_expires_at` has passed, the rotating party MUST zeroize the old Ed25519 secret key from all client storage. **PNP-002-MUST-039**
+5. During the grace window, the rotating party SHOULD accept incoming PNP-001 envelopes addressed to either the old PeerId or the new PeerId. **PNP-002-SHOULD-011**
+6. A receiver SHOULD surface the successful rotation in the contact UI (e.g., a "identity rotated <date>" badge, or a prompt to re-verify the safety number) so the user can recognize the change. **PNP-002-SHOULD-012**
+
+### 8.5 Receiver Behavior
+
+Upon receipt of an IDENTITY_ROTATE envelope decrypted successfully against the existing session:
+
+1. Parse the `IdentityRotationPayload`.
+2. Look up the OLD Ed25519 pubkey associated with the sender's contact record.
+3. Run signature verification per §7.4 clauses 1–3. If any check fails, the frame MUST be treated as malformed and silently discarded (per PNP-001-MUST-008 behavior for unrecognized/invalid content).
+4. If all checks pass, auto-remap the contact record's `peer_id` field from `old_peer_id` to `new_peer_id`, retaining the Double Ratchet session (the session is keyed by peer identity, not PeerId, so no ratchet state changes).
+5. Store the new Ed25519 pubkey as the contact's "current" key and retain the old one for at least the duration of the grace window to validate any in-flight rotation retransmissions.
+6. Surface the rotation to the user (§7.4 clause 6).
+
+The X3DH handshake is NOT re-run. The session's forward/future secrecy guarantees (§6.1) carry over unchanged.
+
+### 8.6 Security Considerations
+
+**Compromise of the OLD secret key**: If Alice's old Ed25519 secret key is compromised before rotation, the attacker can forge a rotation payload to her contacts, binding the attacker's new pubkey to her identity. Implementations SHOULD surface the rotation prominently enough that users can recognize a rotation they did not perform and revert via out-of-band re-verification. This is equivalent to the trust assumption of the original X3DH (§6.1): an attacker who compromises Alice's IK can impersonate Alice to new contacts; §7 extends that to existing contacts only during the rotation window.
+
+**Replay**: The `rotated_at` field is monotonically increasing from the user's perspective. A receiver MAY reject rotation payloads with `rotated_at` older than the already-recorded rotation timestamp for the same contact, though this is not normatively required because the signature is still valid and the payload still nominates a specific `new_peer_id`.
+
+**Linkability to contacts**: Identity rotation unlinks the user's future activity from the old PeerId for network observers only. Existing contacts learn the rotation by design. Users concerned about revealing past identities to specific contacts should instead close the session (§5.6) and re-add them via a new QR code from the new identity.
+
+**Grace window rationale**: The 7-day grace window is chosen to cover common offline intervals (travel, device swap) so that messages in transit to the old PeerId via store-and-forward relays still reach the user. After the window closes, the old PeerId becomes unreachable. This upper bound is a deliberate privacy/availability trade-off.
+
+## 9. Cross-Protocol References
 
 | Spec | Relationship |
 |------|-------------|
-| PNP-001 (Wire Protocol) | Handshake messages carried in envelopes with `msg_type = 0x05`. Nonce scheme `N-HANDSHAKE` defined in PNP-001 §9 governs the `init_iv` derivation in §5.2.3. Session-layer AEAD negotiated here governs PNP-001 §3.3. |
+| PNP-001 (Wire Protocol) | Handshake messages carried in envelopes with `msg_type = 0x05`. Identity rotation messages (§8) carried in envelopes with `msg_type = 0x13`. Nonce scheme `N-HANDSHAKE` defined in PNP-001 §9 governs the `init_iv` derivation in §5.2.3. Session-layer AEAD negotiated here governs PNP-001 §3.3. |
 | PNP-003 (Bootstrap) | Out-of-band bootstrap produces a shared secret that MAY seed the initial pre-key bundle exchange, avoiding disclosure over public relays. |
 | PNP-004 (Relay Circuit) | Onion-layer AEAD is independent of the session-layer AEAD negotiated here (ChaCha20-Poly1305 only, no negotiation). |
 | PNP-005 (Gossip Mesh) | Pre-key bundles MAY be distributed via gossip. |

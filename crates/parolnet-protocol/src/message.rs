@@ -23,6 +23,7 @@ pub enum MessageType {
     GroupFileChunk = 0x0F,
     GroupFileControl = 0x10,
     SenderKeyDistribution = 0x11,
+    IdentityRotate = 0x13,
 }
 
 impl MessageType {
@@ -37,8 +38,10 @@ impl MessageType {
     ///
     /// assert_eq!(MessageType::from_u8(0x01), Some(MessageType::Text));
     /// assert_eq!(MessageType::from_u8(0x11), Some(MessageType::SenderKeyDistribution));
+    /// assert_eq!(MessageType::from_u8(0x13), Some(MessageType::IdentityRotate));
     /// assert_eq!(MessageType::from_u8(0x00), None);
     /// assert_eq!(MessageType::from_u8(0x12), None);
+    /// assert_eq!(MessageType::from_u8(0x14), None);
     /// ```
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -59,6 +62,7 @@ impl MessageType {
             0x0F => Some(Self::GroupFileChunk),
             0x10 => Some(Self::GroupFileControl),
             0x11 => Some(Self::SenderKeyDistribution),
+            0x13 => Some(Self::IdentityRotate),
             _ => None,
         }
     }

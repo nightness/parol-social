@@ -152,6 +152,8 @@
   "toast.importComplete": "İçe aktarma tamamlandı! Yeniden yükleniyor...",
   "toast.fileReceiving": "Alınıyor...",
   "toast.conversationClosed": "Sohbet kapatıldı",
+  "toast.identityRotated": "Kimlik yenilendi. Eskisi 7 gün içinde süresi dolacak.",
+  "toast.contactRotated": "{name} kimliğini yeniledi — yeni güvenlik numarasını doğrulayın",
   "empty.noContacts": "Henüz kişi yok",
   "empty.addContact": "Birini eklemek için + simgesine dokunun",
   "empty.noMessages": "Henüz mesaj yok",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "Kilit açılırken yazıldığında tüm verileri sessizce silen ayrı bir parola belirleyin. Yalnızca zorlama altında kullanın — uygulama normal şekilde kilit açıyor gibi görünecek ama her mesajı, kişiyi ve anahtarı anında yok edecek.",
   "settings.duressVerifyPlaceholder": "Mevcut parola",
   "settings.duressPlaceholder": "Zorlama parolası",
+  "settings.regenerateIdentity": "Kimliği yenile",
+  "settings.regenerateIdentityDescription": "Yeni bir kimlik oluşturur ve kişilerinize bildirir. Ele geçirilme şüphesi durumunda faydalıdır. Kişileriniz sohbet geçmişini korur; eski kimlik, yolda olan mesajların ulaşması için 7 gün daha çalışmaya devam eder.",
+  "settings.regenerateIdentityConfirm": "Kimliğinizi yenilemek istiyor musunuz? Kişileriniz bir yenileme bildirimi alacak. Eski kimliğin süresi 7 gün içinde dolar.",
   "toast.duressCodeUpdated": "Zorlama parolası kaydedildi"
 }

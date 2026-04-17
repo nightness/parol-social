@@ -478,6 +478,7 @@ describe('PWA envelope wire path', () => {
     const MSG_TYPE_GROUP_FILE_CHUNK = 0x0F;
     const MSG_TYPE_SENDER_KEY_DISTRIBUTION = 0x11;
     const MSG_TYPE_GROUP_ADMIN = 0x12;
+    const MSG_TYPE_IDENTITY_ROTATE = 0x13;
 
     // The envelope_encode WASM entry uses the initiator-side half of a Double
     // Ratchet session. A single WASM instance can't round-trip a frame against
@@ -584,6 +585,7 @@ describe('PWA envelope wire path', () => {
                 case MSG_TYPE_GROUP_FILE_CHUNK:         return handlers.groupFileChunk(fromPeerId, plaintext);
                 case MSG_TYPE_SENDER_KEY_DISTRIBUTION:  return handlers.senderKey(fromPeerId, plaintext);
                 case MSG_TYPE_GROUP_ADMIN:              return handlers.groupAdmin(fromPeerId, plaintext);
+                case MSG_TYPE_IDENTITY_ROTATE:          return handlers.identityRotate(fromPeerId, plaintext);
                 default:                                return { unknown: msgType };
             }
         }
@@ -600,6 +602,7 @@ describe('PWA envelope wire path', () => {
             groupFileChunk:  (p, b) => calls.push(['groupFileChunk', p, b]),
             senderKey:       (p, b) => calls.push(['senderKey', p, b]),
             groupAdmin:      (p, b) => calls.push(['groupAdmin', p, b]),
+            identityRotate:  (p, b) => calls.push(['identityRotate', p, b]),
         };
         const peer = 'ab'.repeat(32);
         const bytes = new Uint8Array([1, 2, 3]);
@@ -615,6 +618,7 @@ describe('PWA envelope wire path', () => {
             [MSG_TYPE_GROUP_FILE_CHUNK, 'groupFileChunk'],
             [MSG_TYPE_SENDER_KEY_DISTRIBUTION, 'senderKey'],
             [MSG_TYPE_GROUP_ADMIN, 'groupAdmin'],
+            [MSG_TYPE_IDENTITY_ROTATE, 'identityRotate'],
         ];
         for (const [code] of codes) dispatch(code, peer, bytes, handlers);
         const unknown = dispatch(0xff, peer, bytes, handlers);
@@ -681,6 +685,7 @@ describe('PWA envelope wire path', () => {
             [0x10, 'MSG_TYPE_GROUP_FILE_CONTROL',      'GROUP_FILE_CONTROL'],
             [0x11, 'MSG_TYPE_SENDER_KEY_DISTRIBUTION', 'SENDER_KEY_DISTRIBUTION'],
             [0x12, 'MSG_TYPE_GROUP_ADMIN',             'GROUP_ADMIN'],
+            [0x13, 'MSG_TYPE_IDENTITY_ROTATE',         'IDENTITY_ROTATE'],
         ];
         for (const [code, exportName, registryName] of expected) {
             assert.equal(mod[exportName], code,

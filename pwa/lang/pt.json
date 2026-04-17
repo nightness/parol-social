@@ -152,6 +152,8 @@
   "toast.importComplete": "Importacao concluida! Recarregando...",
   "toast.fileReceiving": "Recebendo...",
   "toast.conversationClosed": "Conversa fechada",
+  "toast.identityRotated": "Identidade renovada. A antiga expira em 7 dias.",
+  "toast.contactRotated": "{name} renovou a identidade — confirme o novo numero de seguranca",
   "empty.noContacts": "Nenhum contato ainda",
   "empty.addContact": "Toque em + para adicionar alguem",
   "empty.noMessages": "Nenhuma mensagem ainda",
@@ -222,5 +224,8 @@
   "settings.duressDescription": "Defina uma frase-senha separada que apaga silenciosamente todos os dados quando digitada no desbloqueio. Use apenas sob coacao — o app parecera desbloquear normalmente mas destruira imediatamente todas as mensagens, contatos e chaves.",
   "settings.duressVerifyPlaceholder": "Frase-senha atual",
   "settings.duressPlaceholder": "Frase de coacao",
+  "settings.regenerateIdentity": "Renovar identidade",
+  "settings.regenerateIdentityDescription": "Gera uma nova identidade e notifica seus contatos. Util em caso de suspeita de comprometimento. Seus contatos mantem o historico; a identidade antiga continua valida por mais 7 dias para que mensagens em transito ainda cheguem.",
+  "settings.regenerateIdentityConfirm": "Renovar sua identidade? Seus contatos receberao um aviso de renovacao. A identidade antiga expira em 7 dias.",
   "toast.duressCodeUpdated": "Frase de coacao salva"
 }

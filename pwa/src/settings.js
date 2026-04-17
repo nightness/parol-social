@@ -388,6 +388,99 @@ export function enableDecoyMode() {
     showToast('Decoy mode enabled. The app will appear as a calculator on next launch.');
 }
 
+// ── Identity Rotation (PNP-002 §8, H5) ─────────────────────
+// User-invoked: generate a new Ed25519 identity, sign a rotation notice with
+// the OLD key, and deliver it to every contact with an active session. The
+// OLD identity is retained for 7 days (grace window) so in-flight messages
+// to the old PeerId still decrypt. After the grace window the retired
+// secret is zeroized on next boot (see regenerateIdentity_zeroizeExpired).
+export async function regenerateIdentity() {
+    if (!wasm || !wasm.rotate_identity) {
+        showToast('Identity rotation not available');
+        return;
+    }
+    const proceed = confirm(t('settings.regenerateIdentityConfirm'));
+    if (!proceed) return;
+
+    let result;
+    try {
+        const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+        result = wasm.rotate_identity(nowSecs);
+    } catch (e) {
+        showToast('Identity rotation failed: ' + (e && e.message));
+        return;
+    }
+
+    // Persist the new identity secret + the retired record (for grace-window
+    // cleanup). The retired record holds the OLD secret so the relay can
+    // still respond to challenges addressed to the old PeerId during the
+    // grace window if that's implemented in a future commit.
+    try {
+        if (wasm.export_secret_key) {
+            const newSecret = wasm.export_secret_key();
+            await dbPut('settings', { key: 'identity_secret', value: newSecret });
+        }
+        await dbPut('settings', { key: 'retired_identity', value: JSON.stringify({
+            peer_id: result.old_peer_id_hex,
+            ed25519_sk: result.retired_identity_secret_hex,
+            grace_expires_at: result.grace_expires_at
+        }) });
+    } catch (e) {
+        console.warn('[Rotate] persist failed:', e && e.message);
+    }
+
+    // Update the peer-id we publish to the relay so subsequent registrations
+    // use the new identity. The SW will reconnect and register under the new
+    // peer id on next controller message.
+    window._peerId = result.new_peer_id_hex;
+    if (connMgr && connMgr.registerPeer) connMgr.registerPeer(result.new_peer_id_hex);
+
+    // Deliver one envelope per contact. Transport-layer: prefer direct RTC,
+    // fall back to relay. Errors per-contact are logged but do not abort
+    // the rest of the batch — a failed delivery means the contact sees
+    // the rotation the next time they reach us on the old PeerId.
+    const envelopes = Array.isArray(result.per_contact_envelopes) ? result.per_contact_envelopes : [];
+    for (const pair of envelopes) {
+        if (!Array.isArray(pair) || pair.length !== 2) continue;
+        const [peerIdHex, envelopeHex] = pair;
+        try {
+            sendToRelay(peerIdHex, envelopeHex);
+        } catch (e) {
+            console.warn('[Rotate] send to', peerIdHex && peerIdHex.slice(0, 8), 'failed:', e && e.message);
+        }
+    }
+
+    // Update the settings UI and show a toast.
+    const el = document.getElementById('settings-peer-id');
+    if (el) el.textContent = result.new_peer_id_hex;
+    showToast(t('toast.identityRotated'));
+}
+
+/// Zeroize the retired identity secret once its grace window has passed.
+/// Call during boot so the 7-day guarantee is enforced across app restarts.
+export async function zeroizeExpiredRetiredIdentity() {
+    let rec;
+    try { rec = await dbGet('settings', 'retired_identity'); } catch { return; }
+    if (!rec || !rec.value) return;
+    let obj;
+    try { obj = JSON.parse(rec.value); } catch { return; }
+    const nowSecs = Math.floor(Date.now() / 1000);
+    if (typeof obj.grace_expires_at !== 'number' || obj.grace_expires_at > nowSecs) return;
+    // Overwrite the hex string before deletion so the IndexedDB value-journal
+    // (if any) doesn't hold a copy of the secret. Best-effort on web; the
+    // definitive guarantee is removal from the store.
+    try {
+        await dbPut('settings', { key: 'retired_identity', value: JSON.stringify({
+            peer_id: obj.peer_id,
+            ed25519_sk: '00'.repeat(32),
+            grace_expires_at: obj.grace_expires_at
+        }) });
+        await dbDelete('settings', 'retired_identity');
+    } catch (e) {
+        console.warn('[Rotate] zeroize retired identity failed:', e && e.message);
+    }
+}
+
 // ── Panic Wipe ──────────────────────────────────────────────
 export function executePanicWipe() {
     cryptoStore.lock();

@@ -159,6 +159,8 @@
   "toast.importComplete": "Import complete! Reloading...",
   "toast.fileReceiving": "Receiving...",
   "toast.conversationClosed": "Conversation closed",
+  "toast.identityRotated": "Identity rotated. Old identity expires in 7 days.",
+  "toast.contactRotated": "{name} rotated identity — verify their new safety number",
 
   "empty.noContacts": "No contacts yet",
   "empty.addContact": "Tap + to add someone",
@@ -206,6 +208,9 @@
   "settings.duressDescription": "Set a separate passphrase that silently wipes all data when typed at unlock. Use only under coercion — the app will appear to unlock normally but will immediately destroy every message, contact, and key.",
   "settings.duressVerifyPlaceholder": "Current passphrase",
   "settings.duressPlaceholder": "Duress passphrase",
+  "settings.regenerateIdentity": "Regenerate identity",
+  "settings.regenerateIdentityDescription": "Generate a new identity and notify your contacts. Useful after a suspected compromise. Your contacts keep their chat history; the old identity works for 7 more days so in-transit messages still arrive.",
+  "settings.regenerateIdentityConfirm": "Regenerate your identity? Your contacts will see a rotation notice. The old identity expires in 7 days.",
 
   "file.attachment": "{fileName}",
   "file.download": "Download ({size})",
