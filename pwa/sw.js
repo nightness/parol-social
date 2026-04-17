@@ -10,7 +10,7 @@ const CACHE_NAME = 'parolnet-v9';
 // If the hash doesn't match, the resource is re-fetched from the network.
 // Regenerate these hashes whenever the corresponding files change.
 const RESOURCE_HASHES = {
-    'app.js': '32d06f6733ec7341e3f84d17012e8da7fe393a0727b223d34397dde61c0e1541',
+    'app.js': 'd4c48b0b1194ad3ae1f74676ce67c254bc0f86b6de8f51042015b0f2c29735db',
     'styles.css': 'a4a07e1fe925dbd2324e9cf01e9454dadd9c3409e19e39df1f4254f5682dfcc2',
     'crypto-store.js': '290b12b0c369faeb405be244c5c616005c5ff998966c6cdf3b1591fa2129aab9',
     'index.html': 'fdb3b425099463be447931b8d7b50147dce7d3174b3f799e8467425e04115f56',

@@ -157,7 +157,7 @@ This construction makes the AEAD tag tamper-evident with respect to (a) every re
 
 ### 3.4 Message Types
 
-Codes 0x01–0x06 are allocated by this specification. Codes 0x07–0x0B are allocated by PNP-007 (Media & File Transfer). Codes 0x0C–0x11 are allocated by PNP-009 (Group Communication). PNP-001 is the canonical registry — new message types MUST be assigned here in future revisions.
+Codes 0x01–0x06 are allocated by this specification. Codes 0x07–0x0B are allocated by PNP-007 (Media & File Transfer). Codes 0x0C–0x12 are allocated by PNP-009 (Group Communication). PNP-001 is the canonical registry — new message types MUST be assigned here in future revisions.
 
 | Code | Name | Allocated By | Description |
 |------|------|-------------|-------------|
@@ -178,8 +178,9 @@ Codes 0x01–0x06 are allocated by this specification. Codes 0x07–0x0B are all
 | 0x0F | GROUP_FILE_CHUNK | PNP-009 | Group file transfer chunk |
 | 0x10 | GROUP_FILE_CONTROL | PNP-009 | Group file transfer control |
 | 0x11 | SENDER_KEY_DISTRIBUTION | PNP-009 | Sender key distribution |
+| 0x12 | GROUP_ADMIN | PNP-009 | Group admin operation (invite, member add/remove; see PNP-009 §6.2) |
 
-Codes 0x12–0xFF are reserved for future assignment.
+Codes 0x13–0xFF are reserved for future assignment.
 
 Implementations MUST treat unrecognized message type codes as DECOY and silently discard them after decryption. **PNP-001-MUST-008**
 
@@ -360,7 +361,7 @@ QR-code freshness (30 minutes) is defined in PNP-003 §5.1.6 and is unrelated to
 | PNP-006 (Traffic Shaping) | Governs timing and padding behavior for envelope transmission. |
 | PNP-007 (Media & File) | Allocates message-type codes 0x07–0x0B (§3.4). |
 | PNP-008 (Relay Federation) | Directory-sync messages are PNP-001 envelopes with RELAY_CONTROL (0x06). |
-| PNP-009 (Group Communication) | Allocates message-type codes 0x0C–0x11 (§3.4). |
+| PNP-009 (Group Communication) | Allocates message-type codes 0x0C–0x12 (§3.4). |
 
 ## 9. Nonce Construction Catalog
 

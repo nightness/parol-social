@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Envelope coverage for all user-facing wire types (PNP-001)
+- Every user-facing PWA wire frame now ships as a PNP-001 padded envelope: `call_offer`, `call_reject`, `group_message`, `group_invite`, `sender_key`, `group_call_invite`, `group_file_offer`, `group_file_chunk`, and `file_accept`.
+- Removed the legacy plaintext-JSON `_pn_type` string-marker path from send and receive code. `dispatchByMsgType` is the single wire-frame dispatcher, routing on the envelope header's `msg_type` code (PNP-001 §3.4).
+- Added `GROUP_ADMIN` (code `0x12`) to PNP-001 §3.4 registry for group membership admin signaling (invite / add / remove).
+- `pwa/src/protocol-constants.js` now mirrors the full PNP-001 §3.4 registry; `pwa/tests/unit.test.mjs` asserts 1:1 mapping between exports and spec codes.
+
 ### Added — Reproducible Builds
 - `Dockerfile.release`: deterministic build environment with pinned Rust 1.92, wasm-pack 0.13.1, and binaryen
 - `scripts/reproducible-build.sh`: build script with `--verify` mode that builds twice and compares SHA-256 checksums

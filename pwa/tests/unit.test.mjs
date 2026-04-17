@@ -470,6 +470,14 @@ describe('PWA envelope wire path', () => {
     const MSG_TYPE_CHAT = 0x01;
     const MSG_TYPE_SYSTEM = 0x03;
     const MSG_TYPE_FILE_CHUNK = 0x09;
+    const MSG_TYPE_FILE_CONTROL = 0x0A;
+    const MSG_TYPE_CALL_SIGNAL = 0x0B;
+    const MSG_TYPE_GROUP_TEXT = 0x0C;
+    const MSG_TYPE_GROUP_CALL_SIGNAL = 0x0D;
+    const MSG_TYPE_GROUP_FILE_OFFER = 0x0E;
+    const MSG_TYPE_GROUP_FILE_CHUNK = 0x0F;
+    const MSG_TYPE_SENDER_KEY_DISTRIBUTION = 0x11;
+    const MSG_TYPE_GROUP_ADMIN = 0x12;
 
     // The envelope_encode WASM entry uses the initiator-side half of a Double
     // Ratchet session. A single WASM instance can't round-trip a frame against
@@ -565,36 +573,93 @@ describe('PWA envelope wire path', () => {
         // pulls DOM-dependent code.
         function dispatch(msgType, fromPeerId, plaintext, handlers) {
             switch (msgType) {
-                case MSG_TYPE_CHAT:       return handlers.chat(fromPeerId, plaintext);
-                case MSG_TYPE_SYSTEM:     return handlers.system(fromPeerId, plaintext);
-                case MSG_TYPE_FILE_CHUNK: return handlers.fileChunk(fromPeerId, plaintext);
-                default:                  return { unknown: msgType };
+                case MSG_TYPE_CHAT:                     return handlers.chat(fromPeerId, plaintext);
+                case MSG_TYPE_SYSTEM:                   return handlers.system(fromPeerId, plaintext);
+                case MSG_TYPE_FILE_CHUNK:               return handlers.fileChunk(fromPeerId, plaintext);
+                case MSG_TYPE_FILE_CONTROL:             return handlers.fileControl(fromPeerId, plaintext);
+                case MSG_TYPE_CALL_SIGNAL:              return handlers.callSignal(fromPeerId, plaintext);
+                case MSG_TYPE_GROUP_TEXT:               return handlers.groupText(fromPeerId, plaintext);
+                case MSG_TYPE_GROUP_CALL_SIGNAL:        return handlers.groupCallSignal(fromPeerId, plaintext);
+                case MSG_TYPE_GROUP_FILE_OFFER:         return handlers.groupFileOffer(fromPeerId, plaintext);
+                case MSG_TYPE_GROUP_FILE_CHUNK:         return handlers.groupFileChunk(fromPeerId, plaintext);
+                case MSG_TYPE_SENDER_KEY_DISTRIBUTION:  return handlers.senderKey(fromPeerId, plaintext);
+                case MSG_TYPE_GROUP_ADMIN:              return handlers.groupAdmin(fromPeerId, plaintext);
+                default:                                return { unknown: msgType };
             }
         }
         const calls = [];
         const handlers = {
-            chat:      (p, b) => calls.push(['chat', p, b]),
-            system:    (p, b) => calls.push(['system', p, b]),
-            fileChunk: (p, b) => calls.push(['fileChunk', p, b]),
+            chat:            (p, b) => calls.push(['chat', p, b]),
+            system:          (p, b) => calls.push(['system', p, b]),
+            fileChunk:       (p, b) => calls.push(['fileChunk', p, b]),
+            fileControl:     (p, b) => calls.push(['fileControl', p, b]),
+            callSignal:      (p, b) => calls.push(['callSignal', p, b]),
+            groupText:       (p, b) => calls.push(['groupText', p, b]),
+            groupCallSignal: (p, b) => calls.push(['groupCallSignal', p, b]),
+            groupFileOffer:  (p, b) => calls.push(['groupFileOffer', p, b]),
+            groupFileChunk:  (p, b) => calls.push(['groupFileChunk', p, b]),
+            senderKey:       (p, b) => calls.push(['senderKey', p, b]),
+            groupAdmin:      (p, b) => calls.push(['groupAdmin', p, b]),
         };
         const peer = 'ab'.repeat(32);
         const bytes = new Uint8Array([1, 2, 3]);
-        dispatch(MSG_TYPE_CHAT, peer, bytes, handlers);
-        dispatch(MSG_TYPE_SYSTEM, peer, bytes, handlers);
-        dispatch(MSG_TYPE_FILE_CHUNK, peer, bytes, handlers);
+        const codes = [
+            [MSG_TYPE_CHAT, 'chat'],
+            [MSG_TYPE_SYSTEM, 'system'],
+            [MSG_TYPE_FILE_CHUNK, 'fileChunk'],
+            [MSG_TYPE_FILE_CONTROL, 'fileControl'],
+            [MSG_TYPE_CALL_SIGNAL, 'callSignal'],
+            [MSG_TYPE_GROUP_TEXT, 'groupText'],
+            [MSG_TYPE_GROUP_CALL_SIGNAL, 'groupCallSignal'],
+            [MSG_TYPE_GROUP_FILE_OFFER, 'groupFileOffer'],
+            [MSG_TYPE_GROUP_FILE_CHUNK, 'groupFileChunk'],
+            [MSG_TYPE_SENDER_KEY_DISTRIBUTION, 'senderKey'],
+            [MSG_TYPE_GROUP_ADMIN, 'groupAdmin'],
+        ];
+        for (const [code] of codes) dispatch(code, peer, bytes, handlers);
         const unknown = dispatch(0xff, peer, bytes, handlers);
-        assert.equal(calls.length, 3);
-        assert.equal(calls[0][0], 'chat');
-        assert.equal(calls[1][0], 'system');
-        assert.equal(calls[2][0], 'fileChunk');
+        assert.equal(calls.length, codes.length);
+        for (let i = 0; i < codes.length; i++) {
+            assert.equal(calls[i][0], codes[i][1], `code 0x${codes[i][0].toString(16)} routes to ${codes[i][1]}`);
+        }
         assert.deepEqual(calls[0][2], bytes);
         assert.deepEqual(unknown, { unknown: 0xff });
     });
 
-    test('protocol-constants.js exports PNP-001 §3.4 codes', async () => {
+    test('protocol-constants.js exports every PNP-001 §3.4 code', async () => {
         const mod = await import('../src/protocol-constants.js');
-        assert.equal(mod.MSG_TYPE_CHAT, 0x01, 'TEXT');
-        assert.equal(mod.MSG_TYPE_SYSTEM, 0x03, 'CONTROL');
-        assert.equal(mod.MSG_TYPE_FILE_CHUNK, 0x09, 'FILE_CHUNK (PNP-007)');
+        // PNP-001 §3.4 registry — code + export name pairs.
+        const expected = [
+            [0x01, 'MSG_TYPE_CHAT',                    'TEXT'],
+            [0x02, 'MSG_TYPE_FILE',                    'FILE'],
+            [0x03, 'MSG_TYPE_SYSTEM',                  'CONTROL'],
+            [0x04, 'MSG_TYPE_DECOY',                   'DECOY'],
+            [0x05, 'MSG_TYPE_HANDSHAKE',               'HANDSHAKE'],
+            [0x06, 'MSG_TYPE_RELAY_CONTROL',           'RELAY_CONTROL'],
+            [0x07, 'MSG_TYPE_AUDIO',                   'AUDIO'],
+            [0x08, 'MSG_TYPE_VIDEO',                   'VIDEO'],
+            [0x09, 'MSG_TYPE_FILE_CHUNK',              'FILE_CHUNK'],
+            [0x0A, 'MSG_TYPE_FILE_CONTROL',            'FILE_CONTROL'],
+            [0x0B, 'MSG_TYPE_CALL_SIGNAL',             'CALL_SIGNAL'],
+            [0x0C, 'MSG_TYPE_GROUP_TEXT',              'GROUP_TEXT'],
+            [0x0D, 'MSG_TYPE_GROUP_CALL_SIGNAL',       'GROUP_CALL_SIGNAL'],
+            [0x0E, 'MSG_TYPE_GROUP_FILE_OFFER',        'GROUP_FILE_OFFER'],
+            [0x0F, 'MSG_TYPE_GROUP_FILE_CHUNK',        'GROUP_FILE_CHUNK'],
+            [0x10, 'MSG_TYPE_GROUP_FILE_CONTROL',      'GROUP_FILE_CONTROL'],
+            [0x11, 'MSG_TYPE_SENDER_KEY_DISTRIBUTION', 'SENDER_KEY_DISTRIBUTION'],
+            [0x12, 'MSG_TYPE_GROUP_ADMIN',             'GROUP_ADMIN'],
+        ];
+        for (const [code, exportName, registryName] of expected) {
+            assert.equal(mod[exportName], code,
+                `${exportName} (${registryName}) must equal 0x${code.toString(16)}`);
+            assert.equal(mod.ALL_MSG_TYPES[registryName], code,
+                `ALL_MSG_TYPES.${registryName} must equal 0x${code.toString(16)}`);
+        }
+        // Every key in ALL_MSG_TYPES must correspond to an expected registry entry.
+        const expectedNames = new Set(expected.map(e => e[2]));
+        for (const name of Object.keys(mod.ALL_MSG_TYPES)) {
+            assert.ok(expectedNames.has(name), `unexpected registry entry: ${name}`);
+        }
+        assert.equal(Object.keys(mod.ALL_MSG_TYPES).length, expected.length);
     });
 });

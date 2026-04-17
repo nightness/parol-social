@@ -13,7 +13,7 @@ import { initWebRTC, hasDirectConnection, sendViaWebRTC, rtcConnections,
          seenGossipMessages, markGossipSeen } from './webrtc.js';
 import { sendToRelay, connMgr, queueMessage } from './connection.js';
 import { t } from './i18n.js';
-import { MSG_TYPE_CHAT, MSG_TYPE_SYSTEM } from './protocol-constants.js';
+import { MSG_TYPE_CHAT, MSG_TYPE_SYSTEM, MSG_TYPE_CALL_SIGNAL } from './protocol-constants.js';
 
 // ── Session Persistence ──────────────────────────────────
 function persistSessions() {
@@ -341,13 +341,27 @@ export async function initiateCall(peerId, withVideo) {
         }
     }
 
-    // Notify the peer of incoming call
-    const callPayload = JSON.stringify({
-        _pn_type: 'call_offer',
-        callId: currentCallId,
-        withVideo: !!withVideo
-    });
-    sendToRelay(peerId, callPayload);
+    // Notify the peer of incoming call via a PNP-001 envelope (msg_type=CALL_SIGNAL).
+    if (wasm && wasm.envelope_encode && wasm.has_session && wasm.has_session(peerId)) {
+        try {
+            const encoder = new TextEncoder();
+            const inner = encoder.encode(JSON.stringify({
+                action: 'offer',
+                callId: currentCallId,
+                withVideo: !!withVideo
+            }));
+            const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+            const envelope = wasm.envelope_encode(peerId, MSG_TYPE_CALL_SIGNAL, inner, nowSecs);
+            sendToRelay(peerId, envelope);
+        } catch (e) {
+            console.warn('[Call] envelope_encode failed:', e);
+            showToast('Call signal failed');
+            return;
+        }
+    } else {
+        showToast('Cannot start call: no secure session with this contact');
+        return;
+    }
 
     showView('call');
     const nameEl = document.getElementById('call-peer-name');

@@ -14,7 +14,12 @@ import { hasDirectConnection, sendViaWebRTC, seenGossipMessages, markGossipSeen,
 import { sendToRelay, discoverPeers, startDiscoveryInterval, connMgr } from './connection.js';
 import { loadContacts, appendMessage, answerIncomingCall, loadAddressBook } from './ui-chat.js';
 import { t } from './i18n.js';
-import { MSG_TYPE_CHAT, MSG_TYPE_SYSTEM, MSG_TYPE_FILE_CHUNK } from './protocol-constants.js';
+import {
+    MSG_TYPE_CHAT, MSG_TYPE_SYSTEM, MSG_TYPE_FILE_CHUNK, MSG_TYPE_FILE_CONTROL,
+    MSG_TYPE_CALL_SIGNAL, MSG_TYPE_GROUP_TEXT, MSG_TYPE_GROUP_CALL_SIGNAL,
+    MSG_TYPE_GROUP_FILE_OFFER, MSG_TYPE_GROUP_FILE_CHUNK,
+    MSG_TYPE_SENDER_KEY_DISTRIBUTION, MSG_TYPE_GROUP_ADMIN
+} from './protocol-constants.js';
 
 // ── Session Persistence ──────────────────────────────────
 function persistSessions() {
@@ -23,6 +28,36 @@ function persistSessions() {
         const blob = wasm.export_sessions();
         if (blob) dbPut('settings', { key: 'sessions_blob', value: blob });
     } catch(e) { console.warn('Session persist failed:', e.message); }
+}
+
+// ── Envelope wrapping helper ─────────────────────────────
+// Wraps a structured (JSON-serializable) payload in a PNP-001 envelope for a
+// given peer. Returns the bucket-padded hex string, or null if no secure
+// session exists with the peer. The inner payload is JSON (not CBOR) because
+// the receiver decodes with JSON.parse — this matches how chat text is wrapped.
+function encodeEnvelope(toPeerId, msgType, obj) {
+    if (!wasm || !wasm.envelope_encode || !wasm.has_session || !wasm.has_session(toPeerId)) {
+        return null;
+    }
+    try {
+        const inner = new TextEncoder().encode(JSON.stringify(obj));
+        const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+        return wasm.envelope_encode(toPeerId, msgType, inner, nowSecs);
+    } catch (e) {
+        console.warn('[Envelope] encode failed for msgType=0x' + msgType.toString(16), e);
+        return null;
+    }
+}
+
+// Send an envelope-wrapped structured payload via the best available transport
+// (direct WebRTC preferred, relay fallback).
+function sendEnvelope(toPeerId, msgType, obj) {
+    const env = encodeEnvelope(toPeerId, msgType, obj);
+    if (!env) return false;
+    if (hasDirectConnection(toPeerId)) {
+        return sendViaWebRTC(toPeerId, env);
+    }
+    return sendToRelay(toPeerId, env);
 }
 
 // ── Relay Message Handling ────────────────────────────────
@@ -58,17 +93,8 @@ export function handleRelayMessage(msg) {
             break;
 
         case 'message':
-            if (msg.payload && typeof msg.payload === 'string') {
-                try {
-                    const parsed = JSON.parse(msg.payload);
-                    if (parsed && parsed._pn_type) {
-                        handleStructuredMessage(msg.from, parsed);
-                        break;
-                    }
-                } catch(e) {
-                    // Not JSON — pass through to regular handler
-                }
-            }
+            // All wire frames are PNP-001 envelopes — onIncomingMessage decodes
+            // and dispatches by msg_type.
             onIncomingMessage(msg.from, msg.payload);
             break;
 
@@ -92,46 +118,6 @@ export function handleRelayMessage(msg) {
                 showToast('Peer is not online');
             }
             break;
-    }
-}
-
-function handleStructuredMessage(fromPeerId, msg) {
-    switch (msg._pn_type) {
-        case 'file_offer':
-            handleFileOffer({ ...msg, from: fromPeerId });
-            break;
-        case 'file_chunk':
-            handleFileChunk(msg);
-            break;
-        case 'file_accept':
-            handleFileAccept(msg);
-            break;
-        case 'call_offer':
-            handleIncomingCall({ ...msg, from: fromPeerId });
-            break;
-        case 'call_reject':
-            showToast('Call declined');
-            break;
-        case 'group_message':
-            handleIncomingGroupMessage(msg);
-            break;
-        case 'group_invite':
-            handleGroupInvite({ ...msg, from: fromPeerId });
-            break;
-        case 'group_call_invite':
-            handleGroupCallInvite({ ...msg, from: fromPeerId });
-            break;
-        case 'group_file_offer':
-            handleGroupFileOffer(msg);
-            break;
-        case 'group_file_chunk':
-            handleGroupFileChunk(msg);
-            break;
-        case 'sender_key':
-            handleSenderKey(msg, fromPeerId);
-            break;
-        default:
-            console.warn('[Structured] Unknown message type:', msg._pn_type);
     }
 }
 
@@ -306,19 +292,16 @@ export async function sendGroupMessage() {
 
     const group = await dbGet('groups', currentGroupId);
     if (!group) return;
-    const payload = JSON.stringify({
-        _pn_type: 'group_message',
+    const obj = {
         groupId: currentGroupId,
         sender: myPeerId,
         content: text,
         timestamp: msg.timestamp
-    });
+    };
     for (const memberId of (group.members || [])) {
         if (memberId === myPeerId) continue;
-        if (hasDirectConnection(memberId)) {
-            sendViaWebRTC(memberId, payload);
-        } else {
-            sendToRelay(memberId, payload);
+        if (!sendEnvelope(memberId, MSG_TYPE_GROUP_TEXT, obj)) {
+            console.warn('[Group] No session with member; message dropped for', memberId.slice(0, 8));
         }
     }
 
@@ -409,24 +392,24 @@ export async function addMemberToGroup(peerId) {
     const badgeEl = document.getElementById('group-member-count');
     if (badgeEl) badgeEl.textContent = group.members.length;
 
-    const payload = JSON.stringify({
-        _pn_type: 'group_invite',
+    const inviteSent = sendEnvelope(peerId, MSG_TYPE_GROUP_ADMIN, {
+        action: 'invite',
         groupId: group.groupId,
         groupName: group.name,
         members: group.members
     });
-    sendToRelay(peerId, payload);
+    if (!inviteSent) {
+        console.warn('[Group] No session — cannot deliver invite to', peerId.slice(0, 8));
+    }
 
     if (wasm && wasm.create_sender_key) {
         try {
             const keyData = wasm.create_sender_key(currentGroupId);
             if (keyData) {
-                const skPayload = JSON.stringify({
-                    _pn_type: 'sender_key',
+                sendEnvelope(peerId, MSG_TYPE_SENDER_KEY_DISTRIBUTION, {
                     groupId: currentGroupId,
                     keyData: Array.from(new Uint8Array(keyData))
                 });
-                sendToRelay(peerId, skPayload);
             }
         } catch(e) { console.warn('[Group] Sender key distribution:', e); }
     }
@@ -564,8 +547,9 @@ export function acceptFileOffer(fileId) {
         const actions = offerEl.querySelector('.file-offer-actions');
         if (actions) actions.innerHTML = '<div class="file-status">Receiving... 0%</div>';
     }
-    const payload = JSON.stringify({ _pn_type: 'file_accept', fileId });
-    sendToRelay(pending.from, payload);
+    if (!sendEnvelope(pending.from, MSG_TYPE_FILE_CONTROL, { action: 'accept', fileId })) {
+        console.warn('[File] No session with sender; accept not delivered');
+    }
 }
 
 export function declineFileOffer(fileId) {
@@ -644,7 +628,6 @@ async function sendFileChunked(fileId, toPeerId) {
             const chunk = wasm.get_next_chunk(fileId);
             if (!chunk || chunk.length === 0) break;
             const inner = JSON.stringify({
-                _pn_type: 'file_chunk',
                 fileId,
                 chunkIndex,
                 totalChunks: -1,
@@ -705,8 +688,10 @@ export function declineIncomingCall() {
     const notif = document.getElementById('incoming-call-notification');
     if (notif) notif.classList.add('hidden');
     if (!incomingCallInfo) return;
-    const payload = JSON.stringify({ _pn_type: 'call_reject', callId: incomingCallInfo.callId });
-    sendToRelay(incomingCallInfo.from, payload);
+    sendEnvelope(incomingCallInfo.from, MSG_TYPE_CALL_SIGNAL, {
+        action: 'reject',
+        callId: incomingCallInfo.callId
+    });
     setIncomingCallInfo(null);
 }
 
@@ -729,15 +714,17 @@ export async function startGroupCall() {
     showGroupCallView(group.name, group.members);
 
     const myPeerId = window._peerId || '';
-    const payload = JSON.stringify({
-        _pn_type: 'group_call_invite',
+    const obj = {
+        action: 'invite',
         groupId: currentGroupId,
         callId,
         groupName: group.name
-    });
+    };
     for (const memberId of (group.members || [])) {
         if (memberId === myPeerId) continue;
-        sendToRelay(memberId, payload);
+        if (!sendEnvelope(memberId, MSG_TYPE_GROUP_CALL_SIGNAL, obj)) {
+            console.warn('[GroupCall] No session with', memberId.slice(0, 8));
+        }
     }
 }
 
@@ -872,8 +859,7 @@ export async function onGroupFileSelected(event) {
 
         for (const memberId of (group.members || [])) {
             if (memberId === myPeerId) continue;
-            const offerPayload = JSON.stringify({
-                _pn_type: 'group_file_offer',
+            const offerSent = sendEnvelope(memberId, MSG_TYPE_GROUP_FILE_OFFER, {
                 groupId: currentGroupId,
                 fileId,
                 fileName: file.name,
@@ -881,23 +867,20 @@ export async function onGroupFileSelected(event) {
                 totalChunks,
                 sender: myPeerId
             });
-            sendToRelay(memberId, offerPayload);
+            if (!offerSent) {
+                console.warn('[GroupFile] No session with', memberId.slice(0, 8), '— skipping');
+                continue;
+            }
 
             for (let i = 0; i < totalChunks; i++) {
                 const chunk = data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-                const chunkPayload = JSON.stringify({
-                    _pn_type: 'group_file_chunk',
+                sendEnvelope(memberId, MSG_TYPE_GROUP_FILE_CHUNK, {
                     groupId: currentGroupId,
                     fileId,
                     chunkIndex: i,
                     totalChunks,
                     data: Array.from(chunk)
                 });
-                if (hasDirectConnection(memberId)) {
-                    sendViaWebRTC(memberId, chunkPayload);
-                } else {
-                    sendToRelay(memberId, chunkPayload);
-                }
                 if (i % 10 === 0 && i > 0) {
                     await new Promise(r => setTimeout(r, 0));
                 }
@@ -979,10 +962,34 @@ export function dispatchByMsgType(msgType, fromPeerId, plaintext, handlers) {
             return h.system(fromPeerId, plaintext);
         case MSG_TYPE_FILE_CHUNK:
             return h.fileChunk(fromPeerId, plaintext);
+        case MSG_TYPE_FILE_CONTROL:
+            return h.fileControl(fromPeerId, plaintext);
+        case MSG_TYPE_CALL_SIGNAL:
+            return h.callSignal(fromPeerId, plaintext);
+        case MSG_TYPE_GROUP_TEXT:
+            return h.groupText(fromPeerId, plaintext);
+        case MSG_TYPE_GROUP_CALL_SIGNAL:
+            return h.groupCallSignal(fromPeerId, plaintext);
+        case MSG_TYPE_GROUP_FILE_OFFER:
+            return h.groupFileOffer(fromPeerId, plaintext);
+        case MSG_TYPE_GROUP_FILE_CHUNK:
+            return h.groupFileChunk(fromPeerId, plaintext);
+        case MSG_TYPE_SENDER_KEY_DISTRIBUTION:
+            return h.senderKey(fromPeerId, plaintext);
+        case MSG_TYPE_GROUP_ADMIN:
+            return h.groupAdmin(fromPeerId, plaintext);
         default:
             // PNP-001 MUST-008: unknown types are silently discarded.
             console.warn('[Dispatch] unknown msg_type', msgType, 'from', fromPeerId.slice(0, 8));
             return undefined;
+    }
+}
+
+function parseJsonPlaintext(plaintext) {
+    try {
+        return JSON.parse(new TextDecoder().decode(plaintext));
+    } catch (e) {
+        return null;
     }
 }
 
@@ -1043,12 +1050,76 @@ function handleSystemPlaintext(fromPeerId, plaintext) {
 }
 
 function handleFileChunkPlaintext(fromPeerId, plaintext) {
-    try {
-        const json = new TextDecoder().decode(plaintext);
-        const parsed = JSON.parse(json);
-        handleFileChunk(parsed);
-    } catch(e) {
-        console.warn('[FileChunk] malformed envelope payload from', fromPeerId.slice(0, 8), e);
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) { console.warn('[FileChunk] malformed envelope payload from', fromPeerId.slice(0, 8)); return; }
+    handleFileChunk(obj);
+}
+
+function handleFileControlPlaintext(fromPeerId, plaintext) {
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) return;
+    if (obj.action === 'offer') {
+        handleFileOffer({ ...obj, from: fromPeerId });
+    } else if (obj.action === 'accept') {
+        handleFileAccept({ ...obj, from: fromPeerId });
+    } else {
+        console.warn('[FileControl] unknown action:', obj.action);
+    }
+}
+
+function handleCallSignalPlaintext(fromPeerId, plaintext) {
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) return;
+    if (obj.action === 'offer') {
+        handleIncomingCall({ ...obj, from: fromPeerId });
+    } else if (obj.action === 'reject') {
+        showToast('Call declined');
+    } else {
+        console.warn('[CallSignal] unknown action:', obj.action);
+    }
+}
+
+function handleGroupTextPlaintext(fromPeerId, plaintext) {
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) return;
+    handleIncomingGroupMessage(obj);
+}
+
+function handleGroupCallSignalPlaintext(fromPeerId, plaintext) {
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) return;
+    if (obj.action === 'invite') {
+        handleGroupCallInvite({ ...obj, from: fromPeerId });
+    } else {
+        console.warn('[GroupCallSignal] unknown action:', obj.action);
+    }
+}
+
+function handleGroupFileOfferPlaintext(fromPeerId, plaintext) {
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) return;
+    handleGroupFileOffer(obj);
+}
+
+function handleGroupFileChunkPlaintext(fromPeerId, plaintext) {
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) return;
+    handleGroupFileChunk(obj);
+}
+
+function handleSenderKeyPlaintext(fromPeerId, plaintext) {
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) return;
+    handleSenderKey(obj, fromPeerId);
+}
+
+function handleGroupAdminPlaintext(fromPeerId, plaintext) {
+    const obj = parseJsonPlaintext(plaintext);
+    if (!obj) return;
+    if (obj.action === 'invite') {
+        handleGroupInvite({ ...obj, from: fromPeerId });
+    } else {
+        console.warn('[GroupAdmin] unknown action:', obj.action);
     }
 }
 
@@ -1056,6 +1127,14 @@ const DEFAULT_DISPATCH_HANDLERS = {
     chat: handleChatPlaintext,
     system: handleSystemPlaintext,
     fileChunk: handleFileChunkPlaintext,
+    fileControl: handleFileControlPlaintext,
+    callSignal: handleCallSignalPlaintext,
+    groupText: handleGroupTextPlaintext,
+    groupCallSignal: handleGroupCallSignalPlaintext,
+    groupFileOffer: handleGroupFileOfferPlaintext,
+    groupFileChunk: handleGroupFileChunkPlaintext,
+    senderKey: handleSenderKeyPlaintext,
+    groupAdmin: handleGroupAdminPlaintext,
 };
 
 function hexToBytes(hex) {
