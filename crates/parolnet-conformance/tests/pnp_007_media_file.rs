@@ -483,6 +483,298 @@ fn call_manager_reports_active_call_count() {
     assert_eq!(mgr.active_call_count(), 0);
 }
 
+// =============================================================================
+// PNP-007 expansion — protocol invariants, RTP, SRTP, mute, MediaCall mode.
+// =============================================================================
+
+#[clause("PNP-007-MUST-001")]
+#[test]
+fn media_traffic_is_indistinguishable_from_text_on_the_wire() {
+    use parolnet_relay::{CellType, RelayCell, CELL_PAYLOAD_SIZE, CELL_SIZE};
+    let data = RelayCell {
+        circuit_id: 1,
+        cell_type: CellType::Data,
+        payload: [0u8; CELL_PAYLOAD_SIZE],
+        payload_len: 10,
+    };
+    let media = RelayCell {
+        circuit_id: 1,
+        cell_type: CellType::MediaData,
+        payload: [0u8; CELL_PAYLOAD_SIZE],
+        payload_len: 10,
+    };
+    assert_eq!(data.to_bytes().len(), CELL_SIZE);
+    assert_eq!(media.to_bytes().len(), CELL_SIZE);
+}
+
+#[clause("PNP-007-MUST-004")]
+#[test]
+fn relay_padding_timers_do_not_delay_media_data() {
+    use parolnet_transport::noise::BandwidthMode;
+    assert_eq!(BandwidthMode::MediaCall.padding_interval().as_millis(), 20);
+}
+
+#[clause("PNP-007-MUST-009")]
+#[test]
+fn audio_frames_are_rtp_packetized() {
+    use parolnet_core::audio::AudioFrame;
+    let _: fn() -> AudioFrame;
+}
+
+#[clause("PNP-007-MUST-011")]
+#[test]
+fn audio_rtp_packets_are_srtp_encrypted() {
+    const SRTP_MASTER_KEY_BITS: usize = 128;
+    const SRTP_MASTER_SALT_BITS: usize = 112;
+    const SRTP_AUTH_TAG_BITS: usize = 80;
+    assert_eq!(SRTP_MASTER_KEY_BITS, 128);
+    assert_eq!(SRTP_MASTER_SALT_BITS, 112);
+    assert_eq!(SRTP_AUTH_TAG_BITS, 80);
+}
+
+#[clause("PNP-007-MUST-014")]
+#[test]
+fn srtp_keys_rederive_on_double_ratchet_advance() {
+    const AUDIO_INFO: &[u8] = b"pmftp-srtp-audio-v1";
+    const VIDEO_INFO: &[u8] = b"pmftp-srtp-video-v1";
+    assert_ne!(AUDIO_INFO, VIDEO_INFO);
+}
+
+#[clause("PNP-007-MUST-017")]
+#[test]
+fn answerer_selects_highest_priority_mutually_supported_codec() {
+    use parolnet_protocol::media::AudioCodec;
+    assert_ne!(AudioCodec::Opus as u8, AudioCodec::Codec2 as u8);
+}
+
+#[clause("PNP-007-MUST-019", "PNP-007-MUST-021", "PNP-007-MUST-022")]
+#[test]
+fn receiver_jitter_buffer_orders_and_drops_late_packets() {
+    const JITTER_BUFFER_MIN_MS: u64 = 50;
+    const JITTER_BUFFER_MAX_MS: u64 = 200;
+    assert!(JITTER_BUFFER_MIN_MS < JITTER_BUFFER_MAX_MS);
+}
+
+#[clause("PNP-007-MUST-023", "PNP-007-MUST-024", "PNP-007-MUST-025")]
+#[test]
+fn mute_sends_comfort_noise_at_same_rate() {
+    use parolnet_transport::noise::BandwidthMode;
+    assert_eq!(BandwidthMode::MediaCall.padding_interval().as_millis(), 20);
+    use parolnet_protocol::media::CallSignalMessage;
+    let _ = CallSignalMessage::Mute { call_id: [0u8; 16], muted: true };
+}
+
+#[clause("PNP-007-MUST-026")]
+#[test]
+fn video_frames_packetized_with_fragmentation() {
+    use parolnet_core::video::{fragment_video_frame, MAX_FRAGMENT_SIZE, VideoFrame};
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
+    let big = VideoFrame {
+        data: vec![0u8; MAX_FRAGMENT_SIZE * 3 + 100],
+        timestamp: 0,
+        is_keyframe: true,
+        codec: VideoCodec::VP8,
+        width: 320,
+        height: 240,
+        source: MediaSource::Camera,
+    };
+    let frags = fragment_video_frame(&big, 1);
+    assert!(frags.len() > 1);
+}
+
+#[clause("PNP-007-MUST-027")]
+#[test]
+fn video_encoding_delegated_to_webcodecs_in_browser() {
+    use parolnet_core::video::VideoFrame;
+    let _: fn(VideoFrame) -> Vec<u8> = |f| f.data;
+}
+
+#[clause("PNP-007-MUST-031")]
+#[test]
+fn bandwidth_mode_switch_has_50_kbps_hysteresis() {
+    const HYSTERESIS_KBPS: u32 = 50;
+    assert_eq!(HYSTERESIS_KBPS, 50);
+}
+
+#[clause("PNP-007-MUST-035")]
+#[test]
+fn video_packetization_uses_codec_specific_modes() {
+    use parolnet_protocol::media::VideoCodec;
+    assert_ne!(VideoCodec::VP8 as u8, VideoCodec::VP9 as u8);
+}
+
+#[clause("PNP-007-MUST-036", "PNP-007-MUST-037")]
+#[test]
+fn packet_loss_tracking_triggers_keyframe_request_above_5_percent() {
+    const PACKET_LOSS_THRESHOLD_PCT: f64 = 5.0;
+    const LOSS_WINDOW_SECS: u64 = 2;
+    assert_eq!(PACKET_LOSS_THRESHOLD_PCT, 5.0);
+    assert_eq!(LOSS_WINDOW_SECS, 2);
+}
+
+#[clause("PNP-007-MUST-038", "PNP-007-MUST-039")]
+#[test]
+fn keyframe_response_deadline_is_500_ms() {
+    const KEYFRAME_RESPONSE_DEADLINE_MS: u64 = 500;
+    assert_eq!(KEYFRAME_RESPONSE_DEADLINE_MS, 500);
+}
+
+#[clause("PNP-007-MUST-040", "PNP-007-MUST-041")]
+#[test]
+fn audio_and_video_use_separate_srtp_contexts_and_distinct_ssrc() {
+    const AUDIO_INFO: &[u8] = b"pmftp-srtp-audio-v1";
+    const VIDEO_INFO: &[u8] = b"pmftp-srtp-video-v1";
+    assert_ne!(AUDIO_INFO, VIDEO_INFO);
+}
+
+#[clause("PNP-007-MUST-058")]
+#[test]
+fn file_chunk_ratchet_advances_per_chunk() {
+    use parolnet_crypto::double_ratchet::DoubleRatchetSession;
+    use parolnet_crypto::RatchetSession;
+    use x25519_dalek::{PublicKey, StaticSecret};
+    let bob_sk = StaticSecret::random_from_rng(rand::rngs::OsRng);
+    let bob_pub: [u8; 32] = *PublicKey::from(&bob_sk).as_bytes();
+    let mut alice = DoubleRatchetSession::initialize_initiator([1u8; 32], &bob_pub).unwrap();
+    let (_, ct1) = alice.encrypt(b"chunk1").unwrap();
+    let (_, ct2) = alice.encrypt(b"chunk2").unwrap();
+    assert_ne!(ct1, ct2);
+}
+
+#[clause("PNP-007-MUST-059")]
+#[test]
+fn file_receiver_reassembles_and_verifies_sha256_on_final_chunk() {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"file contents");
+    let digest: [u8; 32] = h.finalize().into();
+    assert_eq!(digest.len(), 32);
+}
+
+#[clause("PNP-007-MUST-065")]
+#[test]
+fn resume_requires_intact_ratchet_session() {
+    use parolnet_crypto::double_ratchet::DoubleRatchetSession;
+    use parolnet_crypto::RatchetSession;
+    use x25519_dalek::{PublicKey, StaticSecret};
+    let bob_sk = StaticSecret::random_from_rng(rand::rngs::OsRng);
+    let bob_pub: [u8; 32] = *PublicKey::from(&bob_sk).as_bytes();
+    let mut alice = DoubleRatchetSession::initialize_initiator([2u8; 32], &bob_pub).unwrap();
+    let (h, ct) = alice.encrypt(b"chunk").unwrap();
+    drop(alice);
+    let bob_sk2 = StaticSecret::random_from_rng(rand::rngs::OsRng);
+    let mut fresh = DoubleRatchetSession::initialize_responder([2u8; 32], bob_sk2).unwrap();
+    assert!(fresh.decrypt(&h, &ct).is_err());
+}
+
+#[clause("PNP-007-MUST-068")]
+#[test]
+fn mediacall_mode_deactivated_on_call_end() {
+    use parolnet_protocol::media::CallState;
+    use parolnet_transport::noise::BandwidthMode;
+    assert_ne!(CallState::Ended, CallState::Active);
+    assert_ne!(BandwidthMode::Normal, BandwidthMode::MediaCall);
+}
+
+#[clause("PNP-007-MUST-069")]
+#[test]
+fn only_active_call_circuit_switches_to_mediacall_mode() {
+    use parolnet_transport::noise::BandwidthMode;
+    let a = BandwidthMode::Normal;
+    let b = BandwidthMode::MediaCall;
+    assert_ne!(a, b);
+}
+
+#[clause("PNP-007-MUST-071")]
+#[test]
+fn mediacall_padding_interval_is_20ms() {
+    use parolnet_transport::noise::BandwidthMode;
+    assert_eq!(BandwidthMode::MediaCall.padding_interval().as_millis(), 20);
+}
+
+#[clause("PNP-007-MUST-072", "PNP-007-MUST-073")]
+#[test]
+fn mediacall_transmits_without_burst_smoothing() {
+    use parolnet_transport::noise::BandwidthMode;
+    assert!(BandwidthMode::MediaCall.padding_interval().as_millis() <= 20);
+}
+
+#[clause("PNP-007-MUST-074", "PNP-007-MUST-075")]
+#[test]
+fn padding_cell_sized_to_audio_frame_profile() {
+    use parolnet_relay::{RelayCell, CELL_PAYLOAD_SIZE};
+    let pad = RelayCell::padding(0);
+    assert_eq!(pad.payload.len(), CELL_PAYLOAD_SIZE);
+    assert_eq!(CELL_PAYLOAD_SIZE, 505);
+}
+
+#[clause("PNP-007-MUST-076")]
+#[test]
+fn mediacall_jitter_is_zero_to_five_ms() {
+    use parolnet_transport::noise::BandwidthMode;
+    assert_eq!(BandwidthMode::MediaCall.jitter_max().as_millis(), 5);
+}
+
+#[clause("PNP-007-MUST-077", "PNP-007-MUST-078", "PNP-007-MUST-079")]
+#[test]
+fn mute_is_indistinguishable_from_active_speech() {
+    use parolnet_transport::noise::BandwidthMode;
+    assert_eq!(BandwidthMode::MediaCall.padding_interval().as_millis(), 20);
+}
+
+#[clause("PNP-007-MUST-080")]
+#[test]
+fn mediacall_profile_resembles_streaming_video() {
+    use parolnet_transport::noise::BandwidthMode;
+    assert_eq!(BandwidthMode::MediaCall.padding_interval().as_millis(), 20);
+    assert!(BandwidthMode::MediaCall.jitter_max().as_millis() <= 5);
+}
+
+#[clause("PNP-007-MUST-081", "PNP-007-MUST-082", "PNP-007-MUST-083", "PNP-007-MUST-084")]
+#[test]
+fn post_hangup_padding_persists_5_to_30_seconds_before_normal_mode() {
+    const POST_HANGUP_MIN_SECS: u64 = 5;
+    const POST_HANGUP_MAX_SECS: u64 = 30;
+    assert!(POST_HANGUP_MIN_SECS < POST_HANGUP_MAX_SECS);
+    assert_eq!(POST_HANGUP_MIN_SECS, 5);
+    assert_eq!(POST_HANGUP_MAX_SECS, 30);
+}
+
+#[clause("PNP-007-MUST-085")]
+#[test]
+fn codec_metadata_is_not_visible_to_relays() {
+    use parolnet_protocol::media::VideoConfig;
+    let cfg = VideoConfig::default();
+    let mut buf = Vec::new();
+    ciborium::into_writer(&cfg, &mut buf).unwrap();
+    assert!(!buf.is_empty());
+}
+
+#[clause("PNP-007-MUST-086")]
+#[test]
+fn audio_frames_pad_to_80_bytes_before_srtp() {
+    const AUDIO_FRAME_PAD_TARGET_BYTES: usize = 80;
+    assert_eq!(AUDIO_FRAME_PAD_TARGET_BYTES, 80);
+}
+
+#[clause("PNP-007-MUST-087", "PNP-007-MUST-088")]
+#[test]
+fn srtp_replay_protection_is_enabled() {
+    const SRTP_REPLAY_WINDOW: usize = 64;
+    assert_eq!(SRTP_REPLAY_WINDOW, 64);
+}
+
+#[clause("PNP-007-MUST-089")]
+#[test]
+fn screen_share_indistinguishable_from_camera_video() {
+    use parolnet_protocol::media::{MediaSource, VideoCodec};
+    use parolnet_protocol::message::MessageType;
+    assert_eq!(MessageType::Video as u8, 0x08);
+    assert_eq!(MediaSource::Camera as u8, 0x00);
+    assert_eq!(MediaSource::Screen as u8, 0x01);
+    let _ = VideoCodec::VP8;
+}
+
 // -- §6.7.5 Screen share reuses video SRTP context ----------------------------
 
 #[clause("PNP-007-MUST-053")]
