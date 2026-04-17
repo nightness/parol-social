@@ -32,7 +32,7 @@ pub mod session;
 #[cfg(feature = "native")]
 pub mod video;
 
-pub use config::ParolNetConfig;
+pub use config::{FederationConfig, ParolNetConfig};
 pub use error::CoreError;
 
 use parolnet_crypto::double_ratchet::DoubleRatchetSession;

@@ -187,16 +187,40 @@ fn endorsement_bound_to_peer_id_rejects_cross_binding() {
 #[clause("PNP-008-MUST-024", "PNP-008-MUST-025")]
 #[test]
 fn iblt_tier_sizes_match_spec_table() {
-    // Spec §6.2: S=80 cells/3 hashes, M=400/3, L=2000/4. Cap at 2000.
-    let tiers: [(usize, usize); 3] = [(80, 3), (400, 3), (2000, 4)];
-    assert_eq!(tiers[0], (80, 3));
-    assert_eq!(tiers[1], (400, 3));
-    assert_eq!(tiers[2], (2000, 4));
-    let max_cells: usize = tiers.iter().map(|(c, _)| *c).max().unwrap();
-    assert_eq!(
-        max_cells, 2000,
-        "MUST-025: implementations MUST cap at 2000"
-    );
+    // Spec §6.2: S=80/3, M=400/3, L=2000/4. Cap at 2000.
+    use parolnet_mesh::sync::{IbltTier, MAX_IBLT_CELLS};
+    assert_eq!((IbltTier::S.cells(), IbltTier::S.hashes()), (80, 3));
+    assert_eq!((IbltTier::M.cells(), IbltTier::M.hashes()), (400, 3));
+    assert_eq!((IbltTier::L.cells(), IbltTier::L.hashes()), (2000, 4));
+    assert_eq!(MAX_IBLT_CELLS, 2000, "MUST-025: cell-count ceiling");
+}
+
+#[clause("PNP-008-MUST-024")]
+#[test]
+fn iblt_tier_selection_picks_smallest_fit() {
+    // MUST-024: senders MUST pick the smallest tier whose decode probability
+    // exceeds 0.99 for the current directory size. The tier table caps are
+    // S ≤ 20, M ≤ 100, L ≤ 500.
+    use parolnet_mesh::sync::IbltTier;
+    assert_eq!(IbltTier::select_for_delta(0), IbltTier::S);
+    assert_eq!(IbltTier::select_for_delta(20), IbltTier::S);
+    assert_eq!(IbltTier::select_for_delta(21), IbltTier::M);
+    assert_eq!(IbltTier::select_for_delta(100), IbltTier::M);
+    assert_eq!(IbltTier::select_for_delta(101), IbltTier::L);
+    assert_eq!(IbltTier::select_for_delta(500), IbltTier::L);
+}
+
+#[clause("PNP-008-MUST-025")]
+#[test]
+fn iblt_wire_cell_count_over_cap_rejected() {
+    // MUST-025: decoding a wire-format IBLT whose header claims more than
+    // 2000 cells MUST be rejected.
+    use parolnet_mesh::sync::{Iblt, MAX_IBLT_CELLS};
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&((MAX_IBLT_CELLS + 1) as u16).to_be_bytes());
+    buf.push(3);
+    buf.extend(std::iter::repeat(0u8).take((MAX_IBLT_CELLS + 1) * 68));
+    assert!(Iblt::from_bytes(&buf).is_err());
 }
 
 // -- §5.1, §5.3, §5.4 Federation peer bounds ---------------------------------
@@ -450,12 +474,19 @@ fn is_trusted_authority_gates_known_keys_only() {
 #[clause("PNP-008-MUST-004")]
 #[test]
 fn federation_gossip_payload_codes_are_0x06_0x07_0x08() {
-    const FEDERATION_SYNC: u8 = 0x06;
-    const FEDERATION_HEARTBEAT: u8 = 0x07;
-    const BRIDGE_ANNOUNCEMENT: u8 = 0x08;
-    assert_eq!(FEDERATION_SYNC, 0x06);
-    assert_eq!(FEDERATION_HEARTBEAT, 0x07);
-    assert_eq!(BRIDGE_ANNOUNCEMENT, 0x08);
+    // Wire codes 0x06/0x07/0x08 MUST NOT overlap the public gossip registry.
+    use parolnet_protocol::federation::FederationPayloadType;
+    use parolnet_protocol::gossip::GossipPayloadType;
+    assert_eq!(FederationPayloadType::FederationSync as u8, 0x06);
+    assert_eq!(FederationPayloadType::FederationHeartbeat as u8, 0x07);
+    assert_eq!(FederationPayloadType::BridgeAnnouncement as u8, 0x08);
+    for code in 0x06u8..=0x08 {
+        assert!(
+            GossipPayloadType::from_u8(code).is_none(),
+            "MUST-004: federation code 0x{:02x} MUST NOT appear in gossip registry",
+            code
+        );
+    }
 }
 
 // -- §4.1 FederationSync signature covers deterministic CBOR -----------------

@@ -18,6 +18,7 @@ pub mod codec;
 pub mod envelope;
 pub mod ephemeral;
 pub mod error;
+pub mod federation;
 pub mod file;
 pub mod gossip;
 pub mod group;
