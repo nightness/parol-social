@@ -14,6 +14,7 @@ use parolnet_mesh::peer_manager::PeerManager;
 use parolnet_protocol::address::PeerId;
 use parolnet_relay::authority::EndorsedDescriptor;
 use parolnet_relay::directory::{RelayDescriptor, RelayDirectory};
+use parolnet_relay::presence::{PresenceAuthority, PresenceConfig, PresenceEntry};
 use parolnet_relay::tokens::{Suite, Token, TokenAuthority, TokenConfig};
 use parolnet_transport::{Connection, TransportError};
 use rand::seq::SliceRandom;
@@ -604,6 +605,226 @@ async fn handle_directory_push(
     }
 
     (StatusCode::OK, Json(serde_json::json!({"merged": merged}))).into_response()
+}
+
+// ---- H12 Phase 2 presence + peer lookup ----------------------------------
+
+/// Per-IP rate limiter for `/peers/presence` and `/peers/lookup`
+/// (PNP-008-MUST-066 — 10 req/s per client). Implemented as 10 req per 1 s
+/// window of the shared [`RateLimiter`].
+type LookupRateLimiter = Arc<RateLimiter<std::net::IpAddr>>;
+const LOOKUP_RATE_LIMIT: u32 = 10;
+const LOOKUP_RATE_WINDOW_SECS: u64 = 1;
+
+/// GET /peers/presence — return the locally-connected peers of this relay,
+/// CBOR-encoded as `Vec<PresenceEntry>`. Rate-limited per client IP.
+///
+/// Clauses: PNP-008-MUST-063 (endpoint shape), PNP-008-MUST-064 (signatures),
+/// PNP-008-MUST-066 (rate limit).
+async fn handle_peers_presence(
+    presence: Arc<Mutex<PresenceAuthority>>,
+    rl: LookupRateLimiter,
+    client_ip: IpAddr,
+) -> axum::response::Response {
+    if rl.is_limited(&client_ip) {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limited").into_response();
+    }
+    let rows: Vec<PresenceEntry> = presence.lock().await.local_presence();
+    let mut cbor_buf = Vec::new();
+    if let Err(e) = ciborium::into_writer(&rows, &mut cbor_buf) {
+        tracing::error!(error = %e, "Failed to serialize presence to CBOR");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/cbor")],
+        cbor_buf,
+    )
+        .into_response()
+}
+
+/// GET /peers/lookup?id=<peer_id_hex> — resolve the home relay of `peer_id`.
+///
+/// Returns 200 + CBOR `LookupResult` on hit; 404 on miss; 400 on malformed id;
+/// 429 on rate limit.
+///
+/// Clauses: PNP-008-MUST-065 (local-first, federation-second), PNP-008-MUST-066
+/// (rate limit).
+async fn handle_peers_lookup(
+    presence: Arc<Mutex<PresenceAuthority>>,
+    rl: LookupRateLimiter,
+    client_ip: IpAddr,
+    Query(params): Query<HashMap<String, String>>,
+) -> axum::response::Response {
+    if rl.is_limited(&client_ip) {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limited").into_response();
+    }
+    let Some(id_hex) = params.get("id") else {
+        return (StatusCode::BAD_REQUEST, "missing id").into_response();
+    };
+    let Some(peer_id) = parse_peer_id(id_hex) else {
+        return (StatusCode::BAD_REQUEST, "invalid id").into_response();
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let Some(res) = presence.lock().await.lookup(&peer_id, now) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut cbor_buf = Vec::new();
+    if let Err(e) = ciborium::into_writer(&res, &mut cbor_buf) {
+        tracing::error!(error = %e, "Failed to serialize LookupResult to CBOR");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/cbor")],
+        cbor_buf,
+    )
+        .into_response()
+}
+
+/// Background task: every `poll_interval_secs` (default 300 s, PNP-008-MUST-069),
+/// fetch `/peers/presence` from every `PEER_RELAY_URLS` entry, resolve each
+/// peer relay's Ed25519 pubkey via the authority-verified directory, verify
+/// each `PresenceEntry` signature, and merge into the local federation cache.
+/// Expired entries are evicted on every tick (PNP-008-MUST-070).
+async fn federation_presence_fetch(
+    presence: Arc<Mutex<PresenceAuthority>>,
+    directory: Arc<Mutex<RelayDirectory>>,
+    peer_relay_urls: Arc<Mutex<Vec<String>>>,
+    poll_interval_secs: u64,
+) {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "presence: HTTP client init failed");
+            return;
+        }
+    };
+
+    let mut interval = tokio::time::interval(Duration::from_secs(poll_interval_secs));
+    loop {
+        interval.tick().await;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        // Evict expired federation entries opportunistically.
+        presence.lock().await.tick_evict(now);
+
+        let urls: Vec<String> = {
+            let known = peer_relay_urls.lock().await;
+            known.clone()
+        };
+        if urls.is_empty() {
+            continue;
+        }
+
+        // Snapshot the directory so we can resolve each peer relay's pubkey
+        // without holding the lock across HTTP I/O.
+        let directory_snapshot: HashMap<std::net::SocketAddr, ([u8; 32], parolnet_protocol::address::PeerId)> = {
+            let dir = directory.lock().await;
+            dir.descriptors()
+                .values()
+                .map(|d| (d.addr, (d.identity_key, d.peer_id)))
+                .collect()
+        };
+
+        for url in &urls {
+            let presence_url = format!("{}/peers/presence", url.trim_end_matches('/'));
+
+            // Resolve the home relay's Ed25519 pubkey by matching the URL's
+            // host:port against the directory's `addr` field. Without a
+            // trusted directory entry for the peer relay we refuse to merge,
+            // because the presence signature must be verifiable (MUST-064).
+            let Some((pubkey, home_peer_id)) =
+                resolve_peer_relay_identity(url, &directory_snapshot)
+            else {
+                tracing::debug!(
+                    url = %presence_url,
+                    "presence fetch skipped: peer relay identity not yet in authority-verified directory"
+                );
+                continue;
+            };
+            let Ok(verifying_key) = ed25519_dalek::VerifyingKey::from_bytes(&pubkey) else {
+                tracing::debug!(url = %presence_url, "presence fetch skipped: invalid pubkey bytes");
+                continue;
+            };
+
+            match client.get(&presence_url).send().await {
+                Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                    Ok(body) => {
+                        let entries: Vec<PresenceEntry> =
+                            match ciborium::from_reader(body.as_ref()) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::warn!(
+                                        url = %presence_url,
+                                        error = %e,
+                                        "invalid CBOR in /peers/presence response"
+                                    );
+                                    continue;
+                                }
+                            };
+                        let stats = presence.lock().await.merge_federation_presence(
+                            url,
+                            home_peer_id,
+                            &verifying_key,
+                            entries,
+                            now,
+                        );
+                        if stats.accepted > 0 || stats.rejected > 0 {
+                            tracing::debug!(
+                                url = %presence_url,
+                                accepted = stats.accepted,
+                                rejected = stats.rejected,
+                                "merged federation presence"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(url = %presence_url, error = %e, "presence read failed");
+                    }
+                },
+                Ok(resp) => {
+                    tracing::debug!(
+                        url = %presence_url,
+                        status = %resp.status(),
+                        "peer relay non-success for /peers/presence"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(url = %presence_url, error = %e, "presence fetch error");
+                }
+            }
+        }
+    }
+}
+
+/// Resolve a peer relay URL (e.g. `http://1.2.3.4:9000`) to its Ed25519
+/// verifying key + PeerId by matching the URL's `host:port` against the
+/// directory's `addr` field. Returns `None` if no matching descriptor exists
+/// (which means the authority-verified directory hasn't converged yet — we
+/// wait rather than accept unverified presence entries).
+fn resolve_peer_relay_identity(
+    url: &str,
+    directory_snapshot: &HashMap<std::net::SocketAddr, ([u8; 32], parolnet_protocol::address::PeerId)>,
+) -> Option<([u8; 32], parolnet_protocol::address::PeerId)> {
+    // Strip scheme, then expect host:port.
+    let without_scheme = url
+        .trim_end_matches('/')
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .unwrap_or(url);
+    let addr: std::net::SocketAddr = without_scheme.parse().ok()?;
+    directory_snapshot.get(&addr).copied()
 }
 
 // ---- H9 Privacy Pass token issuance --------------------------------------
@@ -1215,6 +1436,7 @@ async fn main() {
         });
     }
 
+
     // Initialize mesh PeerManager as a gossip supernode.
     //
     // Identity priority (see `parolnet_relay_server::identity`):
@@ -1253,6 +1475,27 @@ async fn main() {
         PeerId(Sha256::digest(pubkey_bytes).into())
     };
     info!("Relay PeerId: {}", hex::encode(our_peer_id.0));
+
+    // H12 Phase 2 presence authority. Clones the signing key bytes into a
+    // zeroizing wrapper so the long-lived relay identity can be re-used here
+    // without widening the lifetime of the original SigningKey.
+    let presence_authority: Arc<Mutex<PresenceAuthority>> = Arc::new(Mutex::new({
+        let mut pa = PresenceAuthority::new(
+            our_peer_id,
+            relay_signing_key.clone(),
+            PresenceConfig::default(),
+        );
+        // Resolve the public URL this relay advertises as its `home_relay_url`.
+        // Falls back to "http://<bind>:<port>" which matches the descriptor
+        // addr format used by the federation directory sync task.
+        let public_url = std::env::var("RELAY_PUBLIC_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("http://0.0.0.0:{port}"));
+        pa.set_own_public_url(public_url);
+        pa
+    }));
+
     let peer_manager = Arc::new(PeerManager::new(our_peer_id, relay_signing_key));
 
     // Spawn periodic maintenance (dedup rotation, stored-message expiry)
@@ -1296,6 +1539,37 @@ async fn main() {
         info!("Directory sync disabled in bridge mode");
     }
 
+    // Spawn federation presence fetch (every 300 s, PNP-008-MUST-069).
+    // Also skipped in bridge mode so bridges don't leak their federation peers.
+    if !bridge_mode {
+        let pa = presence_authority.clone();
+        let dir = directory.clone();
+        let urls = peer_relay_urls.clone();
+        let poll = presence_authority
+            .lock()
+            .await
+            .config()
+            .federation_poll_interval_secs;
+        tokio::spawn(federation_presence_fetch(pa, dir, urls, poll));
+    }
+
+    // Rate limiter for presence + lookup endpoints (10 req/s per IP,
+    // PNP-008-MUST-066). A 1-second window of 10 events is the policy.
+    let lookup_rate_limiter: LookupRateLimiter = Arc::new(RateLimiter::new(
+        LOOKUP_RATE_LIMIT,
+        LOOKUP_RATE_WINDOW_SECS,
+    ));
+    {
+        let rl = lookup_rate_limiter.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                rl.cleanup();
+            }
+        });
+    }
+
     // Determine whether the /stats endpoint should be active
     #[cfg(feature = "analytics")]
     let analytics_enabled = std::env::var("PAROLNET_ANALYTICS").unwrap_or_default() == "1";
@@ -1320,6 +1594,7 @@ async fn main() {
                 let msg_rl = msg_rate_limiter.clone();
                 let tp = trusted_proxies.clone();
                 let ta = token_authority.clone();
+                let pa = presence_authority.clone();
                 move |ws: WebSocketUpgrade,
                       headers: axum::http::HeaderMap,
                       connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>| async move {
@@ -1329,7 +1604,7 @@ async fn main() {
                         return StatusCode::TOO_MANY_REQUESTS.into_response();
                     }
                     ws.on_upgrade(move |socket| {
-                        handle_socket(socket, peers, store, stats, peer_manager, msg_rl, ta)
+                        handle_socket(socket, peers, store, stats, peer_manager, msg_rl, ta, pa)
                     })
                     .into_response()
                 }
@@ -1418,6 +1693,37 @@ async fn main() {
                     let ta = ta.clone();
                     let il = il.clone();
                     async move { handle_tokens_issue(ta, il, body).await }
+                }
+            }),
+        )
+        .route(
+            "/peers/presence",
+            get({
+                let pa = presence_authority.clone();
+                let rl = lookup_rate_limiter.clone();
+                let tp = trusted_proxies.clone();
+                move |headers: axum::http::HeaderMap,
+                      connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>| {
+                    let pa = pa.clone();
+                    let rl = rl.clone();
+                    let client_ip = get_client_ip(connect_info.0.ip(), &headers, &tp);
+                    async move { handle_peers_presence(pa, rl, client_ip).await }
+                }
+            }),
+        )
+        .route(
+            "/peers/lookup",
+            get({
+                let pa = presence_authority.clone();
+                let rl = lookup_rate_limiter.clone();
+                let tp = trusted_proxies.clone();
+                move |headers: axum::http::HeaderMap,
+                      connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>,
+                      query: Query<HashMap<String, String>>| {
+                    let pa = pa.clone();
+                    let rl = rl.clone();
+                    let client_ip = get_client_ip(connect_info.0.ip(), &headers, &tp);
+                    async move { handle_peers_lookup(pa, rl, client_ip, query).await }
                 }
             }),
         )
@@ -1743,6 +2049,7 @@ async fn handle_socket(
     peer_manager: Arc<PeerManager>,
     msg_rate_limiter: MsgRateLimiter,
     token_authority: Arc<Mutex<TokenAuthority>>,
+    presence_authority: Arc<Mutex<PresenceAuthority>>,
 ) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
@@ -1912,6 +2219,20 @@ async fn handle_socket(
                                     online
                                 );
 
+                                // Publish presence (PNP-008-MUST-063): this
+                                // peer is now authoritatively connected here,
+                                // so `/peers/presence` must advertise it.
+                                if let Some(mesh_pid) = parse_peer_id(&peer_id) {
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs();
+                                    presence_authority
+                                        .lock()
+                                        .await
+                                        .upsert_local(mesh_pid, now);
+                                }
+
                                 // Deliver stored messages
                                 if let Some(mesh_pid) = parse_peer_id(&peer_id) {
                                     let pending = store.lock().await.retrieve(&mesh_pid);
@@ -1991,6 +2312,18 @@ async fn handle_socket(
                 if let Err(e) = verified {
                     tracing::warn!(error = %e, "dropping outer message frame — token rejected");
                     continue;
+                }
+
+                // Refresh presence for the authenticated sender; every message
+                // doubles as a liveness heartbeat so `/peers/presence` stays
+                // current without a dedicated keepalive frame.
+                if let Some(ref pid_hex) = my_peer_id
+                    && let Some(mesh_pid) = parse_peer_id(pid_hex)
+                {
+                    presence_authority
+                        .lock()
+                        .await
+                        .upsert_local(mesh_pid, now);
                 }
 
                 // Token passed — route the payload to `to`. The outbound frame
@@ -2096,6 +2429,9 @@ async fn handle_socket(
         // Remove from mesh PeerManager
         if let Some(mesh_pid) = parse_peer_id(peer_id) {
             peer_manager.remove_peer(&mesh_pid).await;
+            // Drop from presence so `/peers/presence` no longer claims this
+            // peer is locally connected.
+            presence_authority.lock().await.remove_local(&mesh_pid);
         }
 
         info!(

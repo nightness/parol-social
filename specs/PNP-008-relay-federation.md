@@ -1,11 +1,12 @@
 # PNP-008: Relay Federation & Network Resilience
 
-**Version:** 0.2
+**Version:** 0.3
 **Status:** CANDIDATE
 **Last-Updated:** 2026-04-17
 
 ## Changelog
 
+- **v0.3 (2026-04-17):** Added §Presence (`GET /peers/presence`), §Peer Lookup (`GET /peers/lookup?id=`), and §Federation Presence Fetch describing the 5-min poll and 1-hr TTL federation cache that underpins H12 Phase 2 cross-relay routing (client-side Option α). Added 8 new MUST clauses `PNP-008-MUST-063` through `PNP-008-MUST-070`. No breaking changes to the v0.2 federation state machine.
 - **v0.2 (2026-04-17):** Full rewrite from phased implementation plan to RFC-2119 normative specification. Split implementation roadmap to `/FEDERATION-IMPLEMENTATION.md`. Defined wire formats for `FederationSync` (0x06), `FederationHeartbeat` (0x07), `BridgeAnnouncement` (0x08) gossip payload types. Defined federation peer state machine, IBLT sync parameters, descriptor endorsement chain, reputation score rules, bootstrap channel fallback, bridge descriptor format. Added numbered `PNP-008-(MUST|SHOULD|MAY)-NNN` clause IDs.
 - **v0.1:** Initial phased implementation plan (now at `/FEDERATION-IMPLEMENTATION.md`).
 
@@ -419,6 +420,74 @@ struct BridgeDescriptor {
 
 ---
 
+## 10.5 Presence
+
+H12 Phase 2 introduces a lightweight presence endpoint so that client libraries and federation peers can answer the question *"which relay is peer X currently connected to?"* without depending on the full PNP-008 federation state machine defined in §§4–7. Presence is intentionally public: any client can query it (subject to rate limiting), because the primary consumer is the end user's own client, and making presence privileged-between-relays only would leak a false privacy claim (see H12 Phase 2 design rationale).
+
+### 10.5.1 `GET /peers/presence`
+
+Returns a CBOR-serialized `Vec<PresenceEntry>` of peers currently connected to this relay:
+
+```
+struct PresenceEntry {
+    peer_id: bstr32,       // 32-byte PeerId
+    last_seen: uint,       // Unix seconds; updated on connect and on heartbeat
+    signature: bstr64,     // Ed25519 signature, see §10.5.2
+}
+```
+
+**PNP-008-MUST-063**: A relay MUST expose `GET /peers/presence` returning a CBOR-serialized `Vec<PresenceEntry>` covering exactly the peers currently connected to that relay. The endpoint MUST NOT include peers buffered-for-delivery-only, peers from the federation cache, or historical entries.
+
+**PNP-008-MUST-064**: Each `PresenceEntry` MUST carry an Ed25519 signature by the relay's identity key over the canonical 32-byte hash `SHA-256(relay_peer_id || peer_id || last_seen.to_be_bytes())`. Clients and federation peers MUST verify this signature against the relay's authority-verified directory entry before trusting the entry; entries that fail to verify MUST be dropped.
+
+### 10.5.2 Canonical Signable Bytes
+
+The canonical byte layout for a presence signature is exactly:
+
+```
+sha256_input = relay_peer_id (32 bytes) || peer_id (32 bytes) || last_seen (8 bytes, big-endian u64)
+signable = SHA-256(sha256_input)     // 32 bytes
+signature = Ed25519(relay_signing_key, signable)
+```
+
+The hash is domain-separated by the two concatenated `PeerId` inputs — a signature over one relay's peer can never be replayed as a signature for another relay because each relay's `PeerId` (derived from its Ed25519 pubkey per PNP-002) is distinct.
+
+## 10.6 Peer Lookup
+
+### 10.6.1 `GET /peers/lookup?id=<peer_id_hex>`
+
+Returns a CBOR-serialized `LookupResult` on hit, HTTP 404 on miss:
+
+```
+struct LookupResult {
+    home_relay_url: tstr,  // public URL of the peer's home relay
+    last_seen: uint,       // Unix seconds
+    signature: bstr64,     // Ed25519 signature by the home relay (§10.5.2 layout)
+}
+```
+
+The signature is the same signature carried by the corresponding `PresenceEntry` at the home relay — it binds (home_relay_peer_id, peer_id, last_seen) together so the client can verify it against the home relay's authority-verified directory entry.
+
+**PNP-008-MUST-065**: A relay answering `GET /peers/lookup?id=` MUST consult its own connected-peer presence map first, and only fall back to the federation-cache populated per §10.7 if the peer is not locally connected. This ordering guarantees the freshest authoritative answer always wins over stale federation data.
+
+**PNP-008-MUST-066**: A relay MUST rate-limit `GET /peers/lookup` to at most 10 requests per second per client IP (respecting `X-Forwarded-For` from trusted proxies), rejecting excess requests with HTTP 429.
+
+### 10.6.2 Client Caching & Verification
+
+**PNP-008-MUST-067**: Clients MUST cache `LookupResult` values with a TTL of at most 3600 seconds (1 hour). Expired entries MUST be re-fetched before use.
+
+**PNP-008-MUST-068**: Clients MUST verify the `LookupResult` signature against the Ed25519 verifying key of the claimed `home_relay_url` as drawn from the authority-verified directory entry (§3). A `LookupResult` whose signature does not verify MUST be discarded and MUST NOT be cached.
+
+## 10.7 Federation Presence Fetch
+
+Relays populate their federation-cache by polling each configured peer relay's `/peers/presence` endpoint.
+
+**PNP-008-MUST-069**: Each relay MUST poll every entry of its `PEER_RELAY_URLS` configuration for `/peers/presence` at an interval of at most 300 seconds. Fetch failures MUST be logged and MUST NOT crash the relay.
+
+**PNP-008-MUST-070**: Federation-cache entries MUST expire at a TTL of at most 3600 seconds measured from the time they were fetched. A relay answering `GET /peers/lookup?id=` MUST treat expired federation-cache entries as misses.
+
+Relays verify each fetched `PresenceEntry` signature against the home relay's Ed25519 verifying key (resolved through the authority-verified directory cache) before inserting it into the federation cache. Entries with invalid signatures MUST be rejected — this is a direct corollary of PNP-008-MUST-064.
+
 ## 11. Versioning
 
 **PNP-008-MUST-062**: Federation handshake messages MUST include a `protocol_version` byte (currently `0x01`); peers MUST downgrade only to versions explicitly enumerated in a future PNP-008 revision.
@@ -431,7 +500,7 @@ struct BridgeDescriptor {
 
 This specification declares:
 
-- **62 MUST** clauses (`PNP-008-MUST-001` through `PNP-008-MUST-062`)
+- **70 MUST** clauses (`PNP-008-MUST-001` through `PNP-008-MUST-070`)
 - **11 SHOULD** clauses (`PNP-008-SHOULD-001` through `PNP-008-SHOULD-011`)
 - **3 MAY** clauses (`PNP-008-MAY-001` through `PNP-008-MAY-003`)
 

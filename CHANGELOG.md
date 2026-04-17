@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — H12 Phase 2 relay peer presence + lookup (PNP-008 v0.3, commit 1 of 2)
+- New `parolnet-relay::presence` module: `PresenceAuthority` tracking locally-connected peers + a federation cache (1 hr TTL) of peers seen on other relays. Each `PresenceEntry` is Ed25519-signed by the home relay's identity key over `SHA-256(relay_peer_id || peer_id || last_seen.to_be_bytes())` so the signature is verifiable against the authority-endorsed directory.
+- New HTTP endpoints in `parolnet-relay-server`: `GET /peers/presence` (CBOR `Vec<PresenceEntry>` for locally-connected peers) and `GET /peers/lookup?id=<peer_id_hex>` (CBOR `LookupResult` on hit, 404 on miss). Both are rate-limited to 10 req/s per client IP per PNP-008-MUST-066.
+- Connect/disconnect and per-message heartbeat hooks now upsert/remove presence state so `/peers/presence` always matches the live WebSocket peer map.
+- Background task polls every `PEER_RELAY_URLS` entry every 300 s for `/peers/presence`, verifies each returned signature against the peer relay's Ed25519 identity (resolved via the authority-verified directory), and merges into the federation cache. Entries past the 3600 s TTL are treated as misses and evicted lazily.
+- Spec: PNP-008 bumped to v0.3 CANDIDATE. Added §10.5 Presence, §10.6 Peer Lookup, §10.7 Federation Presence Fetch, with clauses `PNP-008-MUST-063` through `PNP-008-MUST-070`. Summary count bumped from 62 → 70 MUSTs.
+- Conformance: new `pnp_008_presence.rs` with 8 clause-pinned tests covering local presence signing, canonical signable-bytes layout, local-over-federation priority, federation signature rejection, TTL enforcement, and default rate-limit / poll-interval caps.
+- Follow-up (commit 2 of 2): PWA lookup-aware `sendRelay`, per-relay token pools, and outbound WS lifecycle so users on different relays can actually exchange messages.
+
 ### Added — Privacy Pass relay-frame auth (PNP-001 §10, H9 commit 1 of 2)
 - New `parolnet-relay::tokens` module: epoch-rotating VOPRF (`Ristretto255-SHA512`, RFC 9497) issuer / verifier powering RFC 9578 Privacy Pass tokens for the outer relay frame. 1-hour epochs, 5-minute grace, 8192 tokens/client/epoch. Server secrets zeroize on drop per the security invariants.
 - New `POST /tokens/issue` endpoint in `parolnet-relay-server`: Ed25519-authenticated batch blind-evaluation; one batch per identity per epoch.
