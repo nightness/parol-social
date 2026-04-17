@@ -69,6 +69,17 @@ impl HopKeys {
 /// Encrypt a payload with one onion layer (forward direction, OP side).
 ///
 /// Returns ciphertext with AEAD tag prepended.
+///
+/// # Examples
+///
+/// ```
+/// use parolnet_relay::onion::{onion_wrap, onion_peel, HopKeys};
+///
+/// let keys = HopKeys::from_shared_secret(&[7u8; 32]).unwrap();
+/// let ct = onion_wrap(b"secret", &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
+/// let pt = onion_peel(&ct, &keys.forward_key, &keys.forward_nonce_seed, 0).unwrap();
+/// assert_eq!(&pt, b"secret");
+/// ```
 pub fn onion_wrap(
     payload: &[u8],
     key: &[u8; 32],

@@ -25,6 +25,18 @@ impl CleartextHeader {
     /// The timestamp is rounded down to the nearest 5-minute (300s) boundary
     /// to prevent timing correlation attacks. This is the preferred constructor
     /// and should be used instead of setting fields directly.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use parolnet_protocol::{envelope::CleartextHeader, PeerId};
+    ///
+    /// let h = CleartextHeader::new(1, 0x01, PeerId([0u8; 32]), [0u8; 16], 1_700_000_001, 7, None);
+    /// assert!(h.is_timestamp_coarsened());
+    /// assert_eq!(h.timestamp % 300, 0);
+    /// assert_eq!(h.ttl(), 7);
+    /// assert_eq!(h.hop_count(), 0);
+    /// ```
     pub fn new(
         version: u8,
         msg_type: u8,
@@ -53,6 +65,18 @@ impl CleartextHeader {
         (self.ttl_and_hops & 0xFF) as u8
     }
 
+    /// Increment hop count, saturating at 255.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use parolnet_protocol::{envelope::CleartextHeader, PeerId};
+    ///
+    /// let mut h = CleartextHeader::new(1, 0x01, PeerId([0u8; 32]), [0u8; 16], 0, 7, None);
+    /// h.increment_hop();
+    /// assert_eq!(h.hop_count(), 1);
+    /// assert_eq!(h.ttl(), 7, "TTL unchanged by hop increment");
+    /// ```
     pub fn increment_hop(&mut self) {
         let hops = self.hop_count().saturating_add(1);
         self.ttl_and_hops = (self.ttl_and_hops & 0xFF00) | (hops as u16);

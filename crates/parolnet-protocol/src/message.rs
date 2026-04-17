@@ -26,6 +26,20 @@ pub enum MessageType {
 }
 
 impl MessageType {
+    /// Decode a wire byte to a `MessageType`, per the PNP-001 §3.4 registry.
+    ///
+    /// Returns `None` for unassigned / reserved codes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use parolnet_protocol::message::MessageType;
+    ///
+    /// assert_eq!(MessageType::from_u8(0x01), Some(MessageType::Text));
+    /// assert_eq!(MessageType::from_u8(0x11), Some(MessageType::SenderKeyDistribution));
+    /// assert_eq!(MessageType::from_u8(0x00), None);
+    /// assert_eq!(MessageType::from_u8(0x12), None);
+    /// ```
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
             0x01 => Some(Self::Text),

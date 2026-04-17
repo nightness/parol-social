@@ -13,6 +13,18 @@ use rand::RngCore;
 ///
 /// Pads messages to the smallest bucket size that fits, using
 /// cryptographically random padding bytes.
+///
+/// # Examples
+///
+/// ```
+/// use parolnet_protocol::padding::BucketPadding;
+/// use parolnet_protocol::{PaddingStrategy, BUCKET_SIZES};
+///
+/// let payload = b"hello";
+/// let padded = BucketPadding.pad(payload).unwrap();
+/// assert!(BUCKET_SIZES.contains(&padded.len()));
+/// assert_eq!(BucketPadding.unpad(&padded).unwrap(), payload);
+/// ```
 pub struct BucketPadding;
 
 /// Overhead: 4 bytes for the length prefix.
@@ -79,6 +91,18 @@ impl PaddingStrategy for BucketPadding {
 }
 
 /// Select the smallest bucket size that can contain the given data length.
+///
+/// # Examples
+///
+/// ```
+/// use parolnet_protocol::padding::select_bucket;
+///
+/// assert_eq!(select_bucket(1), Some(256));
+/// assert_eq!(select_bucket(256), Some(256));
+/// assert_eq!(select_bucket(257), Some(1024));
+/// assert_eq!(select_bucket(16384), Some(16384));
+/// assert_eq!(select_bucket(16385), None);
+/// ```
 pub fn select_bucket(data_len: usize) -> Option<usize> {
     BUCKET_SIZES.iter().copied().find(|&size| size >= data_len)
 }
