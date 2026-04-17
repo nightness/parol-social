@@ -17,7 +17,6 @@
 //! - SAS verification string computation
 //! - Panic wipe (clear all in-memory state)
 
-pub mod bindings;
 pub mod circuit;
 pub mod federation;
 pub mod storage;
