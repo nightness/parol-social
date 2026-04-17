@@ -13,6 +13,7 @@ import { initWebRTC, hasDirectConnection, sendViaWebRTC, rtcConnections,
          seenGossipMessages, markGossipSeen } from './webrtc.js';
 import { sendToRelay, connMgr, queueMessage } from './connection.js';
 import { t } from './i18n.js';
+import { MSG_TYPE_CHAT, MSG_TYPE_SYSTEM } from './protocol-constants.js';
 
 // ── Session Persistence ──────────────────────────────────
 function persistSessions() {
@@ -214,29 +215,28 @@ export async function sendMessage() {
 
     appendMessage(msg);
 
-    // Encrypt and send — require encryption, never send plaintext
+    // Encrypt, wrap in a PNP-001 padded envelope, and send.
+    // Every wire frame leaving the client is bucket-padded to 256/1024/4096/16384 bytes.
     let sent = false;
     let relayPayload = null;
-    if (!wasm || !wasm.encrypt_message || !wasm.has_session || !wasm.has_session(currentPeerId)) {
+    if (!wasm || !wasm.envelope_encode || !wasm.has_session || !wasm.has_session(currentPeerId)) {
         showToast('Cannot send: secure session not established with this contact');
         return;
     }
     try {
         const encoder = new TextEncoder();
         const plainBytes = encoder.encode(text);
-        const encrypted = wasm.encrypt_message(currentPeerId, plainBytes);
+        const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+        relayPayload = wasm.envelope_encode(currentPeerId, MSG_TYPE_CHAT, plainBytes, nowSecs);
         persistSessions();
-        const hexPayload = Array.from(encrypted).map(b => b.toString(16).padStart(2, '0')).join('');
-        const encPayload = 'enc:' + hexPayload;
-        relayPayload = encPayload;
         if (hasDirectConnection(currentPeerId)) {
-            sent = sendViaWebRTC(currentPeerId, encPayload);
+            sent = sendViaWebRTC(currentPeerId, relayPayload);
         }
         if (!sent) {
-            sent = sendToRelay(currentPeerId, encPayload);
+            sent = sendToRelay(currentPeerId, relayPayload);
         }
     } catch (e) {
-        console.error('Encryption failed:', e);
+        console.error('Envelope encode failed:', e);
         showToast('Encryption failed — message not sent');
         return;
     }
@@ -657,14 +657,20 @@ function handleScannedQR(data) {
         unread: 0
     }).then(async () => {
         loadContacts();
-        if (sessionEstablished && wasm && wasm.get_public_key) {
+        if (sessionEstablished && wasm && wasm.get_public_key && wasm.envelope_encode) {
             const ourIk = wasm.get_public_key();
-            if (!sendToRelay(peerId, '__system:bootstrap:' + ourIk)) {
-                queueMessage(peerId, '__system:bootstrap:' + ourIk);
-            }
-        } else {
-            if (!sendToRelay(peerId, '__system:contact_added')) {
-                queueMessage(peerId, '__system:contact_added');
+            // Carry our identity key as the SYSTEM payload; the msg_type in the
+            // envelope replaces the old "__system:bootstrap:" string marker.
+            const encoder = new TextEncoder();
+            const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+            try {
+                const envelope = wasm.envelope_encode(peerId, MSG_TYPE_SYSTEM, encoder.encode('bootstrap:' + ourIk), nowSecs);
+                persistSessions();
+                if (!sendToRelay(peerId, envelope)) {
+                    queueMessage(peerId, envelope);
+                }
+            } catch(e) {
+                console.warn('[Bootstrap] envelope_encode failed:', e);
             }
         }
         openChat(peerId);
@@ -833,7 +839,9 @@ export function connectViaPassphrase() {
         input.value = '';
         showToast('Contact added!');
         loadContacts();
-        sendToRelay(peerId, '__system:contact_added');
+        // No wire notification: manual add runs before any session exists, and
+        // PNP-001 forbids sending unencrypted/unpadded frames. The peer will
+        // pick us up via QR bootstrap or normal message flow.
         openChat(peerId);
     }).catch(e => {
         showToast('Failed: ' + e.message);

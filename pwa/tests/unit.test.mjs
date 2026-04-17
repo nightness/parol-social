@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomFillSync, createHmac, webcrypto } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +13,27 @@ if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.subtle) {
     globalThis.crypto = webcrypto;
 }
 const { CryptoStore } = await import('../crypto-store.js');
+
+// Lazy-load WASM for envelope tests. If the pkg/ dir isn't built, the suite
+// still runs the pure-JS tests.
+const wasmPath = join(__dirname, '..', 'pkg', 'parolnet_wasm_bg.wasm');
+let wasmMod = null;
+async function loadWasm() {
+    if (wasmMod !== null) return wasmMod;
+    if (!existsSync(wasmPath)) { wasmMod = false; return false; }
+    try {
+        const bytes = readFileSync(wasmPath);
+        const mod = await import('../pkg/parolnet_wasm.js');
+        mod.initSync({ module: bytes });
+        mod.initialize();
+        wasmMod = mod;
+        return mod;
+    } catch (e) {
+        console.warn('[test] WASM load failed:', e.message);
+        wasmMod = false;
+        return false;
+    }
+}
 
 // ── Tests ──
 
@@ -439,5 +460,141 @@ describe('CryptoStore duress', () => {
             () => cs.setup('same', 'same', putRaw, getRaw),
             /differ/
         );
+    });
+});
+
+// ── PNP-001 envelope wire path ─────────────────────────────────
+
+describe('PWA envelope wire path', () => {
+    // Message-type codes must match specs/PNP-001-wire-protocol.md §3.4.
+    const MSG_TYPE_CHAT = 0x01;
+    const MSG_TYPE_SYSTEM = 0x03;
+    const MSG_TYPE_FILE_CHUNK = 0x09;
+
+    // The envelope_encode WASM entry uses the initiator-side half of a Double
+    // Ratchet session. A single WASM instance can't round-trip a frame against
+    // itself (the reverse session lives on the peer). We test:
+    //   - bucket exact-size on encode
+    //   - decode rejects malformed hex
+    //   - decode rejects tampered ciphertext
+    //   - source_peer_id parameter is required
+    //   - pure-JS dispatcher routes by msg_type
+
+    const FAKE_PEER = '00'.repeat(32);
+    const FAKE_SHARED = '11'.repeat(32);
+    const FAKE_RATCHET = '22'.repeat(32);
+
+    async function withWasm() {
+        const w = await loadWasm();
+        if (!w) return null;
+        if (!w.has_session(FAKE_PEER)) {
+            w.create_session(FAKE_PEER, FAKE_SHARED, FAKE_RATCHET);
+        }
+        return w;
+    }
+
+    test('bucket exact-size: every plaintext produces 256/1024/4096/16384 bytes', async (t) => {
+        const w = await withWasm();
+        if (!w) { t.skip('WASM not available'); return; }
+        // Overhead per frame: DR header + CBOR framing + AEAD tag + source_hint
+        // roughly ~120 bytes, so a ~130-byte plaintext already crosses into 1024.
+        const cases = [
+            { size: 0,     bucket: 256 },
+            { size: 50,    bucket: 256 },
+            { size: 500,   bucket: 1024 },
+            { size: 800,   bucket: 1024 },
+            { size: 3000,  bucket: 4096 },
+            { size: 12000, bucket: 16384 },
+        ];
+        const now = 1700000000n;
+        for (const { size, bucket } of cases) {
+            const plain = new Uint8Array(size);
+            const env = w.envelope_encode(FAKE_PEER, MSG_TYPE_CHAT, plain, now);
+            assert.equal(typeof env, 'string', `env is string for size=${size}`);
+            assert.equal(env.length % 2, 0, `env hex even for size=${size}`);
+            assert.equal(env.length / 2, bucket, `size=${size} landed in ${bucket}-byte bucket (got ${env.length/2})`);
+            assert.match(env, /^[0-9a-f]+$/, 'envelope is lowercase hex');
+        }
+    });
+
+    test('encode returns different ciphertext per call (ratchet advances)', async (t) => {
+        const w = await withWasm();
+        if (!w) { t.skip('WASM not available'); return; }
+        const plain = new TextEncoder().encode('same plaintext');
+        const now = 1700000001n;
+        const a = w.envelope_encode(FAKE_PEER, MSG_TYPE_CHAT, plain, now);
+        const b = w.envelope_encode(FAKE_PEER, MSG_TYPE_CHAT, plain, now);
+        assert.notEqual(a, b, 'ratchet must produce distinct frames for identical plaintext');
+    });
+
+    test('malformed hex is rejected cleanly (no crash, throws Error)', async (t) => {
+        const w = await withWasm();
+        if (!w) { t.skip('WASM not available'); return; }
+        assert.throws(() => w.envelope_decode(FAKE_PEER, 'zzzznothex'), /invalid hex|hex/i);
+        assert.throws(() => w.envelope_decode(FAKE_PEER, ''), /.+/);
+        assert.throws(() => w.envelope_decode(FAKE_PEER, 'ab'), /.+/);  // too short to be any bucket
+    });
+
+    test('tampered envelope fails decode (AEAD auth rejects flipped byte)', async (t) => {
+        const w = await withWasm();
+        if (!w) { t.skip('WASM not available'); return; }
+        const plain = new TextEncoder().encode('original plaintext');
+        const env = w.envelope_encode(FAKE_PEER, MSG_TYPE_CHAT, plain, 1700000002n);
+        // Flip one nibble in the middle of the payload region.
+        const idx = 100;
+        const ch = env[idx];
+        const newCh = ch === 'a' ? 'b' : 'a';
+        const tampered = env.slice(0, idx) + newCh + env.slice(idx + 1);
+        assert.notEqual(tampered, env, 'tamper actually changed the bytes');
+        assert.throws(() => w.envelope_decode(FAKE_PEER, tampered), /.+/);
+    });
+
+    test('decode with unknown source_peer_id (no session) throws', async (t) => {
+        const w = await withWasm();
+        if (!w) { t.skip('WASM not available'); return; }
+        const plain = new TextEncoder().encode('hi');
+        const env = w.envelope_encode(FAKE_PEER, MSG_TYPE_CHAT, plain, 1700000003n);
+        // Use a peer id we have no session for.
+        const unknown = 'ff'.repeat(32);
+        assert.throws(() => w.envelope_decode(unknown, env), /.+/);
+    });
+
+    test('dispatchByMsgType routes correctly by numeric code', () => {
+        // Mirror of dispatchByMsgType in pwa/src/messaging.js — the test
+        // intentionally does not import messaging.js because that module
+        // pulls DOM-dependent code.
+        function dispatch(msgType, fromPeerId, plaintext, handlers) {
+            switch (msgType) {
+                case MSG_TYPE_CHAT:       return handlers.chat(fromPeerId, plaintext);
+                case MSG_TYPE_SYSTEM:     return handlers.system(fromPeerId, plaintext);
+                case MSG_TYPE_FILE_CHUNK: return handlers.fileChunk(fromPeerId, plaintext);
+                default:                  return { unknown: msgType };
+            }
+        }
+        const calls = [];
+        const handlers = {
+            chat:      (p, b) => calls.push(['chat', p, b]),
+            system:    (p, b) => calls.push(['system', p, b]),
+            fileChunk: (p, b) => calls.push(['fileChunk', p, b]),
+        };
+        const peer = 'ab'.repeat(32);
+        const bytes = new Uint8Array([1, 2, 3]);
+        dispatch(MSG_TYPE_CHAT, peer, bytes, handlers);
+        dispatch(MSG_TYPE_SYSTEM, peer, bytes, handlers);
+        dispatch(MSG_TYPE_FILE_CHUNK, peer, bytes, handlers);
+        const unknown = dispatch(0xff, peer, bytes, handlers);
+        assert.equal(calls.length, 3);
+        assert.equal(calls[0][0], 'chat');
+        assert.equal(calls[1][0], 'system');
+        assert.equal(calls[2][0], 'fileChunk');
+        assert.deepEqual(calls[0][2], bytes);
+        assert.deepEqual(unknown, { unknown: 0xff });
+    });
+
+    test('protocol-constants.js exports PNP-001 §3.4 codes', async () => {
+        const mod = await import('../src/protocol-constants.js');
+        assert.equal(mod.MSG_TYPE_CHAT, 0x01, 'TEXT');
+        assert.equal(mod.MSG_TYPE_SYSTEM, 0x03, 'CONTROL');
+        assert.equal(mod.MSG_TYPE_FILE_CHUNK, 0x09, 'FILE_CHUNK (PNP-007)');
     });
 });

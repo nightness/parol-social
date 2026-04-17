@@ -14,6 +14,7 @@ import { hasDirectConnection, sendViaWebRTC, seenGossipMessages, markGossipSeen,
 import { sendToRelay, discoverPeers, startDiscoveryInterval, connMgr } from './connection.js';
 import { loadContacts, appendMessage, answerIncomingCall, loadAddressBook } from './ui-chat.js';
 import { t } from './i18n.js';
+import { MSG_TYPE_CHAT, MSG_TYPE_SYSTEM, MSG_TYPE_FILE_CHUNK } from './protocol-constants.js';
 
 // ── Session Persistence ──────────────────────────────────
 function persistSessions() {
@@ -631,33 +632,38 @@ function offerDownload(fileId) {
 
 async function sendFileChunked(fileId, toPeerId) {
     if (!toPeerId) return;
-    const CHUNK_SIZE = 16384;
+    if (!wasm || !wasm.get_next_chunk || !wasm.envelope_encode) return;
+    if (!wasm.has_session || !wasm.has_session(toPeerId)) {
+        console.warn('[File] No session with', toPeerId.slice(0, 8), '— chunks not sent');
+        return;
+    }
     let chunkIndex = 0;
-    if (wasm && wasm.get_next_chunk) {
-        while (true) {
-            try {
-                const chunk = wasm.get_next_chunk(fileId);
-                if (!chunk || chunk.length === 0) break;
-                const payload = JSON.stringify({
-                    _pn_type: 'file_chunk',
-                    fileId,
-                    chunkIndex,
-                    totalChunks: -1,
-                    data: Array.from(chunk)
-                });
-                if (hasDirectConnection(toPeerId)) {
-                    sendViaWebRTC(toPeerId, payload);
-                } else {
-                    sendToRelay(toPeerId, payload);
-                }
-                chunkIndex++;
-                if (chunkIndex % 10 === 0) {
-                    await new Promise(r => setTimeout(r, 0));
-                }
-            } catch(e) {
-                console.warn('[File] Chunk send error:', e);
-                break;
+    const encoder = new TextEncoder();
+    while (true) {
+        try {
+            const chunk = wasm.get_next_chunk(fileId);
+            if (!chunk || chunk.length === 0) break;
+            const inner = JSON.stringify({
+                _pn_type: 'file_chunk',
+                fileId,
+                chunkIndex,
+                totalChunks: -1,
+                data: Array.from(chunk)
+            });
+            const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+            const envelope = wasm.envelope_encode(toPeerId, MSG_TYPE_FILE_CHUNK, encoder.encode(inner), nowSecs);
+            if (hasDirectConnection(toPeerId)) {
+                sendViaWebRTC(toPeerId, envelope);
+            } else {
+                sendToRelay(toPeerId, envelope);
             }
+            chunkIndex++;
+            if (chunkIndex % 10 === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+        } catch(e) {
+            console.warn('[File] Chunk send error:', e);
+            break;
         }
     }
 }
@@ -960,84 +966,35 @@ function handleGroupFileChunk(msg) {
 
 // ── Incoming Message Handler ──────────────────────────────
 
-export function onIncomingMessage(fromPeerId, payload) {
-    if (!fromPeerId || !payload) return;
-
-    // Dedup
-    const dedupKey = fromPeerId + ':' + (typeof payload === 'string' ? payload.slice(0, 64) : '');
-    if (seenGossipMessages.has(dedupKey)) return;
-    markGossipSeen(dedupKey);
-
-    // Handle system events
-    if (typeof payload === 'string' && payload.startsWith('__system:')) {
-        console.log('[System]', fromPeerId.slice(0, 8), payload);
-        if (payload === '__system:contact_added') {
-            dbPut('contacts', {
-                peerId: fromPeerId,
-                name: fromPeerId.slice(0, 8) + '...',
-                lastMessage: '',
-                lastTime: formatTime(Date.now()),
-                unread: 0
-            }).then(() => {
-                showToast(t('toast.newContact', { name: fromPeerId.slice(0, 8) }));
-                loadContacts();
-                showView('contacts');
-            }).catch(() => {});
-        } else if (payload.startsWith('__system:bootstrap:')) {
-            const theirIkHex = payload.slice('__system:bootstrap:'.length);
-            if (wasm && wasm.complete_bootstrap_as_presenter && theirIkHex.length === 64) {
-                try {
-                    const result = wasm.complete_bootstrap_as_presenter(theirIkHex);
-                    console.log('[Bootstrap] Responder session established for:', result.peer_id);
-                    persistSessions();
-                    dbPut('contacts', {
-                        peerId: result.peer_id,
-                        name: result.peer_id.slice(0, 8) + '...',
-                        lastMessage: 'Encrypted session established',
-                        lastTime: formatTime(Date.now()),
-                        unread: 0
-                    }).then(async () => {
-                        showToast(t('toast.secureContact', { name: result.peer_id.slice(0, 8) }));
-                        loadContacts();
-                        showView('contacts');
-                    }).catch(() => {});
-                } catch(e) {
-                    console.warn('[Bootstrap] Failed to complete presenter bootstrap:', e);
-                }
-            }
-        }
-        return;
+// Route a decrypted envelope payload to the right handler based on the PNP-001
+// msg_type code (see specs/PNP-001-wire-protocol.md §3.4).
+//
+// Exported so pure-JS tests can exercise the dispatch table without loading WASM.
+export function dispatchByMsgType(msgType, fromPeerId, plaintext, handlers) {
+    const h = handlers || DEFAULT_DISPATCH_HANDLERS;
+    switch (msgType) {
+        case MSG_TYPE_CHAT:
+            return h.chat(fromPeerId, plaintext);
+        case MSG_TYPE_SYSTEM:
+            return h.system(fromPeerId, plaintext);
+        case MSG_TYPE_FILE_CHUNK:
+            return h.fileChunk(fromPeerId, plaintext);
+        default:
+            // PNP-001 MUST-008: unknown types are silently discarded.
+            console.warn('[Dispatch] unknown msg_type', msgType, 'from', fromPeerId.slice(0, 8));
+            return undefined;
     }
+}
 
-    // Attempt decryption
-    let messageText = payload;
-    if (typeof payload === 'string' && payload.startsWith('enc:')) {
-        if (wasm && wasm.decrypt_message) {
-            try {
-                const hexCiphertext = payload.slice(4);
-                const cipherBytes = new Uint8Array(hexCiphertext.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-                const plainBytes = wasm.decrypt_message(fromPeerId, cipherBytes);
-                persistSessions();
-                const decoder = new TextDecoder();
-                messageText = decoder.decode(plainBytes);
-            } catch (e) {
-                console.error('[Decrypt] Failed to decrypt from', fromPeerId.slice(0, 8), e);
-                messageText = '[Encrypted message — decryption failed]';
-            }
-        } else {
-            messageText = '[Encrypted message — WASM not available]';
-        }
-    }
-
+function handleChatPlaintext(fromPeerId, plaintext) {
+    const messageText = new TextDecoder().decode(plaintext);
     const msg = {
         peerId: fromPeerId,
         direction: 'received',
         content: messageText,
         timestamp: Date.now()
     };
-
     dbPut('messages', msg).catch(e => console.warn('Failed to store message:', e));
-
     dbPut('contacts', {
         peerId: fromPeerId,
         name: fromPeerId.slice(0, 8) + '...',
@@ -1055,4 +1012,86 @@ export function onIncomingMessage(fromPeerId, payload) {
             loadContacts();
         }
     }
+}
+
+function handleSystemPlaintext(fromPeerId, plaintext) {
+    const body = new TextDecoder().decode(plaintext);
+    console.log('[System]', fromPeerId.slice(0, 8), body.slice(0, 40));
+    if (body.startsWith('bootstrap:')) {
+        const theirIkHex = body.slice('bootstrap:'.length);
+        if (wasm && wasm.complete_bootstrap_as_presenter && theirIkHex.length === 64) {
+            try {
+                const result = wasm.complete_bootstrap_as_presenter(theirIkHex);
+                console.log('[Bootstrap] Responder session established for:', result.peer_id);
+                persistSessions();
+                dbPut('contacts', {
+                    peerId: result.peer_id,
+                    name: result.peer_id.slice(0, 8) + '...',
+                    lastMessage: 'Encrypted session established',
+                    lastTime: formatTime(Date.now()),
+                    unread: 0
+                }).then(async () => {
+                    showToast(t('toast.secureContact', { name: result.peer_id.slice(0, 8) }));
+                    loadContacts();
+                    showView('contacts');
+                }).catch(() => {});
+            } catch(e) {
+                console.warn('[Bootstrap] Failed to complete presenter bootstrap:', e);
+            }
+        }
+    }
+}
+
+function handleFileChunkPlaintext(fromPeerId, plaintext) {
+    try {
+        const json = new TextDecoder().decode(plaintext);
+        const parsed = JSON.parse(json);
+        handleFileChunk(parsed);
+    } catch(e) {
+        console.warn('[FileChunk] malformed envelope payload from', fromPeerId.slice(0, 8), e);
+    }
+}
+
+const DEFAULT_DISPATCH_HANDLERS = {
+    chat: handleChatPlaintext,
+    system: handleSystemPlaintext,
+    fileChunk: handleFileChunkPlaintext,
+};
+
+function hexToBytes(hex) {
+    if (!hex) return new Uint8Array(0);
+    const out = new Uint8Array(hex.length >> 1);
+    for (let i = 0; i < out.length; i++) {
+        out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    return out;
+}
+
+export function onIncomingMessage(fromPeerId, payload) {
+    if (!fromPeerId || !payload) return;
+    if (typeof payload !== 'string') return;
+
+    // Dedup on the wire-frame text — envelope hex is constant for a given
+    // ciphertext so dedup works across relay + gossip paths.
+    const dedupKey = fromPeerId + ':' + payload.slice(0, 64);
+    if (seenGossipMessages.has(dedupKey)) return;
+    markGossipSeen(dedupKey);
+
+    if (!wasm || !wasm.envelope_decode) {
+        console.warn('[Envelope] WASM not available — dropping frame');
+        return;
+    }
+
+    let decoded;
+    try {
+        decoded = wasm.envelope_decode(fromPeerId, payload);
+        persistSessions();
+    } catch (e) {
+        console.warn('[Envelope] malformed frame dropped:', e);
+        return;
+    }
+
+    const plaintext = hexToBytes(decoded.plaintext_hex);
+    const sourcePeer = decoded.source_hint || fromPeerId;
+    dispatchByMsgType(decoded.msg_type, sourcePeer, plaintext);
 }
