@@ -212,6 +212,16 @@
   "settings.regenerateIdentityDescription": "Generate a new identity and notify your contacts. Useful after a suspected compromise. Your contacts keep their chat history; the old identity works for 7 more days so in-transit messages still arrive.",
   "settings.regenerateIdentityConfirm": "Regenerate your identity? Your contacts will see a rotation notice. The old identity expires in 7 days.",
 
+  "settings.relay.section": "Relay",
+  "settings.relay.connected": "Connected to",
+  "settings.relay.fingerprint": "Fingerprint",
+  "settings.relay.directory": "Known relays",
+  "settings.relay.authorityVerified": "Authority-verified",
+  "settings.relay.authorityMissing": "Unverified",
+  "settings.relay.addManual": "Add relay URL",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "Add",
+
   "file.attachment": "{fileName}",
   "file.download": "Download ({size})",
   "file.receiving": "Receiving... {percentage}%",

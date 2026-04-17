@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "Đổi danh tính",
   "settings.regenerateIdentityDescription": "Tạo một danh tính mới và thông báo cho các liên hệ. Hữu ích khi nghi ngờ bị xâm phạm. Liên hệ của bạn giữ nguyên lịch sử trò chuyện; danh tính cũ vẫn hoạt động thêm 7 ngày để các tin nhắn đang chuyển tiếp vẫn đến nơi.",
   "settings.regenerateIdentityConfirm": "Đổi danh tính của bạn? Các liên hệ sẽ thấy thông báo đổi danh tính. Danh tính cũ hết hạn sau 7 ngày.",
+
+  "settings.relay.section": "Máy chuyển tiếp",
+  "settings.relay.connected": "Đã kết nối tới",
+  "settings.relay.fingerprint": "Dấu vân",
+  "settings.relay.directory": "Máy chuyển tiếp đã biết",
+  "settings.relay.authorityVerified": "Đã xác thực bởi cơ quan",
+  "settings.relay.authorityMissing": "Chưa xác thực",
+  "settings.relay.addManual": "Thêm địa chỉ máy chuyển tiếp",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "Thêm",
   "toast.duressCodeUpdated": "Đã lưu cụm mật khẩu cưỡng ép"
 }

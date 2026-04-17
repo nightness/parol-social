@@ -2,6 +2,7 @@ services:
   parolnet:
     build: .
     ports:
+      # DO NOT CHANGE 1411:80 — Cloudflare tunnel binds to host:1411.
       - "1411:80"
       - "3478:3478/udp"
       - "3478:3478/tcp"
@@ -14,4 +15,33 @@ services:
       - /etc/letsencrypt/live/biscuits.parol.social:/etc/turn-certs:ro
       - /etc/letsencrypt/archive/biscuits.parol.social:/etc/letsencrypt/archive/biscuits.parol.social:ro
       - /var/log/turnserver:/var/log/turnserver
+      # Persistent relay identity — survives container rebuilds so the
+      # Ed25519 pubkey (and therefore the relay's PeerId and authority
+      # endorsements) remains stable.
+      - ./relay-data:/data
+    restart: unless-stopped
+
+  # ── H12 Phase 1 scaffolding — SECONDARY RELAY ──────────────────────
+  #
+  # This is an independently-deployable second relay. It shares the same
+  # image but has its own persistent identity (./relay-data-secondary),
+  # its own host port (1412), and is marked `profiles: [secondary]` so
+  # `docker compose up -d` does NOT start it by default. Bring it up with
+  # `docker compose --profile secondary up -d relay-secondary`.
+  #
+  # Phase 1 goal: two independently-hostable relays that clients can
+  # choose between. Cross-relay message forwarding is Phase 2/3.
+  # See ops/deploy-secondary.md for the full runbook.
+  relay-secondary:
+    build: .
+    profiles: ["secondary"]
+    ports:
+      - "1412:80"
+    env_file: .env
+    environment:
+      - DEV_MODE=false
+      # PEER_RELAY_URLS is populated via the runbook so the two relays
+      # mutually discover each other over /directory polling.
+    volumes:
+      - ./relay-data-secondary:/data
     restart: unless-stopped

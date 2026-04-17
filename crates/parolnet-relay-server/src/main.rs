@@ -998,26 +998,36 @@ async fn main() {
         });
     }
 
-    // Initialize mesh PeerManager as a gossip supernode
-    let relay_signing_key = match std::env::var("RELAY_SECRET_KEY") {
-        Ok(hex_key) => {
-            let key_bytes = hex::decode(&hex_key).expect("RELAY_SECRET_KEY must be valid hex");
-            assert_eq!(
-                key_bytes.len(),
-                32,
-                "RELAY_SECRET_KEY must be 32 bytes (64 hex chars)"
+    // Initialize mesh PeerManager as a gossip supernode.
+    //
+    // Identity priority (see `parolnet_relay_server::identity`):
+    //   1. RELAY_SECRET_KEY env var (hex) — never touches disk.
+    //   2. File at RELAY_KEY_FILE (default /data/relay.key).
+    //   3. Generate fresh + persist to that file (mode 0600).
+    let key_file = parolnet_relay_server::identity::key_file_path();
+    let (key_bytes, identity_source) =
+        parolnet_relay_server::identity::load_or_generate_relay_identity(&key_file)
+            .expect("failed to load or generate relay identity");
+    let relay_signing_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
+    match identity_source {
+        parolnet_relay_server::identity::IdentitySource::EnvVar => {
+            info!("Loaded relay identity from RELAY_SECRET_KEY env var (not persisted to disk)");
+        }
+        parolnet_relay_server::identity::IdentitySource::ExistingFile => {
+            info!("Loaded persistent relay identity from {}", key_file.display());
+        }
+        parolnet_relay_server::identity::IdentitySource::GeneratedAndPersisted => {
+            info!(
+                "Generated new persistent relay identity and wrote it to {} (mode 0600)",
+                key_file.display()
             );
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&key_bytes);
-            ed25519_dalek::SigningKey::from_bytes(&arr)
         }
-        Err(_) => {
-            let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
-            info!("Generated ephemeral relay signing key (set RELAY_SECRET_KEY for persistence)");
-            key
-        }
-    };
+    }
     let pubkey_bytes = relay_signing_key.verifying_key().to_bytes();
+    info!(
+        "Relay Ed25519 public key (authority-verification identity): {}",
+        hex::encode(pubkey_bytes)
+    );
     let our_peer_id = {
         use sha2::{Digest, Sha256};
         PeerId(Sha256::digest(pubkey_bytes).into())

@@ -6,6 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 description = "WebSocket relay server for ParolNet — routes encrypted messages between peers"
 
+[lib]
+name = "parolnet_relay_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "parolnet-relay"
 path = "src/main.rs"
@@ -36,6 +40,9 @@ rustls.workspace = true
 hmac.workspace = true
 sha1.workspace = true
 base64.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
 
 [features]
 analytics = []

@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "身元を再生成",
   "settings.regenerateIdentityDescription": "新しい身元を生成し、連絡先に通知します。侵害の疑いがある場合に有用です。連絡先は会話履歴を保持し、旧身元はあと7日間有効なので送信中のメッセージも到着します。",
   "settings.regenerateIdentityConfirm": "身元を再生成しますか？連絡先に再生成通知が届きます。旧身元は7日後に失効します。",
+
+  "settings.relay.section": "リレー",
+  "settings.relay.connected": "接続先",
+  "settings.relay.fingerprint": "フィンガープリント",
+  "settings.relay.directory": "既知のリレー",
+  "settings.relay.authorityVerified": "権威で検証済み",
+  "settings.relay.authorityMissing": "未検証",
+  "settings.relay.addManual": "リレー URL を追加",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "追加",
   "toast.duressCodeUpdated": "強制時パスフレーズを保存しました"
 }

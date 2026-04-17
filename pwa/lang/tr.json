@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "Kimliği yenile",
   "settings.regenerateIdentityDescription": "Yeni bir kimlik oluşturur ve kişilerinize bildirir. Ele geçirilme şüphesi durumunda faydalıdır. Kişileriniz sohbet geçmişini korur; eski kimlik, yolda olan mesajların ulaşması için 7 gün daha çalışmaya devam eder.",
   "settings.regenerateIdentityConfirm": "Kimliğinizi yenilemek istiyor musunuz? Kişileriniz bir yenileme bildirimi alacak. Eski kimliğin süresi 7 gün içinde dolar.",
+
+  "settings.relay.section": "Aktarıcı",
+  "settings.relay.connected": "Bağlı",
+  "settings.relay.fingerprint": "Parmak izi",
+  "settings.relay.directory": "Bilinen aktarıcılar",
+  "settings.relay.authorityVerified": "Yetkili tarafından doğrulandı",
+  "settings.relay.authorityMissing": "Doğrulanmamış",
+  "settings.relay.addManual": "Aktarıcı URL'si ekle",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "Ekle",
   "toast.duressCodeUpdated": "Zorlama parolası kaydedildi"
 }

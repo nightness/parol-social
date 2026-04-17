@@ -378,6 +378,28 @@
                 <div id="relay-url-display" style="font-size: 12px; color: #888; margin-bottom: 12px;"></div>
             </div>
             <div class="settings-section">
+                <h2 data-i18n="settings.relay.section">Relay</h2>
+                <div style="background: #2a2a3e; border-radius: 12px; padding: 12px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #aaa;" data-i18n="settings.relay.connected">Connected to</span>
+                        <span id="settings-relay-connected" style="color: #fff; font-size: 13px; overflow: hidden; text-overflow: ellipsis; max-width: 60%;">—</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="color: #aaa;" data-i18n="settings.relay.fingerprint">Fingerprint</span>
+                        <span id="settings-relay-fingerprint" style="color: #888; font-family: monospace; font-size: 12px;">—</span>
+                    </div>
+                </div>
+                <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;" data-i18n="settings.relay.directory">Known relays</h3>
+                <div id="settings-relay-directory-list" style="background: #2a2a3e; border-radius: 12px; padding: 4px 12px; margin-bottom: 12px;"></div>
+                <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;" data-i18n="settings.relay.addManual">Add relay URL</h3>
+                <div style="display: flex; gap: 8px; margin-bottom: 4px;">
+                    <input type="url" id="settings-relay-add-input" placeholder="https://relay.example.com" data-i18n-placeholder="settings.relay.addManualPlaceholder"
+                        style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #444; background: #1a1a2e; color: #fff; font-size: 14px;">
+                    <button onclick="addManualRelay()"
+                        style="padding: 8px 16px; border-radius: 8px; border: none; background: #007aff; color: #fff; font-size: 14px; cursor: pointer;" data-i18n="settings.relay.addManualButton">Add</button>
+                </div>
+            </div>
+            <div class="settings-section">
                 <h2 data-i18n="settings.language">Language</h2>
                 <select id="settings-language" onchange="changeLanguage(this.value)"
                     style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #444;background:#1a1a2e;color:#fff;font-size:14px;margin-bottom:4px;">

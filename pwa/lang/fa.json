@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "ساخت هویت جدید",
   "settings.regenerateIdentityDescription": "یک هویت تازه بسازید و به مخاطبان خود اطلاع دهید. پس از احتمال نفوذ مفید است. مخاطبان سابقه گفتگوها را نگه می‌دارند؛ هویت قدیمی تا ۷ روز کار می‌کند تا پیام‌های در راه هم برسند.",
   "settings.regenerateIdentityConfirm": "می‌خواهید هویت خود را بازسازی کنید؟ مخاطبان شما پیام تعویض هویت را خواهند دید. هویت قدیمی تا ۷ روز دیگر منقضی می‌شود.",
+
+  "settings.relay.section": "رله",
+  "settings.relay.connected": "متصل به",
+  "settings.relay.fingerprint": "اثر انگشت",
+  "settings.relay.directory": "رله‌های شناخته‌شده",
+  "settings.relay.authorityVerified": "تأییدشده توسط مرجع",
+  "settings.relay.authorityMissing": "تأییدنشده",
+  "settings.relay.addManual": "افزودن نشانی رله",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "افزودن",
   "toast.duressCodeUpdated": "عبارت عبور اضطراری ذخیره شد"
 }

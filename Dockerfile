@@ -42,4 +42,11 @@ COPY server/turnserver.conf /etc/turnserver.conf.template
 
 EXPOSE 80 3478/udp 3478/tcp 5349/tcp
 
+# Persistent relay identity — mount this as a volume to keep the Ed25519
+# signing key stable across container restarts. On first boot the relay
+# generates /data/relay.key (mode 0600); subsequent boots load it.
+# RELAY_KEY_FILE may override the path; RELAY_SECRET_KEY (hex) wins over both
+# and never touches disk (useful for CI / one-shot runs).
+VOLUME /data
+
 CMD ["/entrypoint.sh"]

@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "신원 재생성",
   "settings.regenerateIdentityDescription": "새 신원을 만들고 연락처에 알립니다. 유출이 의심될 때 유용합니다. 연락처는 대화 기록을 유지하며, 이전 신원은 7일간 더 작동하여 전송 중인 메시지도 도착합니다.",
   "settings.regenerateIdentityConfirm": "신원을 재생성하시겠습니까? 연락처에게 재생성 알림이 전달됩니다. 이전 신원은 7일 후 만료됩니다.",
+
+  "settings.relay.section": "릴레이",
+  "settings.relay.connected": "연결 대상",
+  "settings.relay.fingerprint": "지문",
+  "settings.relay.directory": "알려진 릴레이",
+  "settings.relay.authorityVerified": "권한 검증됨",
+  "settings.relay.authorityMissing": "검증되지 않음",
+  "settings.relay.addManual": "릴레이 URL 추가",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "추가",
   "toast.duressCodeUpdated": "강요 시 암호문이 저장되었습니다"
 }

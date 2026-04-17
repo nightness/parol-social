@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "အထောက်အထားပြန်လုပ်ရန်",
   "settings.regenerateIdentityDescription": "အထောက်အထားအသစ်တစ်ခု ဖန်တီးပြီး သင့်အဆက်အသွယ်များကို အသိပေးပါသည်။ ဖောက်ခွဲခံရသည်ဟု သံသယရှိသည့်အခါ အသုံးဝင်သည်။ အဆက်အသွယ်များသည် စကားပြောသမိုင်းကို ထိန်းသိမ်းထားမည်ဖြစ်ပြီး၊ ဟောင်းသောအထောက်အထားသည် နောက်ထပ် ၇ ရက်တိုင်အောင် အလုပ်လုပ်မည်ဖြစ်၍ လမ်းကြောင်းတွင်ရှိသော စာများလည်း ရောက်ရှိမည်။",
   "settings.regenerateIdentityConfirm": "သင်၏အထောက်အထားကို ပြန်လုပ်မည်လား? သင့်အဆက်အသွယ်များသည် အထောက်အထားပြန်ပြောင်းမှုအကြောင်းကြားစာကို မြင်ရမည်။ ဟောင်းသောအထောက်အထားသည် ၇ ရက်အတွင်း သက်တမ်းကုန်ပါမည်။",
+
+  "settings.relay.section": "ရီလေး",
+  "settings.relay.connected": "ချိတ်ဆက်ထားသည်",
+  "settings.relay.fingerprint": "လက်ဗွေ",
+  "settings.relay.directory": "သိရှိသည့် ရီလေးများ",
+  "settings.relay.authorityVerified": "အာဏာပိုင်မှ အတည်ပြုပြီး",
+  "settings.relay.authorityMissing": "အတည်မပြုရသေး",
+  "settings.relay.addManual": "ရီလေး လိပ်စာထည့်ရန်",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "ထည့်ရန်",
   "toast.duressCodeUpdated": "ဖိအားပေးခံရချိန်စကားဝှက် သိမ်းဆည်းပြီး"
 }

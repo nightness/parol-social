@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "Identität neu erzeugen",
   "settings.regenerateIdentityDescription": "Erzeugt eine neue Identität und benachrichtigt deine Kontakte. Nützlich bei Verdacht auf Kompromittierung. Deine Kontakte behalten ihren Chat-Verlauf; die alte Identität bleibt 7 weitere Tage gültig, damit Nachrichten unterwegs noch ankommen.",
   "settings.regenerateIdentityConfirm": "Identität neu erzeugen? Deine Kontakte erhalten eine Rotations-Mitteilung. Die alte Identität läuft in 7 Tagen ab.",
+
+  "settings.relay.section": "Relay",
+  "settings.relay.connected": "Verbunden mit",
+  "settings.relay.fingerprint": "Fingerabdruck",
+  "settings.relay.directory": "Bekannte Relays",
+  "settings.relay.authorityVerified": "Von Behörde bestätigt",
+  "settings.relay.authorityMissing": "Nicht bestätigt",
+  "settings.relay.addManual": "Relay-Adresse hinzufügen",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "Hinzufügen",
   "toast.duressCodeUpdated": "Zwangs-Passphrase gespeichert"
 }

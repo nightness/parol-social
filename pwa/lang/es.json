@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "Regenerar identidad",
   "settings.regenerateIdentityDescription": "Genera una nueva identidad y avisa a tus contactos. Util tras sospecha de compromiso. Tus contactos conservan el historial; la identidad antigua sigue valida 7 dias mas para que lleguen los mensajes en transito.",
   "settings.regenerateIdentityConfirm": "¿Regenerar tu identidad? Tus contactos veran un aviso de rotacion. La identidad antigua expira en 7 dias.",
+
+  "settings.relay.section": "Relevo",
+  "settings.relay.connected": "Conectado a",
+  "settings.relay.fingerprint": "Huella",
+  "settings.relay.directory": "Relevos conocidos",
+  "settings.relay.authorityVerified": "Verificado por autoridad",
+  "settings.relay.authorityMissing": "No verificado",
+  "settings.relay.addManual": "Agregar URL de relevo",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "Agregar",
   "toast.duressCodeUpdated": "Frase de coaccion guardada"
 }

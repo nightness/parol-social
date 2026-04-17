@@ -1704,6 +1704,60 @@ pub fn get_authority_threshold() -> usize {
     federation::AUTHORITY_THRESHOLD
 }
 
+/// Verify a raw Ed25519 signature against an authority public key.
+///
+/// Used by the PWA H12 multi-relay directory-verification path so the
+/// client can check each returned relay descriptor's endorsement against
+/// the baked-in `AUTHORITY_PUBKEYS` set without having to round-trip a
+/// full CBOR blob for every entry.
+///
+/// - `pubkey_hex`: 64-char hex (32 bytes) Ed25519 pubkey.
+/// - `msg_hex`: hex-encoded message bytes that were signed.
+/// - `sig_hex`: 128-char hex (64 bytes) signature.
+///
+/// Returns `true` iff the pubkey is in the authority set AND the
+/// signature verifies. Never throws — all failures return `false` so
+/// the caller can drop invalid descriptors silently (matches the
+/// "silently drop unsigned / insufficiently-signed" PNP-008 rule).
+#[wasm_bindgen]
+pub fn verify_authority_signature(pubkey_hex: &str, msg_hex: &str, sig_hex: &str) -> bool {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+    let Ok(pubkey_bytes) = hex::decode(pubkey_hex) else {
+        return false;
+    };
+    if pubkey_bytes.len() != 32 {
+        return false;
+    }
+    let mut pk = [0u8; 32];
+    pk.copy_from_slice(&pubkey_bytes);
+
+    // Authority-set membership check — constant-time comparison against each
+    // baked-in key. This is the part that makes the function "authority" vs
+    // "plain" Ed25519 verify.
+    if !federation::AUTHORITY_PUBKEYS.iter().any(|k| k == &pk) {
+        return false;
+    }
+
+    let Ok(msg_bytes) = hex::decode(msg_hex) else {
+        return false;
+    };
+    let Ok(sig_bytes) = hex::decode(sig_hex) else {
+        return false;
+    };
+    if sig_bytes.len() != 64 {
+        return false;
+    }
+    let mut sig_arr = [0u8; 64];
+    sig_arr.copy_from_slice(&sig_bytes);
+
+    let Ok(vk) = VerifyingKey::from_bytes(&pk) else {
+        return false;
+    };
+    let sig = Signature::from_bytes(&sig_arr);
+    vk.verify(&msg_bytes, &sig).is_ok()
+}
+
 /// Emergency: wipe all state from memory.
 #[wasm_bindgen]
 pub fn panic_wipe() {

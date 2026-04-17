@@ -227,5 +227,15 @@
   "settings.regenerateIdentity": "Regenerer l'identite",
   "settings.regenerateIdentityDescription": "Cree une nouvelle identite et avertit tes contacts. Utile en cas de compromission suspectee. Tes contacts conservent leur historique ; l'ancienne identite reste valable 7 jours pour que les messages en transit arrivent.",
   "settings.regenerateIdentityConfirm": "Regenerer ton identite ? Tes contacts recevront un avis de rotation. L'ancienne identite expire dans 7 jours.",
+
+  "settings.relay.section": "Relais",
+  "settings.relay.connected": "Connecte a",
+  "settings.relay.fingerprint": "Empreinte",
+  "settings.relay.directory": "Relais connus",
+  "settings.relay.authorityVerified": "Verifie par l'autorite",
+  "settings.relay.authorityMissing": "Non verifie",
+  "settings.relay.addManual": "Ajouter une URL de relais",
+  "settings.relay.addManualPlaceholder": "https://relay.example.com",
+  "settings.relay.addManualButton": "Ajouter",
   "toast.duressCodeUpdated": "Phrase de contrainte enregistree"
 }

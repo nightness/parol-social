@@ -2,11 +2,227 @@
 // Implements fallback chain: cached directory -> bootstrap relays -> fetch from any relay.
 // Goal: any single relay alive = entire network reachable.
 
-import { BOOTSTRAP_RELAYS, AUTHORITY_PUBKEYS } from './network-config.js';
+import { BOOTSTRAP_RELAYS, AUTHORITY_PUBKEYS, AUTHORITY_THRESHOLD } from './network-config.js';
 
 const DIRECTORY_CACHE_KEY = 'parolnet_relay_directory';
 const DIRECTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const BRIDGE_RELAYS_DB_KEY = 'bridge_relays';
+
+/**
+ * Verify a descriptor against the baked-in authority set.
+ *
+ * H12 Phase 1 rule (from PNP-008 §3): a relay descriptor is accepted only
+ * if ≥ AUTHORITY_THRESHOLD distinct authority pubkeys have signed it with
+ * a non-expired endorsement. Unsigned / insufficient / expired entries
+ * are dropped silently.
+ *
+ * Verification uses `wasm.verify_authority_signature(pubkey, msg, sig)`
+ * per-endorsement. The signable bytes are SHA-256(peer_id || endorsed_at
+ * || expires_at) — matched between `parolnet_relay::authority::AuthorityEndorsement::signable_bytes`
+ * and `parolnet_wasm::federation::AuthorityEndorsement::signable_bytes`.
+ *
+ * @param {Object} desc - Parsed descriptor, possibly endorsed.
+ * @param {Object} wasm - WASM module (needs `verify_authority_signature`).
+ * @param {number} nowSecs - Current Unix timestamp (seconds).
+ * @returns {boolean} true iff authority threshold is met.
+ */
+export function verifyAuthorityEndorsements(desc, wasm, nowSecs) {
+    if (!desc || typeof desc !== 'object') return false;
+    if (!wasm || typeof wasm.verify_authority_signature !== 'function') return false;
+
+    const endorsements = Array.isArray(desc.endorsements) ? desc.endorsements : null;
+    if (!endorsements || endorsements.length === 0) return false;
+
+    const relayPeerId = desc.descriptor && desc.descriptor.peer_id;
+    if (!relayPeerId) return false;
+    // peer_id may arrive as Uint8Array (CBOR) or hex string (JSON) — normalize.
+    const peerIdBytes = _normalizeBytes(relayPeerId);
+    if (!peerIdBytes || peerIdBytes.length !== 32) return false;
+
+    const distinctAuthorities = new Set();
+    for (const e of endorsements) {
+        if (!e || typeof e !== 'object') continue;
+        const pub = _normalizeBytes(e.authority_pubkey);
+        const sig = _normalizeBytes(e.signature);
+        const endorsedAt = Number(e.endorsed_at);
+        const expiresAt = Number(e.expires_at);
+        if (!pub || pub.length !== 32) continue;
+        if (!sig || sig.length !== 64) continue;
+        if (!Number.isFinite(endorsedAt) || !Number.isFinite(expiresAt)) continue;
+        if (nowSecs >= expiresAt) continue; // expired
+
+        // Signable bytes = SHA-256(peer_id || endorsed_at_be || expires_at_be)
+        const signable = _sha256AuthoritySignable(peerIdBytes, endorsedAt, expiresAt);
+        const pubHex = _bytesToHex(pub);
+        const sigHex = _bytesToHex(sig);
+        const msgHex = _bytesToHex(signable);
+
+        // Authority set membership + signature verify, both inside WASM
+        // (verify_authority_signature rejects pubkeys outside the set).
+        let ok;
+        try {
+            ok = wasm.verify_authority_signature(pubHex, msgHex, sigHex);
+        } catch (_) {
+            ok = false;
+        }
+        if (ok) distinctAuthorities.add(pubHex);
+    }
+
+    return distinctAuthorities.size >= AUTHORITY_THRESHOLD;
+}
+
+/**
+ * Derive fingerprint suffix from a 32-byte Ed25519 pubkey for display in
+ * the Settings → Relay section. Last 16 hex chars — matches the "short
+ * fingerprint" rendering pattern used elsewhere in the PWA.
+ * @param {Uint8Array|number[]|string} pubkey
+ * @returns {string}
+ */
+export function fingerprintSuffix(pubkey) {
+    const bytes = _normalizeBytes(pubkey);
+    if (!bytes || bytes.length !== 32) return '????????????????';
+    const hex = _bytesToHex(bytes);
+    return hex.slice(-16);
+}
+
+function _normalizeBytes(v) {
+    if (v instanceof Uint8Array) return v;
+    if (Array.isArray(v)) return Uint8Array.from(v);
+    if (typeof v === 'string') {
+        try {
+            const out = new Uint8Array(v.length / 2);
+            for (let i = 0; i < out.length; i++) {
+                out[i] = parseInt(v.slice(i * 2, i * 2 + 2), 16);
+            }
+            return out;
+        } catch (_) { return null; }
+    }
+    if (v && typeof v === 'object' && typeof v.length === 'number') {
+        return Uint8Array.from(v);
+    }
+    return null;
+}
+
+function _bytesToHex(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) {
+        s += bytes[i].toString(16).padStart(2, '0');
+    }
+    return s;
+}
+
+// Accepts loose input (hex string / Uint8Array / array of ints) and returns
+// a hex string, or the empty string if normalization fails. Public helper
+// used by the directory-extraction path to produce peer-id hex.
+function _bytesToHexPublic(v) {
+    const b = _normalizeBytes(v);
+    return b ? _bytesToHex(b) : '';
+}
+
+// Precomputed SHA-256 helper using Web Crypto in the browser, node:crypto
+// under node --test. Synchronous SubtleCrypto isn't available so we do a
+// blocking-looking API via a pure-JS SHA-256 fallback — necessary because
+// the verify loop is not async.
+function _sha256AuthoritySignable(peerIdBytes, endorsedAt, expiresAt) {
+    const buf = new Uint8Array(32 + 8 + 8);
+    buf.set(peerIdBytes, 0);
+    _writeU64BE(buf, 32, endorsedAt);
+    _writeU64BE(buf, 40, expiresAt);
+    return _sha256Sync(buf);
+}
+
+function _writeU64BE(buf, off, n) {
+    // JS numbers are safe to 2^53. Timestamps fit.
+    const hi = Math.floor(n / 0x100000000);
+    const lo = n >>> 0;
+    buf[off] = (hi >>> 24) & 0xff;
+    buf[off + 1] = (hi >>> 16) & 0xff;
+    buf[off + 2] = (hi >>> 8) & 0xff;
+    buf[off + 3] = hi & 0xff;
+    buf[off + 4] = (lo >>> 24) & 0xff;
+    buf[off + 5] = (lo >>> 16) & 0xff;
+    buf[off + 6] = (lo >>> 8) & 0xff;
+    buf[off + 7] = lo & 0xff;
+}
+
+// Pure-JS SHA-256 for the sync path (authoritative for bits the WASM
+// doesn't expose). Small, self-contained, no deps. Returns Uint8Array.
+function _sha256Sync(data) {
+    const K = new Uint32Array([
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+        0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+        0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ]);
+    const H = new Uint32Array([
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ]);
+    const bitLen = data.length * 8;
+    const padLen = ((data.length + 9 + 63) & ~63) - data.length;
+    const buf = new Uint8Array(data.length + padLen);
+    buf.set(data, 0);
+    buf[data.length] = 0x80;
+    // Write bit length as u64 big-endian into last 8 bytes.
+    const end = buf.length;
+    buf[end - 4] = (bitLen >>> 24) & 0xff;
+    buf[end - 3] = (bitLen >>> 16) & 0xff;
+    buf[end - 2] = (bitLen >>> 8) & 0xff;
+    buf[end - 1] = bitLen & 0xff;
+
+    const W = new Uint32Array(64);
+    for (let off = 0; off < buf.length; off += 64) {
+        for (let i = 0; i < 16; i++) {
+            const o = off + i * 4;
+            W[i] = (buf[o] << 24) | (buf[o + 1] << 16) | (buf[o + 2] << 8) | buf[o + 3];
+            W[i] >>>= 0;
+        }
+        for (let i = 16; i < 64; i++) {
+            const s0 = _rotr(W[i - 15], 7) ^ _rotr(W[i - 15], 18) ^ (W[i - 15] >>> 3);
+            const s1 = _rotr(W[i - 2], 17) ^ _rotr(W[i - 2], 19) ^ (W[i - 2] >>> 10);
+            W[i] = (W[i - 16] + s0 + W[i - 7] + s1) >>> 0;
+        }
+        let a = H[0], b = H[1], c = H[2], d = H[3];
+        let e = H[4], f = H[5], g = H[6], h = H[7];
+        for (let i = 0; i < 64; i++) {
+            const S1 = _rotr(e, 6) ^ _rotr(e, 11) ^ _rotr(e, 25);
+            const ch = (e & f) ^ (~e & g);
+            const t1 = (h + S1 + ch + K[i] + W[i]) >>> 0;
+            const S0 = _rotr(a, 2) ^ _rotr(a, 13) ^ _rotr(a, 22);
+            const mj = (a & b) ^ (a & c) ^ (b & c);
+            const t2 = (S0 + mj) >>> 0;
+            h = g; g = f; f = e;
+            e = (d + t1) >>> 0;
+            d = c; c = b; b = a;
+            a = (t1 + t2) >>> 0;
+        }
+        H[0] = (H[0] + a) >>> 0;
+        H[1] = (H[1] + b) >>> 0;
+        H[2] = (H[2] + c) >>> 0;
+        H[3] = (H[3] + d) >>> 0;
+        H[4] = (H[4] + e) >>> 0;
+        H[5] = (H[5] + f) >>> 0;
+        H[6] = (H[6] + g) >>> 0;
+        H[7] = (H[7] + h) >>> 0;
+    }
+    const out = new Uint8Array(32);
+    for (let i = 0; i < 8; i++) {
+        out[i * 4] = (H[i] >>> 24) & 0xff;
+        out[i * 4 + 1] = (H[i] >>> 16) & 0xff;
+        out[i * 4 + 2] = (H[i] >>> 8) & 0xff;
+        out[i * 4 + 3] = H[i] & 0xff;
+    }
+    return out;
+}
+
+function _rotr(x, n) { return ((x >>> n) | (x << (32 - n))) >>> 0; }
 
 /**
  * Relay discovery and connection with fallback chain.
@@ -28,12 +244,31 @@ export class RelayClient {
         /** @type {Object|null} Raw directory data from last fetch */
         this._lastDirectory = null;
         /**
+         * Directory entries that passed authority-threshold verification on
+         * the last fetch. Each: { url, peerIdHex, fingerprint, verified:true }.
+         * Rendered in Settings → Relay. H12 Phase 1.
+         * @type {Object[]}
+         */
+        this.verifiedDirectory = [];
+        /**
+         * Ed25519 pubkey (hex) of the currently-connected relay, if known
+         * via an authority-endorsed directory entry. Null until a verified
+         * entry for `connectedRelay` is observed.
+         * @type {string|null}
+         */
+        this.connectedRelayPubkey = null;
+        /**
          * Bridge relays for censorship circumvention.
          * Each entry: { host, port, front_domain?, fingerprint?, wsUrl }
          * @type {Object[]}
          */
         this.bridgeRelays = [];
+        /** @type {Object|null} Optional WASM module injected by boot.js */
+        this._wasm = null;
     }
+
+    /** Inject the WASM module for authority-endorsement verification. */
+    setWasm(wasm) { this._wasm = wasm; }
 
     /**
      * Initialize relay discovery with fallback chain.
@@ -140,17 +375,53 @@ export class RelayClient {
 
         this._lastDirectory = descriptors;
 
-        // Extract relay addresses from descriptors
-        // Each descriptor has an `addr` field (SocketAddr as string like "1.2.3.4:9000")
+        // H12 Phase 1: run every directory entry through authority
+        // verification. Unsigned / insufficiently-endorsed / expired
+        // descriptors are dropped silently (per PNP-008 §3).
+        //
+        // If the descriptor arrives as an EndorsedDescriptor (has an
+        // `endorsements` array), we verify against AUTHORITY_PUBKEYS with
+        // the threshold rule. If it arrives as a bare RelayDescriptor
+        // (older relays / dev mode), we accept the addr for connection
+        // fallback but do NOT surface it as "verified" in the UI.
+        const nowSecs = Math.floor(Date.now() / 1000);
         const relayAddrs = [];
+        const verified = [];
         for (const desc of descriptors) {
-            if (desc && desc.addr) {
-                // Convert SocketAddr to HTTP URL
-                const httpUrl = this._socketAddrToUrl(desc.addr);
-                if (httpUrl) {
-                    relayAddrs.push(httpUrl);
+            if (!desc || typeof desc !== 'object') continue;
+
+            // Bare RelayDescriptor (no endorsements) — pick the addr so
+            // connection fallback still works, but do not mark verified.
+            const innerDesc = desc.descriptor || desc;
+            const addr = innerDesc && innerDesc.addr;
+            if (addr) {
+                const httpUrl = this._socketAddrToUrl(addr);
+                if (httpUrl) relayAddrs.push(httpUrl);
+            }
+
+            // EndorsedDescriptor shape: authority-verified entries populate
+            // the UI's "directory" list.
+            if (Array.isArray(desc.endorsements)) {
+                const ok = verifyAuthorityEndorsements(desc, this._wasm, nowSecs);
+                if (!ok) continue;
+                const innerPid = innerDesc.peer_id;
+                const innerKey = innerDesc.identity_key;
+                const url = addr ? this._socketAddrToUrl(addr) : null;
+                if (url) {
+                    verified.push({
+                        url,
+                        peerIdHex: _bytesToHexPublic(innerPid),
+                        fingerprint: fingerprintSuffix(innerKey || innerPid),
+                        verified: true,
+                    });
                 }
             }
+        }
+        this.verifiedDirectory = verified;
+        // Refresh connected-relay pubkey if any verified entry matches.
+        if (this.connectedRelay) {
+            const match = verified.find(v => v.url === this.connectedRelay);
+            this.connectedRelayPubkey = match ? match.peerIdHex : this.connectedRelayPubkey;
         }
         return relayAddrs;
     }
@@ -330,15 +601,30 @@ export class RelayClient {
             }
         }
 
-        // Fall back to regular relays
-        const shuffled = this._shuffle(this.relays.slice());
-        for (const relayUrl of shuffled) {
+        // H12 Phase 1: try BOOTSTRAP_RELAYS in declared order first (the
+        // operator chose that order intentionally — e.g., primary-then-
+        // secondary), then fall back to the discovered/shuffled pool for
+        // the tail. First successful probe wins.
+        const seen = new Set();
+        const prioritized = [];
+        for (const url of BOOTSTRAP_RELAYS || []) {
+            if (url && !seen.has(url)) { prioritized.push(url); seen.add(url); }
+        }
+        for (const url of this._shuffle(this.relays.slice())) {
+            if (url && !seen.has(url)) { prioritized.push(url); seen.add(url); }
+        }
+
+        for (const relayUrl of prioritized) {
             const wsUrl = this._toWebSocketUrl(relayUrl);
             try {
                 const success = await this._tryConnect(wsUrl);
                 if (success) {
                     this.connectedRelay = relayUrl;
                     this.connected = true;
+                    // If we already have a verified directory entry for this
+                    // URL, propagate its pubkey for UI display.
+                    const match = this.verifiedDirectory.find(v => v.url === relayUrl);
+                    this.connectedRelayPubkey = match ? match.peerIdHex : null;
                     console.log('[RelayClient] Connected to relay:', relayUrl);
                     return relayUrl;
                 }
@@ -349,6 +635,28 @@ export class RelayClient {
         this.connected = false;
         this.connectedRelay = null;
         return null;
+    }
+
+    /**
+     * Manually add a relay URL subject to authority verification.
+     * Used from Settings → Relay. The URL is added to the known-relay pool
+     * and its /directory is fetched; only descriptors whose endorsements
+     * meet the authority threshold populate `verifiedDirectory`.
+     * @param {string} url
+     * @returns {Promise<boolean>} whether the URL produced any verified entries
+     */
+    async addManualRelay(url) {
+        if (!url || typeof url !== 'string') return false;
+        url = url.trim().replace(/\/$/, '');
+        if (!url) return false;
+        if (!this.relays.includes(url)) this.relays.push(url);
+        try {
+            await this.fetchDirectory(url);
+        } catch (_) {
+            return false;
+        }
+        // Only report success if the target's own descriptor is verified.
+        return this.verifiedDirectory.some(v => v.url === url);
     }
 
     /**

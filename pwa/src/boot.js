@@ -28,7 +28,8 @@ import {
     openSettings, enableDecoyMode, executePanicWipe, enableEncryption,
     handleExportData, handleImportData, updateNetworkSettings,
     addDuressCredential, setCoverTrafficEnabled, loadCoverTrafficSetting,
-    startCoverTrafficFromSettings, regenerateIdentity, zeroizeExpiredRetiredIdentity
+    startCoverTrafficFromSettings, regenerateIdentity, zeroizeExpiredRetiredIdentity,
+    addManualRelay
 } from './settings.js';
 import { initI18n, t, changeLanguage, applyToDOM } from './i18n.js';
 import { showSafetyNumberModal } from './safety-number.js';
@@ -147,6 +148,7 @@ async function onWasmReady() {
     await loadCoverTrafficSetting();
     startCoverTrafficFromSettings();
 
+    relayClient.setWasm(wasm);
     relayClient.discover().then(relays => {
         console.log('[App] Discovered', relays.length, 'relays');
         connMgr.start();
@@ -418,6 +420,7 @@ window.executePanicWipe = executePanicWipe;
 window.regenerateIdentity = regenerateIdentity;
 window.setCoverTrafficEnabled = setCoverTrafficEnabled;
 window.addDuressCredential = addDuressCredential;
+window.addManualRelay = addManualRelay;
 window.toggleMute = toggleMute;
 window.toggleCamera = toggleCamera;
 window.connectViaPassphrase = connectViaPassphrase;

@@ -66,6 +66,7 @@ export function openSettings() {
     updateNetworkSettings();
     updateWebRTCPrivacyUI();
     updateCoverTrafficUI();
+    updateRelaySection();
 
     const encSetup = document.getElementById('encryption-setup');
     const encStatus = document.getElementById('encryption-status');
@@ -280,6 +281,87 @@ export async function setCustomRelay() {
         connMgr.relayWs.close();
     }
     connMgr._connectRelay();
+    updateNetworkSettings();
+}
+
+// ── H12 Phase 1: Relay section (connected relay + verified directory) ────
+// Renders the currently-connected relay URL + short fingerprint, and a list
+// of directory entries that passed authority-threshold verification. A manual
+// "Add relay URL" input lets operators sideload a relay for debugging — the
+// URL is only added if a subsequent /directory fetch yields an
+// authority-verified descriptor for it.
+export function updateRelaySection() {
+    const connectedEl = document.getElementById('settings-relay-connected');
+    const fpEl = document.getElementById('settings-relay-fingerprint');
+    const listEl = document.getElementById('settings-relay-directory-list');
+
+    if (connectedEl) {
+        connectedEl.textContent = relayClient.connectedRelay || '—';
+    }
+    if (fpEl) {
+        const pub = relayClient.connectedRelayPubkey;
+        if (pub) {
+            fpEl.textContent = pub.slice(-16);
+            fpEl.style.color = '#4CAF50';
+        } else {
+            fpEl.textContent = '—';
+            fpEl.style.color = '#888';
+        }
+    }
+    if (listEl) {
+        listEl.textContent = '';
+        const entries = relayClient.verifiedDirectory || [];
+        if (entries.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'font-size: 12px; color: #888; padding: 8px 0;';
+            empty.textContent = '—';
+            listEl.appendChild(empty);
+            return;
+        }
+        for (const e of entries) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #333;font-size:13px;';
+            const url = document.createElement('span');
+            url.style.color = '#ddd';
+            url.style.overflow = 'hidden';
+            url.style.textOverflow = 'ellipsis';
+            url.textContent = e.url || '?';
+            const badge = document.createElement('span');
+            const ok = e.verified === true;
+            badge.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;white-space:nowrap;'
+                + (ok ? 'background:#0a4a1a;color:#4CAF50;' : 'background:#4a0a0a;color:#f44;');
+            badge.textContent = ok ? t('settings.relay.authorityVerified') : t('settings.relay.authorityMissing');
+            row.appendChild(url);
+            row.appendChild(badge);
+            listEl.appendChild(row);
+        }
+    }
+}
+
+export async function addManualRelay() {
+    const input = document.getElementById('settings-relay-add-input');
+    if (!input) return;
+    const url = input.value.trim();
+    if (!url) return;
+    if (!url.startsWith('wss://') && !url.startsWith('ws://') && !url.startsWith('https://') && !url.startsWith('http://')) {
+        showToast('URL must start with wss://, ws://, https:// or http://');
+        return;
+    }
+    if (!relayClient.relays.includes(url)) {
+        relayClient.relays.push(url);
+    }
+    try {
+        const fetched = await relayClient.fetchDirectory(url);
+        if (!fetched || fetched.length === 0) {
+            showToast('Relay responded but no authority-verified directory');
+        } else {
+            showToast('Added relay');
+        }
+    } catch (e) {
+        showToast('Relay unreachable: ' + (e && e.message ? e.message : e));
+    }
+    input.value = '';
+    updateRelaySection();
     updateNetworkSettings();
 }
 
