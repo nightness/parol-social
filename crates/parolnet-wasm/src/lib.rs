@@ -1779,6 +1779,54 @@ pub fn verify_authority_signature(pubkey_hex: &str, msg_hex: &str, sig_hex: &str
     vk.verify(&msg_bytes, &sig).is_ok()
 }
 
+/// Plain Ed25519 signature verify — no authority-set membership check.
+///
+/// Used by the H12 Phase 2 PWA peer-lookup cache: presence / lookup
+/// responses are signed by arbitrary home-relay identity keys, which are
+/// authority-verified upstream via the `/directory` path. Once the PWA
+/// has bound a home relay's pubkey through that path, it verifies each
+/// presence signature against that pubkey directly — not against the
+/// baked-in authority set.
+///
+/// - `pubkey_hex`: 64-char hex (32 bytes) Ed25519 pubkey.
+/// - `msg_hex`: hex-encoded message bytes that were signed.
+/// - `sig_hex`: 128-char hex (64 bytes) signature.
+///
+/// Returns `true` iff the signature verifies under the pubkey. Never
+/// throws — all failures return `false` so the caller can drop invalid
+/// answers silently.
+#[wasm_bindgen]
+pub fn verify_ed25519_signature(pubkey_hex: &str, msg_hex: &str, sig_hex: &str) -> bool {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+    let Ok(pubkey_bytes) = hex::decode(pubkey_hex) else {
+        return false;
+    };
+    if pubkey_bytes.len() != 32 {
+        return false;
+    }
+    let mut pk = [0u8; 32];
+    pk.copy_from_slice(&pubkey_bytes);
+
+    let Ok(msg_bytes) = hex::decode(msg_hex) else {
+        return false;
+    };
+    let Ok(sig_bytes) = hex::decode(sig_hex) else {
+        return false;
+    };
+    if sig_bytes.len() != 64 {
+        return false;
+    }
+    let mut sig_arr = [0u8; 64];
+    sig_arr.copy_from_slice(&sig_bytes);
+
+    let Ok(vk) = VerifyingKey::from_bytes(&pk) else {
+        return false;
+    };
+    let sig = Signature::from_bytes(&sig_arr);
+    vk.verify(&msg_bytes, &sig).is_ok()
+}
+
 /// Emergency: wipe all state from memory.
 #[wasm_bindgen]
 pub fn panic_wipe() {

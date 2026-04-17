@@ -174,9 +174,26 @@ async function onWasmReady() {
     // whether to cross a new epoch boundary and replenish the token
     // supply. The relay caps issuance at one batch per identity per epoch
     // (H9 commit 1), so this tick is how we pick up the next batch as
-    // soon as the current one fully expires.
+    // soon as the current one fully expires. We also opportunistically
+    // refill per-outbound-relay pools so a recently-used cross-relay
+    // connection is ready for the next send. (H12 Phase 2.)
     setInterval(() => {
         if (connMgr.relayUrl) maybeRefill(connMgr.relayUrl);
+        for (const url of connMgr.outbound.keys()) maybeRefill(url);
+    }, 60_000);
+
+    // Outbound-idle close: 60 s tick drops any cross-relay WS that
+    // hasn't been used in `OUTBOUND_IDLE_MS` (5 min). Tokens for that
+    // relay are forfeit per the plan. Also call updateRelaySection so
+    // the settings "Active relay connections" count stays live.
+    setInterval(() => {
+        connMgr.closeIdleOutbound();
+        try {
+            // Late-imported to avoid a boot-order cycle.
+            import('./settings.js').then(s => {
+                if (s && s.updateRelaySection) s.updateRelaySection();
+            }).catch(() => {});
+        } catch (_) {}
     }, 60_000);
 }
 

@@ -12,7 +12,8 @@ import { showView } from './views.js';
 import { hasDirectConnection, sendViaWebRTC, seenGossipMessages, markGossipSeen,
          handleRTCOffer, handleRTCAnswer, handleRTCIce } from './webrtc.js';
 import { sendToRelay, discoverPeers, startDiscoveryInterval, connMgr } from './connection.js';
-import { spendOneToken, maybeRefill } from './token-pool.js';
+import { spendOneToken, maybeRefill, requestBatch, queueSize } from './token-pool.js';
+import { lookupHomeRelay } from './peer-relay-cache.js';
 import { loadContacts, appendMessage, answerIncomingCall, loadAddressBook } from './ui-chat.js';
 import { t } from './i18n.js';
 import {
@@ -58,28 +59,76 @@ function encodeEnvelope(toPeerId, msgType, obj) {
 //
 // Outer relay frames carry a Privacy Pass `token` (PNP-001-MUST-048). The
 // token is spent FIFO from the pool; if the pool is empty the relay-send
-// path aborts (caller sees `false`) and the user is notified via the
-// `toast.relayTokenEmpty` string. WebRTC direct sends do NOT consume a
-// token — the relay is bypassed entirely in that case.
-function sendEnvelope(toPeerId, msgType, obj) {
+// path aborts and the user is notified via `toast.relayTokenEmpty`.
+// WebRTC direct sends do NOT consume a token — the relay is bypassed
+// entirely in that case.
+//
+// H12 Phase 2: `sendEnvelope` now consults the peer-relay cache first.
+// If the destination's home relay differs from ours, we open (or reuse)
+// an outbound connection to that relay and spend a token from *its*
+// per-relay pool. If the lookup fails (404 / net / sig mismatch) we
+// fall back to the home-relay send path — that still works for
+// locally-connected peers and produces a deterministic "peer not
+// connected" bounce for truly-offline peers. Returns a Promise<bool>.
+async function sendEnvelope(toPeerId, msgType, obj) {
     const env = encodeEnvelope(toPeerId, msgType, obj);
     if (!env) return false;
     markRealSend();
     if (hasDirectConnection(toPeerId)) {
         return sendViaWebRTC(toPeerId, env);
     }
-    let token;
-    try {
-        token = spendOneToken();
-    } catch (e) {
-        console.warn('[Relay] token pool empty — dropping send; refill in progress');
-        showToast(t('toast.relayTokenEmpty'));
-        // Fire-and-forget refill — maybe the epoch boundary just passed.
-        maybeRefill(connMgr.relayUrl);
+
+    // Resolve which relay the recipient is home-connected to.
+    let homeRelay = null;
+    try { homeRelay = await lookupHomeRelay(toPeerId); } catch (_) { homeRelay = null; }
+
+    if (!homeRelay || homeRelay === connMgr.relayUrl) {
+        // Home-relay send path — either cache miss or the peer lives on
+        // our relay.
+        let token;
+        try {
+            token = spendOneToken(connMgr.relayUrl);
+        } catch (e) {
+            console.warn('[Relay] home token pool empty — dropping send; refill in progress');
+            showToast(t('toast.relayTokenEmpty'));
+            maybeRefill(connMgr.relayUrl);
+            return false;
+        }
+        const ok = sendToRelay(toPeerId, env, token);
+        if (ok) maybeRefill(connMgr.relayUrl);
+        // Lookup failed: show a toast once to surface the fallback.
+        if (!homeRelay) {
+            // Only warn if we actually didn't find it and aren't on the
+            // recipient's home relay — on a miss we don't know which is
+            // which, so we show the toast.
+            try { showToast(t('toast.peerLookupFailed')); } catch (_) {}
+        }
+        return ok;
+    }
+
+    // Cross-relay path. Open (or reuse) the outbound connection.
+    const opened = await connMgr.openOutbound(homeRelay);
+    if (!opened) {
+        showToast(t('toast.peerLookupFailed'));
         return false;
     }
-    const ok = sendToRelay(toPeerId, env, token);
-    if (ok) maybeRefill(connMgr.relayUrl);
+    // If this relay's token pool is empty, fetch a batch before sending.
+    if (queueSize(homeRelay) === 0) {
+        const res = await requestBatch(homeRelay);
+        if (!res || !res.ok) {
+            showToast(t('toast.relayTokenEmpty'));
+            return false;
+        }
+    }
+    let token;
+    try {
+        token = spendOneToken(homeRelay);
+    } catch (_) {
+        showToast(t('toast.relayTokenEmpty'));
+        return false;
+    }
+    const ok = connMgr.sendToRelayUrl(homeRelay, toPeerId, env, token);
+    if (ok) maybeRefill(homeRelay);
     return ok;
 }
 
@@ -324,7 +373,8 @@ export async function sendGroupMessage() {
     };
     for (const memberId of (group.members || [])) {
         if (memberId === myPeerId) continue;
-        if (!sendEnvelope(memberId, MSG_TYPE_GROUP_TEXT, obj)) {
+        const sent = await sendEnvelope(memberId, MSG_TYPE_GROUP_TEXT, obj);
+        if (!sent) {
             console.warn('[Group] No session with member; message dropped for', memberId.slice(0, 8));
         }
     }
@@ -416,7 +466,7 @@ export async function addMemberToGroup(peerId) {
     const badgeEl = document.getElementById('group-member-count');
     if (badgeEl) badgeEl.textContent = group.members.length;
 
-    const inviteSent = sendEnvelope(peerId, MSG_TYPE_GROUP_ADMIN, {
+    const inviteSent = await sendEnvelope(peerId, MSG_TYPE_GROUP_ADMIN, {
         action: 'invite',
         groupId: group.groupId,
         groupName: group.name,
@@ -562,7 +612,7 @@ function showFileOfferInChat(msg) {
     container.scrollTop = container.scrollHeight;
 }
 
-export function acceptFileOffer(fileId) {
+export async function acceptFileOffer(fileId) {
     const pending = pendingFileReceives[fileId];
     if (!pending) return;
     pending.accepted = true;
@@ -571,7 +621,8 @@ export function acceptFileOffer(fileId) {
         const actions = offerEl.querySelector('.file-offer-actions');
         if (actions) actions.innerHTML = '<div class="file-status">Receiving... 0%</div>';
     }
-    if (!sendEnvelope(pending.from, MSG_TYPE_FILE_CONTROL, { action: 'accept', fileId })) {
+    const sent = await sendEnvelope(pending.from, MSG_TYPE_FILE_CONTROL, { action: 'accept', fileId });
+    if (!sent) {
         console.warn('[File] No session with sender; accept not delivered');
     }
 }
@@ -747,7 +798,8 @@ export async function startGroupCall() {
     };
     for (const memberId of (group.members || [])) {
         if (memberId === myPeerId) continue;
-        if (!sendEnvelope(memberId, MSG_TYPE_GROUP_CALL_SIGNAL, obj)) {
+        const sent = await sendEnvelope(memberId, MSG_TYPE_GROUP_CALL_SIGNAL, obj);
+        if (!sent) {
             console.warn('[GroupCall] No session with', memberId.slice(0, 8));
         }
     }
@@ -884,7 +936,7 @@ export async function onGroupFileSelected(event) {
 
         for (const memberId of (group.members || [])) {
             if (memberId === myPeerId) continue;
-            const offerSent = sendEnvelope(memberId, MSG_TYPE_GROUP_FILE_OFFER, {
+            const offerSent = await sendEnvelope(memberId, MSG_TYPE_GROUP_FILE_OFFER, {
                 groupId: currentGroupId,
                 fileId,
                 fileName: file.name,
@@ -899,7 +951,7 @@ export async function onGroupFileSelected(event) {
 
             for (let i = 0; i < totalChunks; i++) {
                 const chunk = data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-                sendEnvelope(memberId, MSG_TYPE_GROUP_FILE_CHUNK, {
+                await sendEnvelope(memberId, MSG_TYPE_GROUP_FILE_CHUNK, {
                     groupId: currentGroupId,
                     fileId,
                     chunkIndex: i,

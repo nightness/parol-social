@@ -1,15 +1,23 @@
-// ParolNet PWA — Privacy Pass relay-token pool (H9 commit 2).
+// ParolNet PWA — Privacy Pass relay-token pool (H9 commit 2 + H12 Phase 2).
 //
-// The relay's outer frame requires every outbound `message` to carry a
-// `token` field (per PNP-001-MUST-048..052 and the in-tree implementation
-// shipped in H9 commit 1). The pool keeps a FIFO queue of unblinded token
-// hexes ready to spend, refills from `POST /tokens/issue` once per epoch,
-// and exposes a tiny state machine used by boot + messaging.
+// H12 Phase 2 introduces per-relay token pools: when the PWA sends to a
+// peer whose home relay differs from its own, it must spend a token
+// issued *by that remote relay*. Tokens are not transferable between
+// relays — each relay's /tokens/issue produces tokens bound to that
+// relay's VOPRF keypair.
+//
+// The data model is therefore a Map<relayUrl, PoolState>. The canonical
+// API is `tokenPoolFor(relayUrl)` + `spendOneToken(relayUrl)` +
+// `requestBatch(relayUrl)` + `maybeRefill(relayUrl)`. Legacy callers
+// that don't yet know about multi-relay routing keep working by passing
+// no relayUrl — the helpers default to `connMgr.relayUrl` (the home
+// relay). The legacy `tokenPool` singleton is now a thin live view over
+// the home-relay's per-relay state; the unit tests exercise both APIs.
 //
 // The relay caps issuance at one batch per identity per epoch, so the
-// refill strategy MUST wait until the next epoch before asking again. We
-// track `currentEpochId` / `currentExpiresAt` for that — a refill fires
-// as soon as we cross into a new epoch.
+// refill strategy MUST wait until the next epoch before asking again.
+// We track `currentEpochId` / `currentExpiresAt` per pool for that — a
+// refill fires as soon as we cross into a new epoch.
 //
 // The secret blinding material lives inside `wasm.token_prepare_blind`'s
 // hex handle only for the brief window between request + response; once
@@ -43,35 +51,96 @@ const LOW_WATER = 128;
 // this epoch" cap). Waiting for the boundary is the refill strategy.
 const EPOCH_TAIL_GUARD_SECS = 300;
 
-export const tokenPool = {
-    currentEpochId: null,   // hex string (8 chars = 4 bytes)
-    currentExpiresAt: 0,    // unix seconds (end of epoch incl. grace)
-    queue: [],              // array of hex-encoded Token CBOR
-    refilling: false,
-    // Injection seam for tests: replaced by tests to observe / stub
-    // `requestBatch` without touching the module's real fetch path.
-    _requestBatchImpl: null,
-};
+// Per-relay pool map: relayUrl -> pool state. Created lazily.
+const pools = new Map();
 
-/** Pop one token hex off the queue FIFO. Throws if empty. */
-export function spendOneToken() {
-    if (tokenPool.queue.length === 0) {
+// Sentinel "home relay" key used by the legacy singleton view. When a
+// caller invokes the old no-argument API we proxy it through
+// `connMgr.relayUrl` if we can find it; tests that push directly into
+// the singleton use this sentinel without touching connection.js.
+const HOME_RELAY_SENTINEL = Symbol.for('parolnet.token-pool.home');
+
+function newPoolState() {
+    return {
+        currentEpochId: null,   // hex string (8 chars = 4 bytes)
+        currentExpiresAt: 0,    // unix seconds (end of epoch incl. grace)
+        queue: [],              // array of hex-encoded Token CBOR
+        refilling: false,
+        // Injection seam for tests: replaced to observe / stub `requestBatch`
+        // without touching the module's real fetch path.
+        _requestBatchImpl: null,
+    };
+}
+
+/**
+ * Return the pool-state for `relayUrl`, creating it if missing. The
+ * returned object is live — mutations are observed by every subsequent
+ * call with the same URL.
+ */
+export function tokenPoolFor(relayUrl) {
+    const key = relayUrl || HOME_RELAY_SENTINEL;
+    let p = pools.get(key);
+    if (!p) {
+        p = newPoolState();
+        pools.set(key, p);
+    }
+    return p;
+}
+
+/** Drop a pool entry (release tokens). Used by outbound idle-close. */
+export function dropTokenPoolFor(relayUrl) {
+    pools.delete(relayUrl || HOME_RELAY_SENTINEL);
+}
+
+/**
+ * Legacy singleton view. Prefer `tokenPoolFor(relayUrl)` in new code.
+ * This object intentionally forwards to the home-relay pool so that the
+ * existing unit tests (which use `tokenPool.queue.push(...)`) keep
+ * working. It is implemented as a live proxy: reading `.queue` returns
+ * the current home-pool's queue array by reference; writes to
+ * `.currentEpochId` etc. mutate the home pool.
+ */
+export const tokenPool = new Proxy({}, {
+    get(_t, prop) {
+        const p = tokenPoolFor(HOME_RELAY_SENTINEL);
+        return p[prop];
+    },
+    set(_t, prop, value) {
+        const p = tokenPoolFor(HOME_RELAY_SENTINEL);
+        p[prop] = value;
+        return true;
+    },
+    has(_t, prop) {
+        const p = tokenPoolFor(HOME_RELAY_SENTINEL);
+        return prop in p;
+    },
+    ownKeys() {
+        const p = tokenPoolFor(HOME_RELAY_SENTINEL);
+        return Reflect.ownKeys(p);
+    },
+    getOwnPropertyDescriptor(_t, prop) {
+        const p = tokenPoolFor(HOME_RELAY_SENTINEL);
+        return Reflect.getOwnPropertyDescriptor(p, prop);
+    },
+});
+
+/** Pop one token hex off `relayUrl`'s queue FIFO. Throws if empty. */
+export function spendOneToken(relayUrl) {
+    const p = tokenPoolFor(relayUrl);
+    if (p.queue.length === 0) {
         throw new Error('relay token pool empty');
     }
-    return tokenPool.queue.shift();
+    return p.queue.shift();
 }
 
-/** Queue size. */
-export function queueSize() {
-    return tokenPool.queue.length;
+/** Queue size for a relay (or home when omitted). */
+export function queueSize(relayUrl) {
+    return tokenPoolFor(relayUrl).queue.length;
 }
 
-/** Clear pool state. Used by tests and by panic-wipe flows. */
+/** Clear all pool state. Used by tests and by panic-wipe flows. */
 export function resetTokenPool() {
-    tokenPool.currentEpochId = null;
-    tokenPool.currentExpiresAt = 0;
-    tokenPool.queue.length = 0;
-    tokenPool.refilling = false;
+    pools.clear();
 }
 
 // ── CBOR minimal codec ─────────────────────────────────────────
@@ -217,17 +286,18 @@ function randomNonceHex(bytes = 32) {
 
 // ── Batch fetch ────────────────────────────────────────────────
 export async function requestBatch(relayUrl, batchSize = DEFAULT_BATCH_SIZE) {
-    if (tokenPool._requestBatchImpl) {
-        return tokenPool._requestBatchImpl(relayUrl, batchSize);
+    const pool = tokenPoolFor(relayUrl);
+    if (pool._requestBatchImpl) {
+        return pool._requestBatchImpl(relayUrl, batchSize);
     }
-    if (tokenPool.refilling) {
+    if (pool.refilling) {
         return { ok: false, reason: 'already-refilling' };
     }
     const wasm = await getWasm();
     if (!wasm || !wasm.token_prepare_blind || !wasm.token_unblind || !wasm.sign_bytes || !wasm.get_public_key) {
         return { ok: false, reason: 'wasm-not-ready' };
     }
-    tokenPool.refilling = true;
+    pool.refilling = true;
     try {
         const prepared = wasm.token_prepare_blind(batchSize);
         const handleHex = prepared.handle_hex;
@@ -280,15 +350,15 @@ export async function requestBatch(relayUrl, batchSize = DEFAULT_BATCH_SIZE) {
             return { ok: false, reason: 'unblind-returned-non-array' };
         }
 
-        tokenPool.currentEpochId = epochIdHex;
-        tokenPool.currentExpiresAt = Number(decoded.expires_at) || 0;
-        for (const th of tokenHexes) tokenPool.queue.push(th);
+        pool.currentEpochId = epochIdHex;
+        pool.currentExpiresAt = Number(decoded.expires_at) || 0;
+        for (const th of tokenHexes) pool.queue.push(th);
 
         return { ok: true, count: tokenHexes.length, epochId: epochIdHex };
     } catch (e) {
         return { ok: false, reason: 'exception:' + (e && e.message || e) };
     } finally {
-        tokenPool.refilling = false;
+        pool.refilling = false;
     }
 }
 
@@ -299,12 +369,13 @@ export async function requestBatch(relayUrl, batchSize = DEFAULT_BATCH_SIZE) {
 // The one-per-identity-per-epoch cap means we can't refill mid-epoch once
 // we've already fetched — the server will 429. Crossing the boundary resets it.
 export function maybeRefill(relayUrl) {
-    if (tokenPool.refilling) return;
+    const pool = tokenPoolFor(relayUrl);
+    if (pool.refilling) return;
     const now = Math.floor(Date.now() / 1000);
-    const epochHasRoom = tokenPool.currentExpiresAt > 0
-        && now + EPOCH_TAIL_GUARD_SECS < tokenPool.currentExpiresAt;
-    const crossedBoundary = tokenPool.currentExpiresAt > 0
-        && now >= tokenPool.currentExpiresAt;
+    const epochHasRoom = pool.currentExpiresAt > 0
+        && now + EPOCH_TAIL_GUARD_SECS < pool.currentExpiresAt;
+    const crossedBoundary = pool.currentExpiresAt > 0
+        && now >= pool.currentExpiresAt;
 
     // Case A: we've crossed into a new epoch — always replenish.
     if (crossedBoundary) {
@@ -312,7 +383,7 @@ export function maybeRefill(relayUrl) {
         return;
     }
     // Case B: mid-epoch low-water with room to fetch.
-    if (tokenPool.queue.length < LOW_WATER && epochHasRoom) {
+    if (pool.queue.length < LOW_WATER && epochHasRoom) {
         // But we've already fetched once in this epoch by construction — so
         // this branch only fires when currentEpochId is null (cold start
         // failed) or when the queue really did drain in one epoch (budget

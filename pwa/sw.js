@@ -10,10 +10,10 @@ const CACHE_NAME = 'parolnet-v9';
 // If the hash doesn't match, the resource is re-fetched from the network.
 // Regenerate these hashes whenever the corresponding files change.
 const RESOURCE_HASHES = {
-    'app.js': 'fd54ebaef328fdb8be6fc753d4511561b501e20622e8f45f310a41d09ff94d88',
+    'app.js': '4e9c6d7226f07003d000ef43281a44748b01e9a9dc95298a180ee869370ddfd4',
     'styles.css': 'a4a07e1fe925dbd2324e9cf01e9454dadd9c3409e19e39df1f4254f5682dfcc2',
     'crypto-store.js': '290b12b0c369faeb405be244c5c616005c5ff998966c6cdf3b1591fa2129aab9',
-    'index.html': 'e7d1a1b6670c8375971f706bd895b2538f3451962f9b0876cb475b76b5ac9908',
+    'index.html': '2c68d6bed033df679c6730e2bda676c0e42d1f9a330aaddb06834e008e3e0437',
 };
 
 // Compute SHA-256 hex digest of an ArrayBuffer.

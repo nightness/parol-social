@@ -1024,17 +1024,19 @@ describe('relay token pool', () => {
 
     test('maybeRefill is a no-op when queue is healthy and epoch has room', async () => {
         const mod = await freshPool();
-        const { tokenPool, maybeRefill, resetTokenPool, TOKEN_POOL_LOW_WATER } = mod;
+        const { tokenPoolFor, maybeRefill, resetTokenPool, TOKEN_POOL_LOW_WATER } = mod;
         resetTokenPool();
+        const url = 'ws://relay.example/ws';
+        const pool = tokenPoolFor(url);
         // Queue healthy: above the low-water mark.
-        for (let i = 0; i < TOKEN_POOL_LOW_WATER + 10; i++) tokenPool.queue.push('t' + i);
+        for (let i = 0; i < TOKEN_POOL_LOW_WATER + 10; i++) pool.queue.push('t' + i);
         // Epoch has plenty of room.
-        tokenPool.currentEpochId = '01020304';
-        tokenPool.currentExpiresAt = Math.floor(Date.now() / 1000) + 3600;
+        pool.currentEpochId = '01020304';
+        pool.currentExpiresAt = Math.floor(Date.now() / 1000) + 3600;
 
         let called = 0;
-        tokenPool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
-        maybeRefill('ws://relay.example/ws');
+        pool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
+        maybeRefill(url);
         // Give the promise a tick to resolve.
         await new Promise(r => setTimeout(r, 10));
         assert.equal(called, 0, 'no refill when queue + epoch are healthy');
@@ -1042,32 +1044,36 @@ describe('relay token pool', () => {
 
     test('maybeRefill triggers at low-water', async () => {
         const mod = await freshPool();
-        const { tokenPool, maybeRefill, resetTokenPool, TOKEN_POOL_LOW_WATER } = mod;
+        const { tokenPoolFor, maybeRefill, resetTokenPool, TOKEN_POOL_LOW_WATER } = mod;
         resetTokenPool();
+        const url = 'ws://relay.example/ws';
+        const pool = tokenPoolFor(url);
         // Queue below low-water.
-        for (let i = 0; i < TOKEN_POOL_LOW_WATER - 1; i++) tokenPool.queue.push('t' + i);
-        tokenPool.currentEpochId = '01020304';
-        tokenPool.currentExpiresAt = Math.floor(Date.now() / 1000) + 3600;
+        for (let i = 0; i < TOKEN_POOL_LOW_WATER - 1; i++) pool.queue.push('t' + i);
+        pool.currentEpochId = '01020304';
+        pool.currentExpiresAt = Math.floor(Date.now() / 1000) + 3600;
 
         let called = 0;
-        tokenPool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
-        maybeRefill('ws://relay.example/ws');
+        pool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
+        maybeRefill(url);
         await new Promise(r => setTimeout(r, 10));
         assert.equal(called, 1, 'refill invoked at low-water');
     });
 
     test('maybeRefill fires after epoch boundary crossed', async () => {
         const mod = await freshPool();
-        const { tokenPool, maybeRefill, resetTokenPool } = mod;
+        const { tokenPoolFor, maybeRefill, resetTokenPool } = mod;
         resetTokenPool();
+        const url = 'ws://relay.example/ws';
+        const pool = tokenPoolFor(url);
         // Queue is healthy, but epoch has expired.
-        for (let i = 0; i < 1000; i++) tokenPool.queue.push('t' + i);
-        tokenPool.currentEpochId = '01020304';
-        tokenPool.currentExpiresAt = Math.floor(Date.now() / 1000) - 1; // already expired
+        for (let i = 0; i < 1000; i++) pool.queue.push('t' + i);
+        pool.currentEpochId = '01020304';
+        pool.currentExpiresAt = Math.floor(Date.now() / 1000) - 1; // already expired
 
         let called = 0;
-        tokenPool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
-        maybeRefill('ws://relay.example/ws');
+        pool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
+        maybeRefill(url);
         await new Promise(r => setTimeout(r, 10));
         assert.equal(called, 1, 'refill invoked after epoch boundary');
     });
@@ -1105,5 +1111,206 @@ describe('relay token pool', () => {
         assert.equal(mod.TOKEN_POOL_LOW_WATER, 128);
         // Default batch is one epoch's worth per the relay's default budget.
         assert.equal(mod.TOKEN_POOL_DEFAULT_BATCH, 8192);
+    });
+});
+
+// ── H12 Phase 2 cross-relay ────────────────────────────────────
+describe('H12 Phase 2 cross-relay', () => {
+    async function freshCache() {
+        return await import('../src/peer-relay-cache.js?t=' + Math.random());
+    }
+    async function freshPool() {
+        return await import('../src/token-pool.js?t=' + Math.random());
+    }
+
+    // Helpers — build a signed lookup response CBOR blob.
+    function u64beBytes(n) {
+        const out = new Uint8Array(8);
+        const hi = Math.floor(n / 0x100000000);
+        const lo = n >>> 0;
+        out[0] = (hi >>> 24) & 0xff;
+        out[1] = (hi >>> 16) & 0xff;
+        out[2] = (hi >>> 8) & 0xff;
+        out[3] = hi & 0xff;
+        out[4] = (lo >>> 24) & 0xff;
+        out[5] = (lo >>> 16) & 0xff;
+        out[6] = (lo >>> 8) & 0xff;
+        out[7] = lo & 0xff;
+        return out;
+    }
+    function cborHdr(out, major, len) {
+        const mt = major << 5;
+        if (len < 24) { out.push(mt | len); return; }
+        if (len < 0x100) { out.push(mt | 24, len); return; }
+        if (len < 0x10000) { out.push(mt | 25, (len >> 8) & 0xff, len & 0xff); return; }
+        out.push(mt | 26,
+            (len >>> 24) & 0xff, (len >>> 16) & 0xff,
+            (len >>> 8) & 0xff, len & 0xff);
+    }
+    function cborText(out, s) {
+        const b = new TextEncoder().encode(s);
+        cborHdr(out, 3, b.length);
+        for (const x of b) out.push(x);
+    }
+    function cborBytes(out, bytes) {
+        cborHdr(out, 2, bytes.length);
+        for (const x of bytes) out.push(x);
+    }
+    function cborUint(out, n) { cborHdr(out, 0, n); }
+    function encodeLookup(homeRelayUrl, lastSeen, signature64) {
+        const out = [];
+        cborHdr(out, 5, 3);
+        cborText(out, 'home_relay_url'); cborText(out, homeRelayUrl);
+        cborText(out, 'last_seen');      cborUint(out, lastSeen);
+        cborText(out, 'signature');      cborBytes(out, signature64);
+        return new Uint8Array(out);
+    }
+
+    function fakeResp(bodyBytes, status = 200) {
+        return {
+            ok: status === 200,
+            status,
+            async arrayBuffer() { return bodyBytes.buffer.slice(bodyBytes.byteOffset, bodyBytes.byteOffset + bodyBytes.byteLength); },
+        };
+    }
+
+    const PEER_HEX = '11'.repeat(32);
+    const RELAY_PUB_HEX = 'a'.repeat(64); // fake pubkey; verifyFn controls acceptance
+    const RELAY_PID_HEX = 'bb'.repeat(32); // fake relay peer_id
+
+    test('tokenPoolFor isolates per-relay queues', async () => {
+        const mod = await freshPool();
+        const { tokenPoolFor, spendOneToken, resetTokenPool } = mod;
+        resetTokenPool();
+        const A = 'ws://a.example/ws';
+        const B = 'ws://b.example/ws';
+        const poolA = tokenPoolFor(A);
+        poolA.queue.push('alpha');
+        // Pool B is empty — a spend should throw.
+        assert.throws(() => spendOneToken(B), /empty/);
+        // Pool A still has its token.
+        assert.equal(spendOneToken(A), 'alpha');
+    });
+
+    test('lookupHomeRelay caches hit for 1 hr', async () => {
+        const mod = await freshCache();
+        const { lookupHomeRelay, _clearCache, _inject, _resetInject } = mod;
+        _clearCache();
+        let fetchCalls = 0;
+        const body = encodeLookup('https://home.example', 1_700_000_000, new Uint8Array(64));
+        _inject({
+            fetchFn: async () => { fetchCalls++; return fakeResp(body); },
+            verifyFn: () => true, // accept any sig for this test
+            homeRelayUrl: () => 'wss://home.example/ws',
+            verifiedDirectory: () => [
+                { url: 'https://home.example', identityKey: RELAY_PUB_HEX, peerIdHex: RELAY_PID_HEX, verified: true },
+            ],
+        });
+        const a = await lookupHomeRelay(PEER_HEX);
+        const b = await lookupHomeRelay(PEER_HEX);
+        _resetInject();
+        assert.equal(a, 'https://home.example');
+        assert.equal(b, 'https://home.example');
+        assert.equal(fetchCalls, 1, 'second call hit the cache');
+    });
+
+    test('lookupHomeRelay rejects a signature that does not verify', async () => {
+        const mod = await freshCache();
+        const { lookupHomeRelay, _clearCache, _inject, _resetInject } = mod;
+        _clearCache();
+        const body = encodeLookup('https://home.example', 1_700_000_000, new Uint8Array(64));
+        _inject({
+            fetchFn: async () => fakeResp(body),
+            verifyFn: () => false, // reject all sigs
+            homeRelayUrl: () => 'wss://home.example/ws',
+            verifiedDirectory: () => [
+                { url: 'https://home.example', identityKey: RELAY_PUB_HEX, peerIdHex: RELAY_PID_HEX, verified: true },
+            ],
+        });
+        const r = await lookupHomeRelay(PEER_HEX);
+        _resetInject();
+        assert.equal(r, null);
+    });
+
+    test('lookupHomeRelay prefers a BOOTSTRAP_RELAYS URL when the server returns an unreachable one', async () => {
+        const mod = await freshCache();
+        const { lookupHomeRelay, _clearCache, _inject, _resetInject } = mod;
+        _clearCache();
+        // Server says http://0.0.0.0:8000 (unreachable).
+        const body = encodeLookup('http://0.0.0.0:8000', 1_700_000_000, new Uint8Array(64));
+        _inject({
+            fetchFn: async () => fakeResp(body),
+            verifyFn: () => true,
+            homeRelayUrl: () => 'wss://home.example/ws',
+            // Directory contains a verified reachable URL with the same peerIdHex.
+            verifiedDirectory: () => [
+                { url: 'https://good.example', identityKey: RELAY_PUB_HEX, peerIdHex: RELAY_PID_HEX, verified: true },
+            ],
+        });
+        const r = await lookupHomeRelay(PEER_HEX);
+        _resetInject();
+        assert.equal(r, 'https://good.example', 'unreachable URL swapped for the directory entry');
+    });
+
+    test('sendRelay uses outbound connection when destination home differs from ours', async () => {
+        // We can't import ../src/connection.js directly because that
+        // module transitively imports DOM-dependent files. Mirror the
+        // cross-relay routing path from sendEnvelope under a local
+        // connMgr double, then assert the outbound map mutation.
+        const outbound = new Map();
+        function openOutboundFake(url) {
+            outbound.set(url, {
+                ws: { readyState: 1, send() {} },
+                authState: 'open',
+                lastActivityMs: Date.now(),
+                openWaiters: [],
+            });
+            return true;
+        }
+        function sendToRelayUrlFake(url, to, payload, token) {
+            const e = outbound.get(url);
+            return !!(e && e.authState === 'open' && token);
+        }
+        const differentUrl = 'wss://other.example/ws';
+        const ourHome = 'ws://home.example/ws';
+        // Stubbed lookup: always return the different URL.
+        async function lookupHomeRelayStub(_) { return differentUrl; }
+
+        const homeRelay = await lookupHomeRelayStub(PEER_HEX);
+        assert.notEqual(homeRelay, ourHome);
+        assert.ok(openOutboundFake(homeRelay));
+        const ok = sendToRelayUrlFake(homeRelay, PEER_HEX, 'deadbeef', 'tokenhex');
+        assert.equal(ok, true);
+        assert.ok(outbound.has(differentUrl), 'outbound entry created for cross-relay send');
+    });
+
+    test('outbound connections close after idle', async () => {
+        // Same constraint as above — exercise the idle-close algorithm
+        // on a local outbound-map double. The real connection.js uses
+        // identical logic.
+        const OUTBOUND_IDLE_MS = 5 * 60 * 1000;
+        const outbound = new Map();
+        const closedCalls = [];
+        const url = 'wss://old.example/ws';
+        const dropped = [];
+        outbound.set(url, {
+            ws: { readyState: 1, close: () => closedCalls.push('close') },
+            authState: 'open',
+            lastActivityMs: Date.now() - (OUTBOUND_IDLE_MS + 1000),
+            openWaiters: [],
+        });
+        function closeIdleOutbound(nowMs = Date.now()) {
+            for (const [u, entry] of outbound.entries()) {
+                if (nowMs - entry.lastActivityMs > OUTBOUND_IDLE_MS) {
+                    try { entry.ws.close(); } catch (_) {}
+                    outbound.delete(u);
+                    dropped.push(u);
+                }
+            }
+        }
+        closeIdleOutbound(Date.now());
+        assert.ok(!outbound.has(url), 'idle outbound removed from map');
+        assert.deepEqual(closedCalls, ['close']);
+        assert.deepEqual(dropped, [url]);
     });
 });

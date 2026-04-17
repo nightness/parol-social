@@ -229,7 +229,6 @@
   "settings.regenerateIdentity": "Сменить личность",
   "settings.regenerateIdentityDescription": "Создаёт новую личность и уведомляет ваши контакты. Полезно при подозрении на компрометацию. Контакты сохраняют историю переписки; прежняя личность действует ещё 7 дней, чтобы сообщения в пути ещё дошли.",
   "settings.regenerateIdentityConfirm": "Сменить личность? Контакты получат уведомление о смене. Прежняя личность истекает через 7 дней.",
-
   "settings.relay.section": "Ретранслятор",
   "settings.relay.connected": "Подключено к",
   "settings.relay.fingerprint": "Отпечаток",
@@ -239,5 +238,8 @@
   "settings.relay.addManual": "Добавить адрес ретранслятора",
   "settings.relay.addManualPlaceholder": "https://relay.example.com",
   "settings.relay.addManualButton": "Добавить",
-  "toast.duressCodeUpdated": "Парольная фраза под принуждением сохранена"
+  "toast.duressCodeUpdated": "Парольная фраза под принуждением сохранена",
+  "settings.relay.activeConnections": "Активные подключения к реле",
+  "settings.relay.activeConnectionsValue": "{count} (домашний + {outbound} исходящих)",
+  "toast.peerLookupFailed": "Не удалось найти реле собеседника — повтор через домашний"
 }

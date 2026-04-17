@@ -229,7 +229,6 @@
   "settings.regenerateIdentity": "إعادة توليد الهوية",
   "settings.regenerateIdentityDescription": "أنشئ هوية جديدة وأبلغ جهات اتصالك. مفيد بعد الاشتباه في اختراق. تحتفظ جهات اتصالك بسجل المحادثات؛ تظل الهوية القديمة صالحة لمدة 7 أيام حتى تصل الرسائل العابرة.",
   "settings.regenerateIdentityConfirm": "هل تريد إعادة توليد هويتك؟ ستظهر لجهات اتصالك إشعار تدوير. تنتهي صلاحية الهوية القديمة بعد 7 أيام.",
-
   "settings.relay.section": "المرحّل",
   "settings.relay.connected": "متّصل بـ",
   "settings.relay.fingerprint": "البصمة",
@@ -239,5 +238,8 @@
   "settings.relay.addManual": "إضافة عنوان مرحّل",
   "settings.relay.addManualPlaceholder": "https://relay.example.com",
   "settings.relay.addManualButton": "إضافة",
-  "toast.duressCodeUpdated": "تم حفظ عبارة مرور الإكراه"
+  "toast.duressCodeUpdated": "تم حفظ عبارة مرور الإكراه",
+  "settings.relay.activeConnections": "اتصالات المُرحِّل النشطة",
+  "settings.relay.activeConnectionsValue": "{count} (أساسي + {outbound} صادر)",
+  "toast.peerLookupFailed": "تعذّر العثور على مُرحِّل النظير — نحاول عبر المُرحِّل الرئيسي"
 }

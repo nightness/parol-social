@@ -223,6 +223,9 @@
   "settings.relay.addManual": "Add relay URL",
   "settings.relay.addManualPlaceholder": "https://relay.example.com",
   "settings.relay.addManualButton": "Add",
+  "settings.relay.activeConnections": "Active relay connections",
+  "settings.relay.activeConnectionsValue": "{count} (home + {outbound} outbound)",
+  "toast.peerLookupFailed": "Couldn't locate peer's relay — retrying via home",
 
   "file.attachment": "{fileName}",
   "file.download": "Download ({size})",

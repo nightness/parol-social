@@ -411,6 +411,10 @@ export class RelayClient {
                     verified.push({
                         url,
                         peerIdHex: _bytesToHexPublic(innerPid),
+                        // Full Ed25519 pubkey (hex) — required by the
+                        // peer-lookup cache (H12 Phase 2) to verify
+                        // presence signatures.
+                        identityKey: _bytesToHexPublic(innerKey),
                         fingerprint: fingerprintSuffix(innerKey || innerPid),
                         verified: true,
                     });

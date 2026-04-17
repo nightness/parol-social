@@ -229,7 +229,6 @@
   "settings.regenerateIdentity": "重新產生身分",
   "settings.regenerateIdentityDescription": "產生新身分並通知你的聯絡人。懷疑身分遭入侵時非常有用。聯絡人會保留聊天記錄；舊身分在接下來的 7 天內仍有效，讓傳送中的訊息仍可送達。",
   "settings.regenerateIdentityConfirm": "重新產生身分？你的聯絡人將收到身分更換通知。舊身分將在 7 天後失效。",
-
   "settings.relay.section": "中繼",
   "settings.relay.connected": "已連接到",
   "settings.relay.fingerprint": "指紋",
@@ -239,5 +238,8 @@
   "settings.relay.addManual": "新增中繼位址",
   "settings.relay.addManualPlaceholder": "https://relay.example.com",
   "settings.relay.addManualButton": "新增",
-  "toast.duressCodeUpdated": "脅迫密碼短語已儲存"
+  "toast.duressCodeUpdated": "脅迫密碼短語已儲存",
+  "settings.relay.activeConnections": "使用中的中繼連線",
+  "settings.relay.activeConnectionsValue": "{count} (主中繼 + {outbound} 外送)",
+  "toast.peerLookupFailed": "找不到對方的中繼 — 改用主中繼重試"
 }

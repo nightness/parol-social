@@ -151,6 +151,67 @@ Redeploy the PWA bundle to both relays (nginx serves it from
 3. Kill the primary container. The PWA should reconnect to the
    secondary on its next WebSocket retry.
 
+## 9a. Phase 2 Multi-Relay Routing (H12 Phase 2)
+
+Phase 2 unlocks client-side cross-relay routing: a PWA on relay A can now
+message a peer on relay B without moving hosts. Two deployment
+prerequisites must hold on **every** relay before it will work:
+
+**1. Set `RELAY_PUBLIC_URL` on every relay.** When a client hits
+`/peers/lookup?id=...` on its home relay, the relay answers with the
+home_relay_url for the target peer. If `RELAY_PUBLIC_URL` is unset the
+relay falls back to whatever bind address it booted with (typically
+`0.0.0.0:<port>` or a container-internal name), and clients on the
+public internet cannot connect to the returned URL.
+
+The PWA mitigates partial misconfigurations (caveat 1 of H12 Phase 2
+commit 2): if the lookup response returns an unreachable URL but the
+PWA's BOOTSTRAP_RELAYS already contains a reachable URL whose
+authority-verified directory entry matches the same `relay_peer_id`, the
+PWA will swap in the BOOTSTRAP URL for the outbound connection. The
+signature / identity binding is preserved — only the transport URL is
+swapped. This is a safety net, not an excuse: set `RELAY_PUBLIC_URL`
+explicitly on every relay in production.
+
+```
+# Primary's .env
+RELAY_PUBLIC_URL=https://biscuits.parol.social
+
+# Secondary's .env
+RELAY_PUBLIC_URL=https://biscuits-two.parol.social
+```
+
+**2. Exact-string match between `PEER_RELAY_URLS` and each relay's
+`/directory` `addr` field.** Federation presence-fetch does a naive
+string comparison between the URL form in `PEER_RELAY_URLS` (the relay
+to poll) and the URL form the peer relay advertises through its own
+`/directory` descriptor. A difference as small as a trailing slash,
+`http://` vs `https://`, or a hostname-vs-IP substitution silently
+disables cross-relay presence population for that peer.
+
+Concretely, if relay A has `PEER_RELAY_URLS=https://B.example` but B's
+`/directory` advertises itself under `addr=1.2.3.4:9000` (which the PWA
+normalizes to `http://1.2.3.4:9000`), A will fetch B's `/peers/presence`
+but never associate its entries with B's descriptor. Operators must
+choose one canonical form and use it in both env vars across the
+federation.
+
+The authoritative operator-side contract:
+
+- `PEER_RELAY_URLS` entries on every relay match the exact strings that
+  each peer's `/directory` returns as its own `addr`-derived URL.
+- Test with `curl -s https://<peer>/directory | hexdump -C | head`
+  (CBOR) or `curl -s -H 'Accept: application/json' https://<peer>/directory`
+  if the relay supports the JSON form; compare against your
+  `PEER_RELAY_URLS` string byte-for-byte.
+- When in doubt, prefer `https://<hostname>` (no trailing slash, no
+  port) and configure the relay to derive its public URL from the same
+  hostname.
+
+This is pinned as a PNP-008 deployment note; the 1-second-window
+`/peers/lookup` rate limiter (10 events/window) is intentional and
+acceptable for Phase 2.
+
 ## 10. What Phase 1 does NOT do
 
 - **No cross-relay messaging.** Alice on primary and Bob on secondary

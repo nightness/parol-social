@@ -229,7 +229,6 @@
   "settings.regenerateIdentity": "Renovar identidade",
   "settings.regenerateIdentityDescription": "Gera uma nova identidade e notifica seus contatos. Util em caso de suspeita de comprometimento. Seus contatos mantem o historico; a identidade antiga continua valida por mais 7 dias para que mensagens em transito ainda cheguem.",
   "settings.regenerateIdentityConfirm": "Renovar sua identidade? Seus contatos receberao um aviso de renovacao. A identidade antiga expira em 7 dias.",
-
   "settings.relay.section": "Retransmissor",
   "settings.relay.connected": "Conectado a",
   "settings.relay.fingerprint": "Impressao digital",
@@ -239,5 +238,8 @@
   "settings.relay.addManual": "Adicionar URL do retransmissor",
   "settings.relay.addManualPlaceholder": "https://relay.example.com",
   "settings.relay.addManualButton": "Adicionar",
-  "toast.duressCodeUpdated": "Frase de coacao salva"
+  "toast.duressCodeUpdated": "Frase de coacao salva",
+  "settings.relay.activeConnections": "Conexões de relay ativas",
+  "settings.relay.activeConnectionsValue": "{count} (principal + {outbound} saída)",
+  "toast.peerLookupFailed": "Não foi possível localizar o relay do contato — tentando pelo principal"
 }

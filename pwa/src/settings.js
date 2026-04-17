@@ -308,6 +308,17 @@ export function updateRelaySection() {
             fpEl.style.color = '#888';
         }
     }
+    // H12 Phase 2: show the total number of active relay connections
+    // (1 home + N outbound cross-relay). Live-updated every 60 s by
+    // boot.js, and re-rendered whenever updateRelaySection is called.
+    const activeEl = document.getElementById('settings-relay-active');
+    if (activeEl) {
+        const outbound = connMgr.outbound ? connMgr.outbound.size : 0;
+        activeEl.textContent = t('settings.relay.activeConnectionsValue', {
+            count: outbound + 1,
+            outbound,
+        });
+    }
     if (listEl) {
         listEl.textContent = '';
         const entries = relayClient.verifiedDirectory || [];
