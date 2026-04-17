@@ -262,11 +262,13 @@ fn run_clauses(check: bool, report: bool) -> Result<()> {
                 "\nclause check FAILED: {} MUST clauses uncovered",
                 uncovered_must.len()
             );
-            for id in uncovered_must.iter().take(20) {
+            let limit = std::env::var("XTASK_FULL").is_ok();
+            let shown = if limit { uncovered_must.len() } else { 20.min(uncovered_must.len()) };
+            for id in uncovered_must.iter().take(shown) {
                 eprintln!("  uncovered: {id}");
             }
-            if uncovered_must.len() > 20 {
-                eprintln!("  ... {} more", uncovered_must.len() - 20);
+            if !limit && uncovered_must.len() > 20 {
+                eprintln!("  ... {} more (set XTASK_FULL=1 to see all)", uncovered_must.len() - 20);
             }
             std::process::exit(1);
         }

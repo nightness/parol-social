@@ -11,7 +11,7 @@ This index is the authoritative registry of ParolNet Protocol (PNP) specificatio
 | PNP-001 | Wire Protocol & Message Format | 0.2 | CANDIDATE | 47 | 12 | 5 | 64 | 100% M / 8% S |
 | PNP-002 | Handshake Protocol | 0.2 | CANDIDATE | 35 | 10 | 4 | 49 | 100% M / 10% S |
 | PNP-003 | Bootstrap Protocol | 0.2 | CANDIDATE | 52 | 8 | 3 | 63 | 62% M / 0% S |
-| PNP-004 | Relay Circuit Construction | 0.2 | CANDIDATE | 58 | 7 | 1 | 66 | 40% M / 0% S |
+| PNP-004 | Relay Circuit Construction | 0.2 | CANDIDATE | 58 | 7 | 1 | 66 | 100% M / 0% S |
 | PNP-005 | Gossip Mesh & Diffusion | 0.2 | CANDIDATE | 48 | 16 | 4 | 68 | 58% M / 0% S |
 | PNP-006 | Traffic Shaping & Camouflage | 0.2 | CANDIDATE | 44 | 14 | 5 | 63 | 75% M / 0% S |
 | PNP-007 | Media & File Transfer | 0.2 | CANDIDATE | 89 | 12 | 3 | 104 | 48% M / 0% S |
