@@ -3,7 +3,14 @@ services:
     build: .
     ports:
       - "1411:80"
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/tcp"
+      - "49152-49252:49152-49252/udp"
+    env_file: .env
     environment:
-      - PAROLNET_ANALYTICS=1
       - DEV_MODE=false
+    volumes:
+      - /etc/letsencrypt/live/biscuits.parol.social:/etc/turn-certs:ro
+      - /etc/letsencrypt/archive/biscuits.parol.social:/etc/letsencrypt/archive/biscuits.parol.social:ro
     restart: unless-stopped

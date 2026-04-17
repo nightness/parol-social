@@ -331,6 +331,14 @@ export async function initiateCall(peerId, withVideo) {
         }
     }
 
+    // Notify the peer of incoming call
+    const callPayload = JSON.stringify({
+        _pn_type: 'call_offer',
+        callId: currentCallId,
+        withVideo: !!withVideo
+    });
+    sendToRelay(peerId, callPayload);
+
     showView('call');
     const nameEl = document.getElementById('call-peer-name');
     if (nameEl) nameEl.textContent = peerId.length > 20 ? peerId.slice(0, 16) + '...' : peerId;

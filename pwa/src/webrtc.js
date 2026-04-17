@@ -18,7 +18,7 @@ const DEFAULT_STUN_SERVERS = [
 let customIceServers = null;
 
 // Privacy mode: when enabled, only relay (TURN) candidates are used.
-let webrtcPrivacyMode = true; // Default ON for censorship-resistance threat model
+let webrtcPrivacyMode = false; // Default OFF until TURN server is integrated
 
 function getRtcConfig() {
     const config = {
@@ -103,29 +103,48 @@ export function updateWebRTCPrivacyUI() {
     }
 }
 
+// Default fallback TURN/STUN server (parol.social's public TURN)
+const FALLBACK_TURN_URL = 'https://parol.social/turn-credentials';
+
 export async function fetchTurnCredentials() {
-    try {
-        const relayUrl = connMgr && connMgr.relayUrl;
-        if (!relayUrl) return;
-        const httpUrl = relayUrl.replace(/^ws(s?):/, 'http$1:').replace(/\/ws\/?$/, '');
-        const resp = await fetch(httpUrl + '/turn-credentials');
-        if (resp.ok) {
+    // Try connected relay first, then fall back to parol.social
+    const urls = [];
+    const relayUrl = connMgr && connMgr.relayUrl;
+    if (relayUrl) {
+        urls.push(relayUrl.replace(/^ws(s?):/, 'http$1:').replace(/\/ws\/?$/, '') + '/turn-credentials');
+    }
+    urls.push(FALLBACK_TURN_URL);
+
+    for (const url of urls) {
+        try {
+            const resp = await fetch(url);
+            if (!resp.ok) continue;
             const creds = await resp.json();
             if (creds.uris && creds.uris.length > 0) {
-                const turnServers = creds.uris.map(uri => ({
-                    urls: uri,
+                const stunUris = creds.uris.filter(u => u.startsWith('stun:'));
+                const turnUris = creds.uris.filter(u => !u.startsWith('stun:'));
+                const iceServers = [];
+                // Add STUN servers (ours replace Google defaults)
+                if (stunUris.length > 0) {
+                    iceServers.push(...stunUris.map(u => ({ urls: u })));
+                } else {
+                    iceServers.push(...DEFAULT_STUN_SERVERS);
+                }
+                // Add TURN servers with credentials
+                iceServers.push(...turnUris.map(u => ({
+                    urls: u,
                     username: creds.username,
                     credential: creds.credential
-                }));
-                if (!customIceServers) {
-                    customIceServers = [...DEFAULT_STUN_SERVERS, ...turnServers];
-                }
-                console.log('[WebRTC] Fetched TURN credentials, TTL:', creds.ttl);
+                })));
+                customIceServers = iceServers;
+                console.log('[WebRTC] TURN credentials from', url, '- TTL:', creds.ttl);
+                return;
             }
+        } catch (e) {
+            console.warn('[WebRTC] TURN fetch failed for', url, e.message);
         }
-    } catch (e) {
-        console.warn('[WebRTC] Could not fetch TURN credentials:', e);
     }
+    console.warn('[WebRTC] No TURN available, using STUN only');
 }
 
 export async function initWebRTC(peerId, isInitiator) {

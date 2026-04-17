@@ -5,8 +5,11 @@ WORKDIR /build
 COPY . .
 RUN cargo build --release -p parolnet-relay-server --features analytics
 
-# Stage 2: Runtime with nginx + relay
+# Stage 2: Runtime with nginx + relay + coturn
 FROM nginx:alpine
+
+# TURN/STUN server (coturn) + envsubst for config templating
+RUN apk add --no-cache coturn gettext
 
 # Nginx config
 COPY server/nginx.conf /etc/nginx/conf.d/default.conf
@@ -34,6 +37,9 @@ COPY --from=builder /build/target/release/parolnet-relay /usr/local/bin/parolnet
 COPY server/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 80
+# TURN/STUN config template
+COPY server/turnserver.conf /etc/turnserver.conf.template
+
+EXPOSE 80 3478/udp 3478/tcp 5349/tcp
 
 CMD ["/entrypoint.sh"]

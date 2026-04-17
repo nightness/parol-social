@@ -640,13 +640,29 @@ async fn handle_turn_credentials() -> impl IntoResponse {
         result.into_bytes(),
     );
 
-    // TURN URIs from env or empty
-    let uris: Vec<String> = std::env::var("TURN_URIS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+    // TURN URIs: explicit env var, or auto-generate from TURN_DOMAIN/TURN_EXTERNAL_IP
+    let uris: Vec<String> = {
+        let explicit = std::env::var("TURN_URIS").unwrap_or_default();
+        if !explicit.trim().is_empty() {
+            explicit.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        } else {
+            let host = std::env::var("TURN_DOMAIN")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .or_else(|| std::env::var("TURN_EXTERNAL_IP").ok().filter(|s| !s.is_empty()))
+                .unwrap_or_default();
+            if host.is_empty() {
+                vec![]
+            } else {
+                vec![
+                    format!("stun:{host}:3478"),
+                    format!("turn:{host}:3478"),
+                    format!("turn:{host}:3478?transport=tcp"),
+                    format!("turns:{host}:5349"),
+                ]
+            }
+        }
+    };
 
     (
         StatusCode::OK,
