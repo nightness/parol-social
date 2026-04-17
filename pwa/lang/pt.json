@@ -154,6 +154,8 @@
   "toast.conversationClosed": "Conversa fechada",
   "toast.identityRotated": "Identidade renovada. A antiga expira em 7 dias.",
   "toast.contactRotated": "{name} renovou a identidade — confirme o novo numero de seguranca",
+  "toast.relayTokenEmpty": "Fichas do retransmissor esgotadas — tentando de novo...",
+  "toast.relayTokenFetchFailed": "Nao foi possivel obter as fichas do retransmissor",
   "empty.noContacts": "Nenhum contato ainda",
   "empty.addContact": "Toque em + para adicionar alguem",
   "empty.noMessages": "Nenhuma mensagem ainda",

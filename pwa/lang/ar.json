@@ -154,6 +154,8 @@
   "toast.conversationClosed": "تم إغلاق المحادثة",
   "toast.identityRotated": "تم تدوير الهوية. تنتهي صلاحية الهوية القديمة بعد 7 أيام.",
   "toast.contactRotated": "{name} قام بتدوير الهوية — تحقق من رقم الأمان الجديد",
+  "toast.relayTokenEmpty": "نفدت رموز المرحل — جاري إعادة المحاولة...",
+  "toast.relayTokenFetchFailed": "تعذر جلب رموز المرحل",
   "empty.noContacts": "لا توجد جهات اتصال بعد",
   "empty.addContact": "اضغط + لإضافة شخص",
   "empty.noMessages": "لا توجد رسائل بعد",

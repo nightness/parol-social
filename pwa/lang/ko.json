@@ -154,6 +154,8 @@
   "toast.conversationClosed": "대화가 닫혔습니다",
   "toast.identityRotated": "신원이 교체되었습니다. 이전 신원은 7일 후 만료됩니다.",
   "toast.contactRotated": "{name}님이 신원을 교체했습니다 — 새 보안 번호를 확인하세요",
+  "toast.relayTokenEmpty": "릴레이 토큰이 소진되었습니다 — 재시도 중...",
+  "toast.relayTokenFetchFailed": "릴레이 토큰을 가져오지 못했습니다",
   "empty.noContacts": "아직 연락처가 없습니다",
   "empty.addContact": "+ 버튼을 눌러 추가하세요",
   "empty.noMessages": "아직 메시지가 없습니다",

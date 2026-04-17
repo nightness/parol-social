@@ -12,6 +12,7 @@ import { showView } from './views.js';
 import { hasDirectConnection, sendViaWebRTC, seenGossipMessages, markGossipSeen,
          handleRTCOffer, handleRTCAnswer, handleRTCIce } from './webrtc.js';
 import { sendToRelay, discoverPeers, startDiscoveryInterval, connMgr } from './connection.js';
+import { spendOneToken, maybeRefill } from './token-pool.js';
 import { loadContacts, appendMessage, answerIncomingCall, loadAddressBook } from './ui-chat.js';
 import { t } from './i18n.js';
 import {
@@ -54,6 +55,12 @@ function encodeEnvelope(toPeerId, msgType, obj) {
 // Send an envelope-wrapped structured payload via the best available transport
 // (direct WebRTC preferred, relay fallback). Every real send also notifies the
 // cover-traffic timer so the next decoy tick is suppressed (PNP-006-MUST-005).
+//
+// Outer relay frames carry a Privacy Pass `token` (PNP-001-MUST-048). The
+// token is spent FIFO from the pool; if the pool is empty the relay-send
+// path aborts (caller sees `false`) and the user is notified via the
+// `toast.relayTokenEmpty` string. WebRTC direct sends do NOT consume a
+// token — the relay is bypassed entirely in that case.
 function sendEnvelope(toPeerId, msgType, obj) {
     const env = encodeEnvelope(toPeerId, msgType, obj);
     if (!env) return false;
@@ -61,7 +68,19 @@ function sendEnvelope(toPeerId, msgType, obj) {
     if (hasDirectConnection(toPeerId)) {
         return sendViaWebRTC(toPeerId, env);
     }
-    return sendToRelay(toPeerId, env);
+    let token;
+    try {
+        token = spendOneToken();
+    } catch (e) {
+        console.warn('[Relay] token pool empty — dropping send; refill in progress');
+        showToast(t('toast.relayTokenEmpty'));
+        // Fire-and-forget refill — maybe the epoch boundary just passed.
+        maybeRefill(connMgr.relayUrl);
+        return false;
+    }
+    const ok = sendToRelay(toPeerId, env, token);
+    if (ok) maybeRefill(connMgr.relayUrl);
+    return ok;
 }
 
 // ── Relay Message Handling ────────────────────────────────
@@ -97,9 +116,10 @@ export function handleRelayMessage(msg) {
             break;
 
         case 'message':
-            // All wire frames are PNP-001 envelopes — onIncomingMessage decodes
-            // and dispatches by msg_type.
-            onIncomingMessage(msg.from, msg.payload);
+            // All wire frames are PNP-001 envelopes — onIncomingMessage tries
+            // each known session until one decrypts (sealed-sender path; no
+            // `from` field on the wire per PNP-001-MUST-048).
+            onIncomingMessage(msg.payload);
             break;
 
         case 'queued':
@@ -1229,31 +1249,51 @@ function hexToBytes(hex) {
     return out;
 }
 
-export function onIncomingMessage(fromPeerId, payload) {
-    if (!fromPeerId || !payload) return;
-    if (typeof payload !== 'string') return;
+// PNP-001-MUST-048: the outer relay frame carries no `from` field. The
+// sealed-sender receive path tries each known session until one AEAD-
+// decrypts the envelope. The Double Ratchet's constant-time AEAD means
+// the wrong session returns the same opaque "decryption failed" shape
+// as a truly malformed frame, so the trial-decrypt leaks nothing.
+//
+// Accepts a single `payload` argument — the hex-encoded envelope. Used
+// to accept `(fromPeerId, payload)`; that call site is gone.
+export function onIncomingMessage(payload) {
+    if (!payload || typeof payload !== 'string') return;
 
-    // Dedup on the wire-frame text — envelope hex is constant for a given
-    // ciphertext so dedup works across relay + gossip paths.
-    const dedupKey = fromPeerId + ':' + payload.slice(0, 64);
+    // Dedup on the wire-frame text alone — envelope hex is deterministic
+    // for a given ciphertext.
+    const dedupKey = payload.slice(0, 128);
     if (seenGossipMessages.has(dedupKey)) return;
     markGossipSeen(dedupKey);
 
-    if (!wasm || !wasm.envelope_decode) {
+    if (!wasm || !wasm.envelope_decode || !wasm.list_session_peer_ids) {
         console.warn('[Envelope] WASM not available — dropping frame');
         return;
     }
 
-    let decoded;
-    try {
-        decoded = wasm.envelope_decode(fromPeerId, payload);
-        persistSessions();
-    } catch (e) {
-        console.warn('[Envelope] malformed frame dropped:', e);
+    const candidates = wasm.list_session_peer_ids() || [];
+    let decoded = null;
+    let successPeer = null;
+    for (const candidate of candidates) {
+        try {
+            decoded = wasm.envelope_decode(candidate, payload);
+            successPeer = candidate;
+            break;
+        } catch (e) {
+            // Wrong session — try the next. Decrypt failures are expected
+            // during sealed-sender trial decode.
+            decoded = null;
+        }
+    }
+    if (!decoded) {
+        console.warn('[Envelope] no session decrypted the frame');
         return;
     }
+    persistSessions();
 
     const plaintext = hexToBytes(decoded.plaintext_hex);
-    const sourcePeer = decoded.source_hint || fromPeerId;
+    // Per PNP-001 MUST-SHOULD-003, `source_hint` is null by default; fall
+    // back to the peer whose session decrypted successfully.
+    const sourcePeer = decoded.source_hint || successPeer;
     dispatchByMsgType(decoded.msg_type, sourcePeer, plaintext);
 }

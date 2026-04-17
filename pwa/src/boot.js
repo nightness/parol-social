@@ -9,6 +9,7 @@ import { telemetry } from './telemetry.js';
 import { showView, calcPress, loadPanicCode } from './views.js';
 import { rtcConnections, initWebRTC, hasDirectConnection, loadCustomStunServers } from './webrtc.js';
 import { connMgr, flushMessageQueue } from './connection.js';
+import { requestBatch, maybeRefill } from './token-pool.js';
 import {
     handleRelayMessage, switchListTab, showCreateGroupDialog, createGroup,
     openGroupChat, sendGroupMessage, showGroupMembers, closeGroupMembers,
@@ -159,6 +160,7 @@ async function onWasmReady() {
             if (connMgr.isRelayConnected() || ++statusChecks > 10) {
                 clearInterval(checkStatus);
                 updateConnectionStatus();
+                if (connMgr.isRelayConnected()) kickOffInitialTokenFetch();
             } else if (navigator.serviceWorker && navigator.serviceWorker.controller) {
                 navigator.serviceWorker.controller.postMessage({ type: 'relay_status_query' });
             }
@@ -167,6 +169,35 @@ async function onWasmReady() {
         console.warn('[App] Relay discovery failed, using defaults:', e.message);
         connMgr.start();
     });
+
+    // Epoch-boundary watchdog: every 60 s the pool's maybeRefill decides
+    // whether to cross a new epoch boundary and replenish the token
+    // supply. The relay caps issuance at one batch per identity per epoch
+    // (H9 commit 1), so this tick is how we pick up the next batch as
+    // soon as the current one fully expires.
+    setInterval(() => {
+        if (connMgr.relayUrl) maybeRefill(connMgr.relayUrl);
+    }, 60_000);
+}
+
+// Fetch the first batch of Privacy Pass relay tokens. Without tokens the
+// outer `message` frames cannot be sent — the user can still receive
+// messages, but `sendEnvelope` will toast + drop new sends until a batch
+// lands. Fire-and-forget: boot must not block on network.
+async function kickOffInitialTokenFetch() {
+    if (!connMgr.relayUrl) return;
+    try {
+        const res = await requestBatch(connMgr.relayUrl);
+        if (!res || !res.ok) {
+            console.warn('[TokenPool] initial fetch failed:', res && res.reason);
+            showToast(t('toast.relayTokenFetchFailed'));
+        } else {
+            console.log('[TokenPool] initial batch ok:', res.count, 'tokens, epoch', res.epochId);
+        }
+    } catch (e) {
+        console.warn('[TokenPool] initial fetch threw:', e && e.message);
+        showToast(t('toast.relayTokenFetchFailed'));
+    }
 }
 
 export function attemptUnlock() {

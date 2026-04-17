@@ -46,6 +46,7 @@ getrandom_02.workspace = true
 getrandom_03.workspace = true
 zeroize.workspace = true
 serde_json.workspace = true
+voprf.workspace = true
 console_error_panic_hook = "0.1"
 
 [dev-dependencies]

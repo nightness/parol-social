@@ -154,6 +154,8 @@
   "toast.conversationClosed": "စကားပြောမှုပိတ်ပြီး",
   "toast.identityRotated": "အထောက်အထားအသစ်ပြန်လုပ်ပြီး။ ဟောင်းသည် ၇ ရက်အတွင်း သက်တမ်းကုန်ပါမည်။",
   "toast.contactRotated": "{name} သည် အထောက်အထားပြန်ပြောင်းခဲ့သည် — ၎င်း၏ လုံခြုံရေးနံပါတ်အသစ်ကို အတည်ပြုပါ",
+  "toast.relayTokenEmpty": "ရီလေး တိုကင်များ ကုန်သွားပြီ — ပြန်ကြိုးစားနေသည်...",
+  "toast.relayTokenFetchFailed": "ရီလေး တိုကင်များကို ရယူ၍မရပါ",
   "empty.noContacts": "အဆက်အသွယ်မရှိသေးပါ",
   "empty.addContact": "+ ကိုနှိပ်ပြီး တစ်ယောက်ထည့်ပါ",
   "empty.noMessages": "မက်ဆေ့ချ်မရှိသေးပါ",

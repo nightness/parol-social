@@ -57,9 +57,12 @@ export const connMgr = {
         return true;
     },
 
-    sendRelay(toPeerId, payload) {
+    sendRelay(toPeerId, payload, token) {
         if (!this._swRelayConnected) return false;
-        this._swPost({ type: 'relay_send', to: toPeerId, payload });
+        // Token is mandatory per PNP-001-MUST-048. The SW forwards it
+        // verbatim in the `token` field of the outer frame.
+        if (!token) return false;
+        this._swPost({ type: 'relay_send', to: toPeerId, payload, token });
         return true;
     },
 
@@ -73,8 +76,11 @@ export const connMgr = {
 };
 
 // ── Send To Relay (convenience wrapper) ───────────────────
-export function sendToRelay(toPeerId, payload) {
-    return connMgr.sendRelay(toPeerId, payload);
+// `token` is the hex-encoded Privacy Pass token to spend for this frame.
+// Outer-frame callers must acquire it via `tokenPool.spendOneToken()`
+// before invoking this function.
+export function sendToRelay(toPeerId, payload, token) {
+    return connMgr.sendRelay(toPeerId, payload, token);
 }
 
 // ── Message Queue (offline resilience) ─────────────────────
@@ -90,24 +96,31 @@ export function queueMessage(toPeerId, payload) {
 
 export function flushMessageQueue() {
     if (messageQueue.length === 0) return;
-    console.log('[Queue] Flushing', messageQueue.length, 'queued messages');
-    const toFlush = messageQueue.splice(0, messageQueue.length);
-    for (const msg of toFlush) {
-        if (Date.now() - msg.timestamp > MAX_QUEUE_AGE_MS) continue; // expired
-        let sent = false;
-        if (hasDirectConnection(msg.toPeerId)) {
-            sent = sendViaWebRTC(msg.toPeerId, msg.payload);
+    // Late-bound import to avoid a circular dependency: messaging.js →
+    // token-pool.js → connection.js. The flush path only runs on
+    // reconnect so the lazy lookup cost is negligible.
+    import('./token-pool.js').then(({ spendOneToken }) => {
+        console.log('[Queue] Flushing', messageQueue.length, 'queued messages');
+        const toFlush = messageQueue.splice(0, messageQueue.length);
+        for (const msg of toFlush) {
+            if (Date.now() - msg.timestamp > MAX_QUEUE_AGE_MS) continue; // expired
+            let sent = false;
+            if (hasDirectConnection(msg.toPeerId)) {
+                sent = sendViaWebRTC(msg.toPeerId, msg.payload);
+            }
+            if (!sent) {
+                let token;
+                try { token = spendOneToken(); } catch { token = null; }
+                if (token) sent = sendToRelay(msg.toPeerId, msg.payload, token);
+            }
+            if (!sent) {
+                messageQueue.push(msg); // re-queue
+            }
         }
-        if (!sent) {
-            sent = sendToRelay(msg.toPeerId, msg.payload);
+        if (messageQueue.length > 0) {
+            console.log('[Queue]', messageQueue.length, 'messages still queued');
         }
-        if (!sent) {
-            messageQueue.push(msg); // re-queue
-        }
-    }
-    if (messageQueue.length > 0) {
-        console.log('[Queue]', messageQueue.length, 'messages still queued');
-    }
+    }).catch(() => {});
 }
 
 // ── Peer Discovery ─────────────────────────────────────────

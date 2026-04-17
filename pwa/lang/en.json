@@ -161,6 +161,8 @@
   "toast.conversationClosed": "Conversation closed",
   "toast.identityRotated": "Identity rotated. Old identity expires in 7 days.",
   "toast.contactRotated": "{name} rotated identity — verify their new safety number",
+  "toast.relayTokenEmpty": "Relay tokens exhausted — retrying...",
+  "toast.relayTokenFetchFailed": "Could not fetch relay tokens",
 
   "empty.noContacts": "No contacts yet",
   "empty.addContact": "Tap + to add someone",

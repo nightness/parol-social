@@ -154,6 +154,8 @@
   "toast.conversationClosed": "Đã đóng cuộc trò chuyện",
   "toast.identityRotated": "Đã đổi danh tính. Danh tính cũ hết hạn sau 7 ngày.",
   "toast.contactRotated": "{name} đã đổi danh tính — hãy xác minh số an toàn mới của họ",
+  "toast.relayTokenEmpty": "Đã dùng hết mã chuyển tiếp — đang thử lại...",
+  "toast.relayTokenFetchFailed": "Không lấy được mã chuyển tiếp",
   "empty.noContacts": "Chưa có liên hệ nào",
   "empty.addContact": "Nhấn + để thêm ai đó",
   "empty.noMessages": "Chưa có tin nhắn nào",

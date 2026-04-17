@@ -154,6 +154,8 @@
   "toast.conversationClosed": "مکالمه بسته شد",
   "toast.identityRotated": "هویت عوض شد. هویت قدیمی تا ۷ روز دیگر منقضی می‌شود.",
   "toast.contactRotated": "{name} هویت خود را تغییر داد — شماره امنیتی جدید او را تأیید کنید",
+  "toast.relayTokenEmpty": "توکن‌های رله تمام شد — در حال تلاش دوباره...",
+  "toast.relayTokenFetchFailed": "دریافت توکن‌های رله ممکن نشد",
   "empty.noContacts": "هنوز مخاطبی ندارید",
   "empty.addContact": "روی + بزنید تا کسی را اضافه کنید",
   "empty.noMessages": "هنوز پیامی نیست",

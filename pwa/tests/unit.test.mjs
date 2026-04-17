@@ -965,3 +965,145 @@ describe('relay directory verification', () => {
         assert.equal(fingerprintSuffix('00'), '????????????????');
     });
 });
+
+// ── H9 commit 2: relay token pool ─────────────────────────────
+describe('relay token pool', () => {
+    // Cache-bust the module each test so its singleton state (`tokenPool`) is
+    // fresh. The implementation also exports `resetTokenPool` for callers
+    // that want in-place reset; both paths are exercised below.
+    async function freshPool() {
+        const mod = await import('../src/token-pool.js?t=' + Math.random());
+        return mod;
+    }
+
+    test('token_prepare_blind + unblind returns Token hexes of correct shape', async (t) => {
+        const w = await loadWasm();
+        if (!w) { t.skip('WASM not available'); return; }
+        if (!w.token_prepare_blind || !w.token_unblind) { t.skip('token bindings not exported'); return; }
+
+        // Step 1: prepare 4 blinded nonces.
+        const prepared = w.token_prepare_blind(4);
+        assert.ok(typeof prepared.handle_hex === 'string');
+        assert.ok(Array.isArray(prepared.blinded_bytes_hex_list));
+        assert.equal(prepared.blinded_bytes_hex_list.length, 4);
+        for (const h of prepared.blinded_bytes_hex_list) {
+            // Ristretto255 blinded element is 32 bytes = 64 hex chars.
+            assert.equal(h.length, 64, 'blinded element is 64 hex chars');
+            assert.match(h, /^[0-9a-f]+$/);
+        }
+        // All blinded elements must be distinct (fresh blind per token).
+        const distinct = new Set(prepared.blinded_bytes_hex_list);
+        assert.equal(distinct.size, 4, 'blinded elements are distinct');
+
+        // Step 2: server-side simulation isn't reachable from JS (no WASM
+        // export of OprfServer::blind_evaluate), so we can't finalize without
+        // a live relay. Instead, exercise the happy-path *error shape* of
+        // unblind under a synthetic (wrong) evaluated list and assert it
+        // rejects cleanly rather than crashing.
+        const fakeEval = Array.from({ length: 4 }, () => '00'.repeat(32));
+        assert.throws(() => w.token_unblind(prepared.handle_hex, fakeEval, '00000001'), /.+/);
+    });
+
+    test('token_prepare_blind(0) errors', async (t) => {
+        const w = await loadWasm();
+        if (!w) { t.skip('WASM not available'); return; }
+        if (!w.token_prepare_blind) { t.skip('token bindings not exported'); return; }
+        assert.throws(() => w.token_prepare_blind(0), /count/i);
+    });
+
+    test('spendOneToken pops FIFO and throws on empty', async () => {
+        const mod = await freshPool();
+        const { tokenPool, spendOneToken, resetTokenPool } = mod;
+        resetTokenPool();
+        tokenPool.queue.push('aa', 'bb', 'cc');
+        assert.equal(spendOneToken(), 'aa');
+        assert.equal(spendOneToken(), 'bb');
+        assert.equal(spendOneToken(), 'cc');
+        assert.throws(() => spendOneToken(), /empty/);
+    });
+
+    test('maybeRefill is a no-op when queue is healthy and epoch has room', async () => {
+        const mod = await freshPool();
+        const { tokenPool, maybeRefill, resetTokenPool, TOKEN_POOL_LOW_WATER } = mod;
+        resetTokenPool();
+        // Queue healthy: above the low-water mark.
+        for (let i = 0; i < TOKEN_POOL_LOW_WATER + 10; i++) tokenPool.queue.push('t' + i);
+        // Epoch has plenty of room.
+        tokenPool.currentEpochId = '01020304';
+        tokenPool.currentExpiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+        let called = 0;
+        tokenPool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
+        maybeRefill('ws://relay.example/ws');
+        // Give the promise a tick to resolve.
+        await new Promise(r => setTimeout(r, 10));
+        assert.equal(called, 0, 'no refill when queue + epoch are healthy');
+    });
+
+    test('maybeRefill triggers at low-water', async () => {
+        const mod = await freshPool();
+        const { tokenPool, maybeRefill, resetTokenPool, TOKEN_POOL_LOW_WATER } = mod;
+        resetTokenPool();
+        // Queue below low-water.
+        for (let i = 0; i < TOKEN_POOL_LOW_WATER - 1; i++) tokenPool.queue.push('t' + i);
+        tokenPool.currentEpochId = '01020304';
+        tokenPool.currentExpiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+        let called = 0;
+        tokenPool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
+        maybeRefill('ws://relay.example/ws');
+        await new Promise(r => setTimeout(r, 10));
+        assert.equal(called, 1, 'refill invoked at low-water');
+    });
+
+    test('maybeRefill fires after epoch boundary crossed', async () => {
+        const mod = await freshPool();
+        const { tokenPool, maybeRefill, resetTokenPool } = mod;
+        resetTokenPool();
+        // Queue is healthy, but epoch has expired.
+        for (let i = 0; i < 1000; i++) tokenPool.queue.push('t' + i);
+        tokenPool.currentEpochId = '01020304';
+        tokenPool.currentExpiresAt = Math.floor(Date.now() / 1000) - 1; // already expired
+
+        let called = 0;
+        tokenPool._requestBatchImpl = () => { called++; return Promise.resolve({ ok: true }); };
+        maybeRefill('ws://relay.example/ws');
+        await new Promise(r => setTimeout(r, 10));
+        assert.equal(called, 1, 'refill invoked after epoch boundary');
+    });
+
+    test('sendOutbound with drained pool raises relayTokenEmpty toast', async () => {
+        // Integration-ish: rather than importing messaging.js (which drags in
+        // DOM), we mirror the relevant snippet that maps a drained-pool
+        // `spendOneToken()` throw into a `toast.relayTokenEmpty` show.
+        const mod = await freshPool();
+        const { tokenPool, spendOneToken, resetTokenPool } = mod;
+        resetTokenPool();
+
+        const toastsShown = [];
+        function showToast(msg) { toastsShown.push(msg); }
+        function t(key) { return key; }
+
+        function sendOutbound() {
+            try {
+                return spendOneToken();
+            } catch (e) {
+                showToast(t('toast.relayTokenEmpty'));
+                return null;
+            }
+        }
+
+        assert.equal(sendOutbound(), null, 'send returns null when drained');
+        assert.deepEqual(toastsShown, ['toast.relayTokenEmpty']);
+    });
+
+    test('pool exposes ciphersuite-matching constants', async () => {
+        const mod = await freshPool();
+        assert.equal(typeof mod.TOKEN_POOL_LOW_WATER, 'number');
+        assert.equal(typeof mod.TOKEN_POOL_DEFAULT_BATCH, 'number');
+        // LOW_WATER per the H9 brief.
+        assert.equal(mod.TOKEN_POOL_LOW_WATER, 128);
+        // Default batch is one epoch's worth per the relay's default budget.
+        assert.equal(mod.TOKEN_POOL_DEFAULT_BATCH, 8192);
+    });
+});

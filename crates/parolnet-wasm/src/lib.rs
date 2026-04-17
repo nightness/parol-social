@@ -502,6 +502,27 @@ pub fn session_count() -> u32 {
         .unwrap_or(0)
 }
 
+/// Enumerate peer IDs (hex-encoded 32-byte) with an active session.
+///
+/// Used by the sealed-sender receive path: the outer relay frame no
+/// longer carries `from`, so the PWA tries each candidate session until
+/// one AEAD-decrypts the envelope (PNP-001-MUST-048).
+#[wasm_bindgen]
+pub fn list_session_peer_ids() -> JsValue {
+    let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let ids: Vec<String> = state
+        .client
+        .as_ref()
+        .map(|c| {
+            c.export_sessions()
+                .into_iter()
+                .map(|(pid, _data)| hex::encode(pid))
+                .collect()
+        })
+        .unwrap_or_default();
+    serde_wasm_bindgen::to_value(&ids).unwrap_or(JsValue::NULL)
+}
+
 /// Export all Double Ratchet sessions as a JSON string.
 ///
 /// Returns `{"<peer_id_hex>": "<session_bytes_hex>", ...}` or empty string if no sessions.
@@ -1871,3 +1892,217 @@ pub fn create_bridge_address(
     }
     Ok(addr.to_qr_string())
 }
+
+// ── H9 Privacy Pass token client bindings ──────────────────────
+//
+// These expose the *client* side of the VOPRF issuance / finalize flow from
+// `voprf = "0.5"` using the `Ristretto255` ciphersuite (RFC 9497 §4.1
+// "ristretto255-SHA512"). The relay issuer side lives in
+// `parolnet-relay::tokens`; both ends must agree on the ciphersuite — see
+// commit 1 of H9.
+//
+// The per-token client state is two 32-byte values:
+//   * `blind`  — the VOPRF blinding scalar (secret; zeroized on drop)
+//   * `nonce`  — the VOPRF input the client drew (RFC 9578 Privacy Pass nonce)
+//
+// `token_prepare_blind` hands back an opaque CBOR-encoded handle carrying
+// those two arrays for every token requested, plus the list of blinded
+// elements to ship to the relay's `/tokens/issue` endpoint. Once the relay
+// returns evaluated elements, `token_unblind` consumes the handle, runs
+// `OprfClient::finalize` per entry, and returns CBOR-encoded `Token`
+// structs (hex) ready to spend as the `token` field of an outer relay frame.
+
+/// VOPRF ciphersuite pinned to the relay's choice.
+///
+/// The on-wire label is `"ristretto255-SHA512"` — same string the relay
+/// emits in its `TokenIssueResponse.ciphersuite`.
+type WasmSuite = voprf::Ristretto255;
+
+/// CBOR handle produced by [`token_prepare_blind`], consumed by
+/// [`token_unblind`]. Each index `i` in the response evaluated list maps
+/// 1-1 with `blinds[i]` + `nonces[i]` here.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct TokenBlindHandle {
+    /// Per-token 32-byte blinding scalar (compressed Ristretto255 scalar).
+    /// Secret: zeroized when the Rust representation drops. Caller MUST
+    /// drop the JS handle hex as soon as `token_unblind` consumes it.
+    blinds: Vec<serde_bytes::ByteBuf>,
+    /// Per-token 32-byte Privacy Pass nonce (the VOPRF input). Not secret.
+    nonces: Vec<serde_bytes::ByteBuf>,
+}
+
+/// The CBOR `Token` wire format — matches `parolnet_relay::tokens::Token`
+/// byte-for-byte. Relay verification goes through `parse_outer_token` which
+/// CBOR-decodes this exact shape.
+#[derive(serde::Serialize)]
+struct WasmToken {
+    epoch_id: serde_bytes::ByteBuf,
+    nonce: serde_bytes::ByteBuf,
+    evaluation: serde_bytes::ByteBuf,
+}
+
+#[derive(serde::Serialize)]
+struct TokenPrepareResult {
+    /// Hex-encoded CBOR [`TokenBlindHandle`]. Carries secret blinding
+    /// scalars — treat as one-shot material; discard after `token_unblind`.
+    handle_hex: String,
+    /// Hex-encoded serialized `BlindedElement`s (32 bytes each for
+    /// Ristretto255). Feed this list directly into the relay's
+    /// `/tokens/issue` request body (`blinded_bytes_list` field).
+    blinded_bytes_hex_list: Vec<String>,
+}
+
+/// Prepare `count` blinded VOPRF nonces plus client-side secret state.
+///
+/// Returns `{ handle_hex, blinded_bytes_hex_list }`:
+///
+/// * `handle_hex` — a hex-encoded CBOR struct carrying the per-token
+///   blinding scalars (secret) and nonces (not secret). Pass it back into
+///   [`token_unblind`] together with the relay's evaluated list.
+/// * `blinded_bytes_hex_list` — the `BlindedElement` bytes to send to the
+///   relay (one per requested token).
+///
+/// # Caller responsibility
+///
+/// The blinding scalars inside the handle are secret VOPRF material. The
+/// Rust-side buffer is zeroized when the handle is consumed by
+/// [`token_unblind`]. The JS caller MUST drop every reference to the
+/// returned `handle_hex` string as soon as `token_unblind` consumes it —
+/// JS strings are not zeroizable.
+#[wasm_bindgen]
+pub fn token_prepare_blind(count: u32) -> Result<JsValue, JsError> {
+    use rand::RngCore;
+    use voprf::OprfClient;
+
+    if count == 0 {
+        return Err(JsError::new("count must be > 0"));
+    }
+    if count > 16_384 {
+        // Sanity cap: the relay budget is 8192/epoch; anything above 16k
+        // is a misuse of this call. Bound the allocation up front.
+        return Err(JsError::new("count exceeds sanity cap (16384)"));
+    }
+
+    let mut rng = rand::rngs::OsRng;
+    let mut blinds: Vec<serde_bytes::ByteBuf> = Vec::with_capacity(count as usize);
+    let mut nonces: Vec<serde_bytes::ByteBuf> = Vec::with_capacity(count as usize);
+    let mut blinded_hex: Vec<String> = Vec::with_capacity(count as usize);
+
+    for _ in 0..count {
+        // Per-token 32-byte nonce. RFC 9578 §2 Privacy Pass nonce.
+        let mut nonce = [0u8; 32];
+        rng.fill_bytes(&mut nonce);
+
+        let blind_result = OprfClient::<WasmSuite>::blind(&nonce, &mut rng)
+            .map_err(|e| JsError::new(&format!("OprfClient::blind failed: {e}")))?;
+
+        // Serialize the client scalar for the handle (32 bytes compressed
+        // Ristretto255 scalar).
+        let scalar_bytes = blind_result.state.serialize();
+        let mut scalar_buf = vec![0u8; scalar_bytes.len()];
+        scalar_buf.copy_from_slice(&scalar_bytes);
+        blinds.push(serde_bytes::ByteBuf::from(scalar_buf));
+        nonces.push(serde_bytes::ByteBuf::from(nonce.to_vec()));
+
+        let msg_bytes = blind_result.message.serialize();
+        blinded_hex.push(hex::encode(msg_bytes));
+    }
+
+    let handle = TokenBlindHandle {
+        blinds: blinds.clone(),
+        nonces,
+    };
+    let mut handle_cbor = Vec::new();
+    ciborium::into_writer(&handle, &mut handle_cbor)
+        .map_err(|e| JsError::new(&format!("cbor encode handle: {e}")))?;
+    // Scrub the local scalar buffer copy now that it has been serialized.
+    // The `handle` still carries them inside the CBOR; that part leaves
+    // this function. `blinds` is the local Vec we can wipe.
+    for b in blinds.iter_mut() {
+        b.as_mut().zeroize();
+    }
+    drop(blinds);
+
+    let out = TokenPrepareResult {
+        handle_hex: hex::encode(handle_cbor),
+        blinded_bytes_hex_list: blinded_hex,
+    };
+    serde_wasm_bindgen::to_value(&out).map_err(|e| JsError::new(&format!("serialize: {e}")))
+}
+
+/// Given the handle produced by [`token_prepare_blind`] and the `evaluated`
+/// list from the relay's `POST /tokens/issue` response, unblind into
+/// fully-formed `Token` CBOR bytes (hex-encoded) tagged with `epoch_id_hex`
+/// (4 bytes hex, from the relay response).
+///
+/// Returns `string[]` — one hex-encoded CBOR Token per input evaluation.
+/// The caller MUST NOT reuse the handle after this call; the secret blinds
+/// are consumed and zeroized on our side.
+#[wasm_bindgen]
+pub fn token_unblind(
+    handle_hex: &str,
+    evaluated_bytes_hex_list: Box<[JsValue]>,
+    epoch_id_hex: &str,
+) -> Result<JsValue, JsError> {
+    use voprf::{EvaluationElement, OprfClient};
+
+    let handle_bytes =
+        hex::decode(handle_hex).map_err(|e| JsError::new(&format!("invalid handle hex: {e}")))?;
+    let mut handle: TokenBlindHandle = ciborium::from_reader(handle_bytes.as_slice())
+        .map_err(|e| JsError::new(&format!("cbor decode handle: {e}")))?;
+
+    let epoch_id = hex::decode(epoch_id_hex)
+        .map_err(|e| JsError::new(&format!("invalid epoch_id hex: {e}")))?;
+    if epoch_id.len() != 4 {
+        return Err(JsError::new("epoch_id must be 4 bytes"));
+    }
+
+    if evaluated_bytes_hex_list.len() != handle.blinds.len() {
+        return Err(JsError::new(
+            "evaluated list length does not match handle length",
+        ));
+    }
+
+    let mut out: Vec<String> = Vec::with_capacity(handle.blinds.len());
+    for (i, eval_js) in evaluated_bytes_hex_list.iter().enumerate() {
+        let eval_hex = eval_js.as_string().ok_or_else(|| {
+            JsError::new(&format!("evaluated[{i}] is not a string"))
+        })?;
+        let eval_bytes = hex::decode(&eval_hex)
+            .map_err(|e| JsError::new(&format!("evaluated[{i}] invalid hex: {e}")))?;
+
+        let eval_elem = EvaluationElement::<WasmSuite>::deserialize(&eval_bytes)
+            .map_err(|e| JsError::new(&format!("evaluated[{i}] invalid: {e}")))?;
+
+        let client = OprfClient::<WasmSuite>::deserialize(&handle.blinds[i])
+            .map_err(|e| JsError::new(&format!("handle[{i}] invalid: {e}")))?;
+
+        let output = client
+            .finalize(&handle.nonces[i], &eval_elem)
+            .map_err(|e| JsError::new(&format!("finalize[{i}]: {e}")))?;
+
+        let token = WasmToken {
+            epoch_id: serde_bytes::ByteBuf::from(epoch_id.clone()),
+            nonce: serde_bytes::ByteBuf::from(handle.nonces[i].to_vec()),
+            evaluation: serde_bytes::ByteBuf::from(output.to_vec()),
+        };
+        let mut token_cbor = Vec::new();
+        ciborium::into_writer(&token, &mut token_cbor)
+            .map_err(|e| JsError::new(&format!("cbor encode token[{i}]: {e}")))?;
+        out.push(hex::encode(token_cbor));
+    }
+
+    // Consume-and-zeroize: the secret scalars in the handle are dead.
+    for b in handle.blinds.iter_mut() {
+        b.as_mut().zeroize();
+    }
+    drop(handle);
+
+    serde_wasm_bindgen::to_value(&out).map_err(|e| JsError::new(&format!("serialize: {e}")))
+}
+
+// Note: `token_spend` from the H9 brief is intentionally not exported. The
+// PWA already has a pure-JS pop-queue in `pwa/src/token-pool.js` that
+// implements FIFO spend semantics. Adding a WASM round-trip would be dead
+// weight — the token hex leaves `token_unblind`, sits in the queue, then
+// goes straight onto the outer frame's `token` field.

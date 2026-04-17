@@ -154,6 +154,8 @@
   "toast.conversationClosed": "Conversation fermee",
   "toast.identityRotated": "Identite remplacee. L'ancienne expire dans 7 jours.",
   "toast.contactRotated": "{name} a remplace son identite — verifie son nouveau numero de securite",
+  "toast.relayTokenEmpty": "Jetons de relais epuises — nouvelle tentative...",
+  "toast.relayTokenFetchFailed": "Impossible d'obtenir les jetons de relais",
   "empty.noContacts": "Aucun contact pour l'instant",
   "empty.addContact": "Appuie sur + pour ajouter quelqu'un",
   "empty.noMessages": "Aucun message pour l'instant",

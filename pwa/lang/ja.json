@@ -154,6 +154,8 @@
   "toast.conversationClosed": "会話を閉じました",
   "toast.identityRotated": "身元を再生成しました。旧身元は7日後に失効します。",
   "toast.contactRotated": "{name} さんが身元を再生成しました — 新しい安全番号を確認してください",
+  "toast.relayTokenEmpty": "中継トークンを使い切りました — 再取得中...",
+  "toast.relayTokenFetchFailed": "中継トークンを取得できませんでした",
   "empty.noContacts": "まだ連絡先がありません",
   "empty.addContact": "+ をタップして追加しましょう",
   "empty.noMessages": "まだメッセージがありません",

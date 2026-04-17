@@ -154,6 +154,8 @@
   "toast.conversationClosed": "Conversacion cerrada",
   "toast.identityRotated": "Identidad rotada. La antigua expira en 7 dias.",
   "toast.contactRotated": "{name} roto su identidad — verifica su nuevo numero de seguridad",
+  "toast.relayTokenEmpty": "Fichas de rele agotadas — reintentando...",
+  "toast.relayTokenFetchFailed": "No se pudieron obtener las fichas de rele",
   "empty.noContacts": "Aun no hay contactos",
   "empty.addContact": "Toca + para agregar a alguien",
   "empty.noMessages": "Aun no hay mensajes",

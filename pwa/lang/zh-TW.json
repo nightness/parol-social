@@ -154,6 +154,8 @@
   "toast.conversationClosed": "對話已關閉",
   "toast.identityRotated": "身分已更換。舊身分將在 7 天後失效。",
   "toast.contactRotated": "{name} 更換了身分——請核對其新的安全碼",
+  "toast.relayTokenEmpty": "中繼權杖已耗盡——正在重試……",
+  "toast.relayTokenFetchFailed": "無法取得中繼權杖",
   "empty.noContacts": "還沒有聯絡人",
   "empty.addContact": "點 + 新增聯絡人",
   "empty.noMessages": "還沒有訊息",

@@ -154,6 +154,8 @@
   "toast.conversationClosed": "Unterhaltung geschlossen",
   "toast.identityRotated": "Identität gewechselt. Alte Identität läuft in 7 Tagen ab.",
   "toast.contactRotated": "{name} hat die Identität gewechselt — überprüfe die neue Sicherheitsnummer",
+  "toast.relayTokenEmpty": "Relay-Tokens aufgebraucht — wird erneut versucht...",
+  "toast.relayTokenFetchFailed": "Relay-Tokens konnten nicht geholt werden",
   "empty.noContacts": "Noch keine Kontakte",
   "empty.addContact": "Tippe auf + um jemanden hinzuzufuegen",
   "empty.noMessages": "Noch keine Nachrichten",

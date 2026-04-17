@@ -154,6 +154,8 @@
   "toast.conversationClosed": "Sohbet kapatıldı",
   "toast.identityRotated": "Kimlik yenilendi. Eskisi 7 gün içinde süresi dolacak.",
   "toast.contactRotated": "{name} kimliğini yeniledi — yeni güvenlik numarasını doğrulayın",
+  "toast.relayTokenEmpty": "Aktarım jetonları tükendi — yeniden deneniyor...",
+  "toast.relayTokenFetchFailed": "Aktarım jetonları alınamadı",
   "empty.noContacts": "Henüz kişi yok",
   "empty.addContact": "Birini eklemek için + simgesine dokunun",
   "empty.noMessages": "Henüz mesaj yok",

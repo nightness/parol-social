@@ -154,6 +154,8 @@
   "toast.conversationClosed": "Беседа закрыта",
   "toast.identityRotated": "Личность обновлена. Прежняя истекает через 7 дней.",
   "toast.contactRotated": "{name} сменил(а) личность — проверьте новый код безопасности",
+  "toast.relayTokenEmpty": "Токены ретранслятора исчерпаны — повторная попытка...",
+  "toast.relayTokenFetchFailed": "Не удалось получить токены ретранслятора",
   "empty.noContacts": "Контактов пока нет",
   "empty.addContact": "Нажмите + чтобы добавить кого-нибудь",
   "empty.noMessages": "Сообщений пока нет",

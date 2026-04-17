@@ -154,6 +154,8 @@
   "toast.conversationClosed": "Conversazione chiusa",
   "toast.identityRotated": "Identita rigenerata. La vecchia scade tra 7 giorni.",
   "toast.contactRotated": "{name} ha rigenerato l'identita — verifica il nuovo numero di sicurezza",
+  "toast.relayTokenEmpty": "Gettoni del relay esauriti — nuovo tentativo...",
+  "toast.relayTokenFetchFailed": "Impossibile ottenere i gettoni del relay",
   "empty.noContacts": "Ancora nessun contatto",
   "empty.addContact": "Tocca + per aggiungere qualcuno",
   "empty.noMessages": "Ancora nessun messaggio",

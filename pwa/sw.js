@@ -10,7 +10,7 @@ const CACHE_NAME = 'parolnet-v9';
 // If the hash doesn't match, the resource is re-fetched from the network.
 // Regenerate these hashes whenever the corresponding files change.
 const RESOURCE_HASHES = {
-    'app.js': '5396b3bbdc6c7123e39a1a4d3a39d7d2a25362a1f61972bf76dcbd2a1b971733',
+    'app.js': 'fd54ebaef328fdb8be6fc753d4511561b501e20622e8f45f310a41d09ff94d88',
     'styles.css': 'a4a07e1fe925dbd2324e9cf01e9454dadd9c3409e19e39df1f4254f5682dfcc2',
     'crypto-store.js': '290b12b0c369faeb405be244c5c616005c5ff998966c6cdf3b1591fa2129aab9',
     'index.html': 'e7d1a1b6670c8375971f706bd895b2538f3451962f9b0876cb475b76b5ac9908',
@@ -413,8 +413,14 @@ self.addEventListener('message', event => {
             }
             break;
         case 'relay_send':
+            // PNP-001-MUST-048: outer frame carries `token`, never `from`.
             if (relayWs && relayWs.readyState === 1) {
-                relayWs.send(JSON.stringify({ type: 'message', to: d.to, payload: d.payload }));
+                relayWs.send(JSON.stringify({
+                    type: 'message',
+                    to: d.to,
+                    token: d.token,
+                    payload: d.payload,
+                }));
             }
             break;
         case 'relay_signaling':
