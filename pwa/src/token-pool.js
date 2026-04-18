@@ -39,20 +39,18 @@ async function getWasm() {
     }
 }
 
-// How many tokens to request per batch. The relay's per-epoch budget is
-// 8192 (see `TokenConfig::default` in parolnet-relay::tokens); we pull in
-// smaller increments so a browser reload doesn't drain the entire hourly
-// cap in one request. 256 gives ~32 refills per epoch which comfortably
-// covers reloads + steady-state sending.
-const DEFAULT_BATCH_SIZE = 256;
+// How many tokens to request per batch. Default relay builds do not
+// enforce a per-identity issuance cap (PNP-001 MAY-005), so batch size is
+// purely a round-trip efficiency knob. 1024 tokens covers ~17 minutes of
+// worst-case cover-traffic emission at the 1-second decoy cadence plus
+// ample headroom for real sends.
+const DEFAULT_BATCH_SIZE = 1024;
 // When the queue drops below this during an active epoch, trigger a
 // fire-and-forget refill. Sized well below DEFAULT_BATCH_SIZE so refills
 // land before the pool empties.
-const LOW_WATER = 64;
-// Epoch budget + grace guard: do not attempt refill if the active epoch
-// has less than this many seconds left — the server applies the budget cap
-// per epoch, so near the boundary we wait for the reset rather than waste
-// the remaining cap.
+const LOW_WATER = 128;
+// Don't bother re-requesting if the epoch is almost over — the tokens
+// would expire quickly and spend-time verification would reject them.
 const EPOCH_TAIL_GUARD_SECS = 60;
 
 // Per-relay pool map: relayUrl -> pool state. Created lazily.

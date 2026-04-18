@@ -188,19 +188,19 @@ fn issue_request_with_bad_signature_is_rejected() {
     );
 }
 
-// ---- §"Token Auth" — cumulative issuance accounting -----------------------
+// ---- §"Token Auth" — optional cumulative issuance accounting --------------
 
-#[clause("PNP-001-MUST-063")]
+#[clause("PNP-001-MAY-005")]
 #[test]
-fn cumulative_issuance_respects_budget_per_epoch() {
-    // Pin the §10.2 accounting semantic directly: the cap is on running total
-    // per (identity, epoch), not on batch count. Multiple batches under the
-    // cap must all be accepted; the first batch that would overflow must be
-    // rejected without advancing the counter.
+fn opt_in_cumulative_accounting_has_required_shape() {
+    // Issuance rate limiting is OPTIONAL per §10.2 (MAY-005). If a deployment
+    // chooses to enable it, the accounting MUST be cumulative per
+    // (identity, epoch), MUST return 429 without advancing the counter on
+    // overflow, and MUST reset on epoch rotation. This test exercises that
+    // accounting shape so any re-enabled implementation can pin against it.
     //
-    // The relay-server handler delegates to this same running-total model
-    // via its IssueLimiter type. Here we exercise the accounting logic
-    // directly to avoid spinning up the full HTTP stack.
+    // Default relay builds (parolnet-relay-server) do NOT enforce the cap —
+    // see `IssueLimiter` comment. MUST-050 + MUST-052 are the real defenses.
     use std::collections::HashMap;
     let budget: u32 = 32;
     let epoch_id: u32 = 7;
@@ -228,9 +228,8 @@ fn cumulative_issuance_respects_budget_per_epoch() {
     assert!(try_issue(&mut issued, ident, epoch_id, 10, budget));
     assert!(try_issue(&mut issued, ident, epoch_id, 10, budget));
     assert!(try_issue(&mut issued, ident, epoch_id, 12, budget));
-    // Running total now 32 == cap. Any further request this epoch rejects.
+    // Running total now 32 == cap. Overflow attempts reject without advance.
     assert!(!try_issue(&mut issued, ident, epoch_id, 1, budget));
-    // The failed request MUST NOT have advanced the counter (32 not 33).
     assert_eq!(issued[&ident], (epoch_id, 32));
     // New epoch resets the counter for this identity.
     assert!(try_issue(&mut issued, ident, epoch_id + 1, 32, budget));

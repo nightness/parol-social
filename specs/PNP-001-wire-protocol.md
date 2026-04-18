@@ -1,16 +1,22 @@
 # PNP-001: ParolNet Wire Protocol
 
 ### Status: CANDIDATE
-### Version: 0.7
+### Version: 0.8
 ### Date: 2026-04-18
 
 ---
 
 ## Changelog
 
-**v0.7 (2026-04-18) — Token issuance accounting clarified**
+**v0.8 (2026-04-18) — Issuance rate limit demoted to optional**
 
-- Added `PNP-001-MUST-063` to §10.2 making the `budget_per_epoch` cap explicitly cumulative per (identity, epoch). Prior text referenced the 8192 cap only in the request-body schema comment, which left implementations free to interpret the limit as "one batch per epoch" — stricter than the spec intended. The new clause locks the semantic: any number of issuance requests MUST be accepted as long as the running total stays under the cap; rejections on overflow MUST return HTTP 429 and MUST NOT advance the counter.
+- §10.2 issuance accounting reworked from `PNP-001-MUST-063` (cumulative cap REQUIRED) to `PNP-001-MAY-005` (cumulative cap OPTIONAL). Identity creation is free in PNP-002, so a per-identity budget cannot stop an adversary — they just rotate keys. Legitimate users (browser reloads, multi-tab workflows) were the ones getting rate-limited. MUST-050 (per-epoch spent-set) and MUST-052 (Ed25519 sig gate) are the real defenses and stand on their own; network-layer abuse is the job of fail2ban on the deployment host, not the application layer.
+- The MAY form still describes the exact accounting any opt-in deployment MUST use (running total, 429 without advance, epoch-reset) so a relay that chooses to enable it stays interoperable. Default relay builds no longer enforce the cap.
+- PNP-001 MUST count drops back to 62 (MUST-063 promoted to MAY-005).
+
+**v0.7 (2026-04-18) — Token issuance accounting clarified — superseded by v0.8**
+
+- Added `PNP-001-MUST-063` to §10.2 making the `budget_per_epoch` cap explicitly cumulative per (identity, epoch). Relaxed in v0.8 after the cap was shown to gate legitimate reloads without deterring identity-rotating attackers.
 
 **v0.6 (2026-04-17) — Envelope fragmentation & reassembly**
 
@@ -505,7 +511,7 @@ On receiving an outer frame the relay MUST:
 
 All three rejection paths drop the frame silently (no error to the sender).
 
-**Issuance accounting.** The relay MUST track the cumulative number of BlindedElements it has evaluated for each (identity, epoch) pair and MUST reject any issuance request that would push that running total above `budget_per_epoch` (default 8192). **PNP-001-MUST-063** Requests that remain under the cap MUST be served regardless of how many prior requests from the same identity succeeded in the epoch — the cap is on total tokens, not on batch count. On epoch rotation the counter for every identity MUST reset. A rejection for this reason MUST return HTTP 429 and the counter MUST NOT advance (partial-batch rejections leave the budget intact).
+**Issuance accounting.** Relays MAY enforce a per-identity cumulative budget on BlindedElements evaluated per (identity, epoch). Such a budget is a belt-and-suspenders abuse control on top of the two real defenses — the Ed25519 signature gate (MUST-052) and the per-epoch spent-set (MUST-050) — and is NOT REQUIRED. **PNP-001-MAY-005** Identity creation is free (PNP-002 requires no registration), so a per-identity budget does not deter attackers; network-layer rate limiting (e.g., fail2ban on `POST /tokens/issue`) is the deployment-preferred abuse control. If a relay does enforce a cumulative budget, it MUST track the running total per (identity, epoch), reject overflow with HTTP 429 without advancing the counter, and reset on epoch rotation so that partial-batch rejections leave the cap intact.
 
 **Epoch rotation.** Each epoch lasts **3600 seconds**. At every epoch boundary the relay generates a fresh VOPRF secret for the new epoch and retains the previous epoch's secret for a **300-second grace window** so tokens that were issued just before the boundary still verify. Once the grace window elapses, the prior secret and its spent-set MUST be dropped. **PNP-001-MUST-051**
 
