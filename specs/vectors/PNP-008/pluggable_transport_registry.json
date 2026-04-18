@@ -1,0 +1,23 @@
+{
+  "clauses": ["PNP-008-MUST-093", "PNP-008-MUST-097"],
+  "description": "PNP-008 §9.2 pluggable transport registry (v1).",
+  "identifier_pattern": "[a-z0-9_-]{1,32}",
+  "transports": [
+    {
+      "id": "domain_front",
+      "section": "9.2.2",
+      "description": "TLS to a CDN fronting domain; inner Host routes to bridge."
+    },
+    {
+      "id": "obfs",
+      "section": "9.2.3",
+      "description": "Obfs4-style obfuscated stream."
+    },
+    {
+      "id": "direct_tls",
+      "section": "9.2.4",
+      "description": "Raw PNP-006 camouflaged TLS (baseline, mandatory)."
+    }
+  ],
+  "mandatory_baseline": "direct_tls"
+}

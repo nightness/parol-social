@@ -1,0 +1,8 @@
+{
+  "clauses": ["PNP-008-MUST-095", "PNP-008-MUST-096"],
+  "description": "Obfuscated transport randomness + length-distribution bounds.",
+  "min_random_prefix_bytes": 32,
+  "per_session_randomization_required": true,
+  "iat_mode_negotiated_before_pnp002_handshake": true,
+  "frame_length_distribution_matches_cover_profile": true
+}

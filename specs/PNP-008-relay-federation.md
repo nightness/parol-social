@@ -1,11 +1,12 @@
 # PNP-008: Relay Federation & Network Resilience
 
-**Version:** 0.6
+**Version:** 0.7
 **Status:** CANDIDATE
-**Last-Updated:** 2026-04-17
+**Last-Updated:** 2026-04-18
 
 ## Changelog
 
+- **v0.7 (2026-04-18):** Locked the §9.2 Pluggable Transport contract so bridge relays can ship obfuscated wire protocols without each implementation re-inventing the trait boundary. Added `PNP-008-MUST-091` through `PNP-008-MUST-098` covering: bidirectional reliable stream invariant (091), session-to-transport affinity (092), transport registry identifiers (093), domain-fronting SNI/Host split (094), obfuscation randomness + length distribution (095/096), mandatory `direct_tls` baseline (097), and per-session uniform transport selection (098). The registry codifies `domain_front`, `obfs`, `direct_tls` as the v1 identifiers; new transports extend the registry in later spec versions.
 - **v0.6 (2026-04-17):** Tightened §9 Bridge Relays with explicit probe-resistance and audit-log normatives. Added §9.1.1 "Cover-Page Probe Resistance" with `PNP-008-MUST-085` through `PNP-008-MUST-088` (HTTP 200 + text/html cover body, forbidden tokens, 250 ms latency budget, no probe-source state). Added §9.1.2 "Disclosure Rate Limiting & Audit Log" with `PNP-008-MUST-089` (ephemeral in-memory disclosure counter, no cross-restart persistence) and `PNP-008-MUST-090` (scheduled ≤3600 s IP-log scrubber enforcing the 24 h purge). Clarifies MUST-052/053/054 into implementable requirements. No wire-format changes.
 - **v0.5 (2026-04-17):** Locked the federation-link on-wire shape. Added §5.5 "On-Wire Framing" with `PNP-008-MUST-077` through `PNP-008-MUST-082` (WSS on `/federation/v1`, length-prefixed CBOR frames, 2 MiB cap, unknown-type = close, initial FederationSync ordering, mid-SYNC heartbeat policy). Added §5.6 "Link Deduplication & Close" with `PNP-008-MUST-083` and `PNP-008-MUST-084` (one link per peer, close semantics). No new payload types — these clauses lock what implementations must send on an already-allocated 0x06/0x07 frame.
 - **v0.4 (2026-04-17):** Tightened §8 Bootstrap Channels with six supplemental MUST clauses (`PNP-008-MUST-071` through `PNP-008-MUST-076`) covering BootstrapBundle version gating, 7-day freshness bound, DHT BEP-44 salt constant, per-channel 10-second attempt timeout, seed-list load-without-network invariant, and HTTPS content-type rejection. Addresses stale-bundle replay, cross-network DHT collisions, and content-sniffing attacks. No wire-format changes — existing clients that already validate signatures remain interoperable once they apply the new bounds.
@@ -453,6 +454,42 @@ MUST-053 says a bridge SHOULD look like a web server to any prober. This subsect
 
 **PNP-008-MAY-003**: Clients MAY implement automatic bridge rotation across ≥ 2 configured bridges with per-session random selection.
 
+### 9.2 Pluggable Transports
+
+Bridge relays MUST expose at least one pluggable transport whose wire fingerprint is indistinguishable from high-volume benign traffic. This section defines the contract any transport implementation MUST satisfy so that the rest of the system can layer PNP-002 handshakes, federation links, and client circuits on top of them without knowing which transport is in play.
+
+#### 9.2.1 Transport Contract
+
+**PNP-008-MUST-091**: A pluggable transport MUST expose a bidirectional, ordered, reliable, binary-safe byte stream. Frame boundaries visible to upper layers (envelope padding, federation framing) MUST NOT leak through to the transport; any packetisation on the wire MUST be transport-internal.
+
+**PNP-008-MUST-092**: A pluggable transport MUST support both a `listen` (accept) and `connect` (dial) role. A bridge MAY offer multiple transports; a client MUST pick exactly one transport per session and MUST NOT multiplex a single session across transports.
+
+**PNP-008-MUST-093**: Every pluggable transport MUST declare a short stable identifier (ASCII `[a-z0-9_-]{1,32}`) registered in the transport registry. Identifiers registered by this version of the spec:
+
+| id              | §      | Description                                                 |
+|-----------------|--------|-------------------------------------------------------------|
+| `domain_front`  | 9.2.2  | TLS to a CDN fronting domain; inner `Host` routes to bridge |
+| `obfs`          | 9.2.3  | Obfs4-style obfuscated stream                               |
+| `direct_tls`    | 9.2.4  | Raw PNP-006 camouflaged TLS (baseline, no obfuscation)      |
+
+#### 9.2.2 Domain Fronting
+
+**PNP-008-MUST-094**: A domain-fronted transport MUST open TLS to a CDN-hosted front domain advertised by the bridge, send the bridge's true hostname as the inner HTTP `Host:` header (or HTTP/2 `:authority` pseudo-header), and accept replies whose TLS certificate chains to the front domain — not the bridge. The SNI presented during TLS handshake MUST match the front domain; the inner `Host`/`:authority` MUST match the bridge's cover hostname. A bridge MUST reject connections where the two agree (that indicates a non-fronted client that would defeat censorship resistance).
+
+#### 9.2.3 Obfuscation
+
+**PNP-008-MUST-095**: An obfuscated transport MUST randomize the first N ≥ 32 bytes on the wire per session so that a DPI engine scanning for TLS ClientHello, SSH banners, or known protocol magic numbers sees no repeated structure. The per-session obfuscation key MUST be negotiated over an authenticated channel (e.g. the obfs4 `iat-mode=1` node-identity exchange) before any PNP-002 frame is transmitted.
+
+**PNP-008-MUST-096**: Obfuscated transports MUST pad each wire frame to a sender-chosen length drawn from a distribution indistinguishable from the cover traffic profile (e.g. HTTP/1.1 pipelined requests, DNS-over-HTTPS). Length leakage from per-frame sizing SHALL be considered a transport-layer bug at release-gating time.
+
+#### 9.2.4 Baseline TLS
+
+**PNP-008-MUST-097**: `direct_tls` is the compiled-in baseline transport; every implementation MUST include it so operators always have a fallback. `direct_tls` MUST use the PNP-006 TLS camouflage profile; no additional obfuscation layer is required.
+
+#### 9.2.5 Selection Policy
+
+**PNP-008-MUST-098**: Client transport selection per session MUST be randomized over the set of transports the bridge advertises — no deterministic preference tied to client identity, installation timestamp, or prior-session choice. Operators MAY configure an operator-level allowlist that restricts the set, but within the allowlist the per-session pick MUST be uniform.
+
 ---
 
 ## 10. Security Considerations
@@ -559,7 +596,7 @@ Relays verify each fetched `PresenceEntry` signature against the home relay's Ed
 
 This specification declares:
 
-- **90 MUST** clauses (`PNP-008-MUST-001` through `PNP-008-MUST-090`)
+- **98 MUST** clauses (`PNP-008-MUST-001` through `PNP-008-MUST-098`)
 - **11 SHOULD** clauses (`PNP-008-SHOULD-001` through `PNP-008-SHOULD-011`)
 - **3 MAY** clauses (`PNP-008-MAY-001` through `PNP-008-MAY-003`)
 

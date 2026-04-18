@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Pluggable transport contract spec (PNP-008 §9.2)
+- PNP-008 bumped to v0.7. New §9.2 "Pluggable Transports" locks the contract every bridge-side transport MUST satisfy so the rest of the stack can layer PNP-002 / federation links / client circuits without knowing which transport is in play.
+- Clauses pinned: `PNP-008-MUST-091` (bidirectional reliable ordered binary stream, no upper-layer frame bleed-through), `MUST-092` (both listen + connect roles, single-transport per session), `MUST-093` (transport registry `[a-z0-9_-]{1,32}` with `domain_front`, `obfs`, `direct_tls` registered for v1), `MUST-094` (domain-fronting SNI≠inner `Host` invariant), `MUST-095` (≥ 32 B per-session random prefix, obfs key negotiated before any PNP-002 frame), `MUST-096` (frame length distribution matches cover traffic profile), `MUST-097` (`direct_tls` mandatory compiled-in baseline), `MUST-098` (per-session uniform-random transport selection — no deterministic preference tied to identity/timestamp/prior-session).
+- Vectors under `specs/vectors/PNP-008/`: `pluggable_transport_registry.json`, `pluggable_transport_obfuscation.json`.
+- Total PNP-008 normative clauses: **98** (MUST-001..098). **PNP-008 conformance: 115/115 green. Workspace: 1233/1233 green.**
+- Implementation (`parolnet-transport::pluggable` trait refactor + `domain_front.rs` + `obfs.rs`) lands in commit #12.
+
 ### Added — DHT BEP-44 bootstrap channel primitives (PNP-008 §8.5)
 - New `parolnet-relay::bootstrap::dht` module: `BEP_44_SALT = b"PNP-008-bootstrap"` (17 bytes, MUST-073), `DhtBootstrapKey::bep44_target` deriving SHA-1(authority_pubkey || salt) (MUST-047), `verify_and_extract_bundle` enforcing `seq == bundle.issued_at` (MUST-048) and funneling through `BootstrapBundle::verify_and_validate` for the full §6.3 chain (MUST-049). `DhtFetcher` trait lets operators plug in `mainline`, an HTTP-backed mirror, or a local cache without bloating every relay build with UDP transport. `InMemoryDht` fixture for unit + integration tests.
 - Brings PNP-008 §8 compliance from 3/4 channels (seed / DNS TXT / HTTPS) to **4/4 protocol layers** — live UDP is an operator concern, the primitives are no longer stubbed.
