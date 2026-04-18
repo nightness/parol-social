@@ -1,0 +1,11 @@
+{
+  "clauses": ["PNP-001-MUST-058"],
+  "description": "Fragments arrive out of order (2, 0, 1 — final first). Reassembly MUST hold fragments until final bit + complete seq range, then concatenate in fragment_seq order regardless of arrival order.",
+  "fragment_id_hex": "ffeeddccbbaa99887766554433221100",
+  "arrivals": [
+    { "fragment_seq": 2, "is_final_fragment": true,  "body_hex": "33" },
+    { "fragment_seq": 0, "is_final_fragment": false, "body_hex": "11" },
+    { "fragment_seq": 1, "is_final_fragment": false, "body_hex": "22" }
+  ],
+  "expected_reassembled_hex": "112233"
+}

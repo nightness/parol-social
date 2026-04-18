@@ -1,12 +1,19 @@
 # PNP-001: ParolNet Wire Protocol
 
 ### Status: CANDIDATE
-### Version: 0.5
+### Version: 0.6
 ### Date: 2026-04-17
 
 ---
 
 ## Changelog
+
+**v0.6 (2026-04-17) — Envelope fragmentation & reassembly**
+
+- Added §3.9 "Fragmentation" defining the normative reassembly algorithm for application bodies that overflow the 16384-byte bucket ceiling. Formalizes use of the `is_fragment` and `is_final_fragment` flag bits (already reserved in §3.3 v0.3) and introduces two optional plaintext fields `fragment_id` (16 random bytes shared across all fragments of one message) and `fragment_seq` (u32, 0-based).
+- Allocated clauses `PNP-001-MUST-053` through `PNP-001-MUST-062` covering fragment identity, in-order & out-of-order reassembly, per-sender buffer caps, 30-second reassembly timeout, AAD binding of fragment metadata, and duplicate-fragment handling. Closes the last wire-format ambiguity that was blocking multi-envelope message transport through 3-hop onion circuits.
+- Added `specs/vectors/PNP-001/fragment_*.json` test vectors.
+- §3.3 plaintext map description extended to list the two new optional keys; lex ordering (MUST-023) preserved.
 
 **v0.5 (2026-04-17) — Outer Relay Frame + H9 Privacy Pass token auth**
 
@@ -128,10 +135,16 @@ The encrypted payload carries the actual message content. It is encrypted using 
 ```
 Plaintext (before encryption) = CBOR Map (keys in lexicographic order):
   {
-    "body"    : bstr,       -- The application-layer content.
-    "chain"   : uint32,     -- Ratchet chain index.
-    "flags"   : uint8,      -- Bitfield (see below).
-    "seq"     : uint64      -- Sequence number within the Double Ratchet chain.
+    "body"         : bstr,            -- The application-layer content
+                                      -- (one fragment's slice if is_fragment=1).
+    "chain"        : uint32,          -- Ratchet chain index.
+    "flags"        : uint8,           -- Bitfield (see below).
+    "fragment_id"  : bstr (16 bytes), -- OPTIONAL; present iff is_fragment=1.
+                                      -- See §3.9.
+    "fragment_seq" : uint32,          -- OPTIONAL; present iff is_fragment=1.
+                                      -- See §3.9.
+    "seq"          : uint64           -- Sequence number within the Double
+                                      -- Ratchet chain (independent of fragment_seq).
   }
 ```
 
@@ -241,6 +254,36 @@ An intermediary relay MUST NOT be able to distinguish a decoy from a real messag
 4. Map keys in the encrypted payload MUST be text strings and MUST appear in lexicographic order. **PNP-001-MUST-023**
 5. Implementations MUST reject envelopes containing duplicate map keys. **PNP-001-MUST-024**
 6. Implementations MUST ignore unknown map keys in the encrypted payload (forward compatibility). **PNP-001-MUST-025**
+
+### 3.9 Fragmentation
+
+Application bodies that would produce an envelope larger than the 16384-byte ceiling (§3.6) MUST be fragmented. Each fragment is a fully-formed envelope (own ratchet header, own AEAD tag, bucket-padded per §3.6) carrying one slice of the body plus reassembly metadata.
+
+#### 3.9.1 Fragment identity & ordering
+
+**PNP-001-MUST-053**: When a sender decides to fragment a message it MUST generate a cryptographically random 16-byte `fragment_id` and include it in the plaintext map (§3.3) of every fragment produced from that message. A `fragment_id` MUST NOT be reused across different source messages.
+
+**PNP-001-MUST-054**: Each fragment MUST carry a `fragment_seq` value in the plaintext map — a 0-based monotonically increasing `uint32` indexing its position in the original body. The first fragment has `fragment_seq = 0`.
+
+**PNP-001-MUST-055**: Exactly one fragment in a message MUST have its `is_final_fragment` bit set (§3.3 bit 3); that fragment MUST also have the highest `fragment_seq` value of the message.
+
+**PNP-001-MUST-056**: The `is_fragment` bit (§3.3 bit 2) MUST be set on every fragment of a fragmented message. If `is_fragment = 0` the `fragment_id` and `fragment_seq` fields MUST be absent from the plaintext map; if `is_fragment = 1` both fields MUST be present (MUST-024 still forbids duplicate keys regardless).
+
+#### 3.9.2 AAD binding
+
+**PNP-001-MUST-057**: When `is_fragment = 1`, the AEAD AAD defined in §3.3 is extended to `ratchet_public_key || CBOR(cleartext_header) || fragment_id || fragment_seq_be`, where `fragment_seq_be` is the 4-byte big-endian encoding of `fragment_seq`. This prevents a relay from reshuffling fragments across messages or splicing a fragment from one message into another while keeping the AEAD tag valid.
+
+#### 3.9.3 Reassembly
+
+**PNP-001-MUST-058**: Receivers MUST buffer fragments keyed by `(sender_peer_id, fragment_id)` until every `fragment_seq` from `0` through the seq of the `is_final_fragment = 1` fragment has been observed, then concatenate the `body` fields in `fragment_seq` order to produce the reassembled message. Fragments arriving out of order MUST be held without dropping until reassembly completes or the timeout expires.
+
+**PNP-001-MUST-059**: Receivers MUST enforce a 30-second reassembly timeout measured from the arrival of the first fragment of a given `(sender, fragment_id)` tuple. On timeout the buffer MUST be dropped without reassembly and MUST NOT be retained.
+
+**PNP-001-MUST-060**: Receivers MUST enforce an 8-messages-per-sender in-flight cap and a 256-fragments-per-message limit. Excess fragments on either limit MUST be dropped; the receiver MAY decrement the sender's peer score per PNP-004 §5.7 if the limits are repeatedly exceeded.
+
+**PNP-001-MUST-061**: Duplicate fragments (same `(sender_peer_id, fragment_id, fragment_seq)` tuple, AEAD-verified) MUST be silently discarded; the first successful instance is retained. A duplicate whose AEAD verification fails MUST cause the original buffer to be dropped under the assumption an attacker is attempting content substitution.
+
+**PNP-001-MUST-062**: Reassembled messages inherit the `msg_type` and all other cleartext-header fields from the fragment with `fragment_seq = 0`; receivers MUST reject the reassembled message if fragments within the same `fragment_id` carry inconsistent values for `msg_type`, `dest_peer_id`, or `source_hint`.
 
 ## 4. State Machine
 

@@ -1,0 +1,11 @@
+{
+  "clauses": ["PNP-001-MUST-053", "PNP-001-MUST-054", "PNP-001-MUST-055", "PNP-001-MUST-058"],
+  "description": "Three-fragment reassembly in order. Final fragment has is_final_fragment=1 and highest fragment_seq. Reassembled body is concatenation in fragment_seq order.",
+  "fragment_id_hex": "00112233445566778899aabbccddeeff",
+  "arrivals": [
+    { "fragment_seq": 0, "is_final_fragment": false, "body_hex": "aaaa" },
+    { "fragment_seq": 1, "is_final_fragment": false, "body_hex": "bbbb" },
+    { "fragment_seq": 2, "is_final_fragment": true,  "body_hex": "cccc" }
+  ],
+  "expected_reassembled_hex": "aaaabbbbcccc"
+}

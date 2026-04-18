@@ -1,0 +1,11 @@
+{
+  "clauses": ["PNP-001-MUST-061"],
+  "description": "A duplicate fragment with identical (sender, fragment_id, fragment_seq) MUST be silently discarded — the first AEAD-verified copy wins. Reassembly continues normally.",
+  "fragment_id_hex": "deadbeefdeadbeefdeadbeefdeadbeef",
+  "arrivals": [
+    { "fragment_seq": 0, "is_final_fragment": false, "body_hex": "01" },
+    { "fragment_seq": 0, "is_final_fragment": false, "body_hex": "01", "note": "duplicate — ignored" },
+    { "fragment_seq": 1, "is_final_fragment": true,  "body_hex": "02" }
+  ],
+  "expected_reassembled_hex": "0102"
+}

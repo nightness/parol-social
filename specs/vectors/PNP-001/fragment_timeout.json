@@ -1,0 +1,11 @@
+{
+  "clauses": ["PNP-001-MUST-059"],
+  "description": "Partial reassembly: first fragment arrives at t=0, second at t=29 (within window — still buffered), final never arrives; at t=31 (> 30 s from first) the buffer MUST be dropped. Subsequent fragments under the same fragment_id MUST NOT resurrect the dropped buffer.",
+  "fragment_id_hex": "aabbccddaabbccddaabbccddaabbccdd",
+  "reassembly_timeout_secs": 30,
+  "timeline": [
+    { "t_secs":  0, "event": "first_fragment_arrives", "fragment_seq": 0 },
+    { "t_secs": 29, "event": "second_fragment_arrives", "fragment_seq": 1 },
+    { "t_secs": 31, "event": "buffer_dropped_due_to_timeout" }
+  ]
+}
