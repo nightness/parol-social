@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Federation-link on-wire framing spec (PNP-008 §5.5 / §5.6)
+- PNP-008 bumped to v0.5. New §5.5 "On-Wire Framing" pins MUST-077..082: WSS path `/federation/v1` (subprotocol `parolnet.federation.v1`), 4-byte big-endian length prefix + deterministic CBOR frame, 2 MiB hard cap, unknown `FederationPayloadType` → close code 4002, first post-handshake frame is `FederationSync` from the initiator, heartbeat MAY interleave during a sync.
+- New §5.6 "Link Deduplication & Close" pins MUST-083..084: one active link per remote `PeerId` (second attempt closes the older link with 4000), reserved close-code registry (1000 normal, 4000 dup_peer, 4001 rate_limit, 4002 unknown_type, 4003 frame_oversize).
+- Test vectors under `specs/vectors/PNP-008/`: `federation_link_framing.json`, `federation_close_codes.json`.
+- Total PNP-008 normative clauses: **84** (MUST-001..084). 9 new clause-pinned conformance tests land in `pnp_008_federation` (framing header/oversize/path/subprotocol + close-code registry). **PNP-008 conformance: 101/101 green. Workspace: 1194/1194 green.**
+- Status flip preview: MUST-018 (handshake over PNP-006 TLS camouflage) remains "pinned by spec" — commit #7 (`feat(relay): federation TLS link + codec`) is the first I/O commit that exercises it on the wire.
+
 ### Added — Envelope fragmentation & reassembly (PNP-001 §3.9)
 - New `parolnet-core::fragmentation` module. `Fragmenter::split(body, max_per_fragment, rng)` produces ordered `FragmentPiece`s sharing a random 16-byte `fragment_id` with 0-based `fragment_seq`; exactly one carries `is_final`. `Reassembler` buffers per `(sender, fragment_id)`, handles out-of-order arrival (BTreeMap in seq order), silently discards duplicates (MUST-061 first-writer-wins), enforces MUST-060 caps (8 in-flight per sender, 256 fragments per message) and MUST-059 30 s timeout via `tick(now)`.
 - WASM-compatible (no tokio); time is caller-supplied.

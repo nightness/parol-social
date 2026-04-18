@@ -1,0 +1,8 @@
+{
+  "clauses": ["PNP-008-MUST-077", "PNP-008-MUST-078", "PNP-008-MUST-079"],
+  "description": "Federation-link on-wire framing: WSS path, length-prefixed CBOR frames, 2 MiB cap.",
+  "wss_path": "/federation/v1",
+  "length_prefix_bytes": 4,
+  "length_prefix_encoding": "big-endian u32",
+  "max_frame_bytes": 2097152
+}

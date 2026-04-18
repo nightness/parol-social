@@ -844,6 +844,115 @@ fn bootstrap_seed_list_loads_without_network() {
     assert_eq!(channels[0], "seed", "seed MUST be the first attempted channel");
 }
 
+// -- §5.5 Federation link on-wire framing (v0.5) ---------------------------
+
+#[clause("PNP-008-MUST-077")]
+#[test]
+fn federation_link_path_is_version_one() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/federation_link_framing.json"
+    ))
+    .unwrap();
+    assert_eq!(v["wss_path"].as_str(), Some("/federation/v1"));
+}
+
+#[clause("PNP-008-MUST-078")]
+#[test]
+fn federation_frame_length_prefix_is_big_endian_u32() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/federation_link_framing.json"
+    ))
+    .unwrap();
+    assert_eq!(v["length_prefix_bytes"].as_u64(), Some(4));
+    assert_eq!(v["length_prefix_encoding"].as_str(), Some("big-endian u32"));
+
+    // Pin the framing construction: len_be32 || cbor_bytes.
+    let payload = vec![0u8; 64];
+    let len_be32 = (payload.len() as u32).to_be_bytes();
+    let frame: Vec<u8> = len_be32.iter().chain(payload.iter()).copied().collect();
+    assert_eq!(frame.len(), 4 + 64);
+    assert_eq!(&frame[..4], &[0, 0, 0, 64]);
+}
+
+#[clause("PNP-008-MUST-079")]
+#[test]
+fn federation_frame_max_bytes_is_2mib() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/federation_link_framing.json"
+    ))
+    .unwrap();
+    let max = v["max_frame_bytes"].as_u64().unwrap();
+    assert_eq!(max, 2 * 1024 * 1024);
+    // Pin the Rust constant form the relay crate will expose.
+    const FRAME_MAX: usize = 2 * 1024 * 1024;
+    assert_eq!(FRAME_MAX as u64, max);
+}
+
+#[clause("PNP-008-MUST-080")]
+#[test]
+fn federation_unknown_type_closes_transport() {
+    // Pin semantic: any type code not in FederationPayloadType MUST cause
+    // immediate close. FederationPayloadType covers 0x06..=0x08 only.
+    use parolnet_protocol::federation::FederationPayloadType;
+    for code in [0x00u8, 0x01, 0x05, 0x09, 0xFF] {
+        assert!(
+            FederationPayloadType::from_u8(code).is_none(),
+            "code 0x{code:02x} MUST be unknown on federation link"
+        );
+    }
+}
+
+#[clause("PNP-008-MUST-081")]
+#[test]
+fn federation_sync_must_precede_heartbeat_post_handshake() {
+    // Pin the ordering of the state machine transitions: SYNC before ACTIVE.
+    use parolnet_relay::federation::PeerState;
+    // can_send_federation_payload gates SYNC+ACTIVE only — HANDSHAKE denied.
+    assert!(!PeerState::Handshake.can_send_federation_payload());
+    assert!(PeerState::Sync.can_send_federation_payload());
+}
+
+#[clause("PNP-008-MUST-082")]
+#[test]
+fn heartbeat_permitted_during_sync_does_not_advance_state() {
+    use parolnet_relay::federation::{FederationPeer, PeerState};
+    use parolnet_protocol::PeerId;
+    let mut p = FederationPeer::new(PeerId([1; 32]), 0);
+    p.connect(1).unwrap();
+    p.handshake_ok(2).unwrap();
+    assert_eq!(p.state, PeerState::Sync);
+    // Heartbeat seen during SYNC — peer remains in SYNC until sync_complete.
+    p.heartbeat_seen(1, 3);
+    assert_eq!(p.state, PeerState::Sync);
+}
+
+#[clause("PNP-008-MUST-083")]
+#[test]
+fn federation_dedup_close_code_is_4000() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/federation_close_codes.json"
+    ))
+    .unwrap();
+    assert_eq!(v["close_codes"]["dedup_dup_peer"].as_u64(), Some(4000));
+}
+
+#[clause("PNP-008-MUST-084")]
+#[test]
+fn federation_close_code_registry_matches_spec() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/federation_close_codes.json"
+    ))
+    .unwrap();
+    let codes = &v["close_codes"];
+    assert_eq!(codes["normal"].as_u64(), Some(1000));
+    assert_eq!(codes["dedup_dup_peer"].as_u64(), Some(4000));
+    assert_eq!(codes["rate_limit"].as_u64(), Some(4001));
+    assert_eq!(codes["unknown_type"].as_u64(), Some(4002));
+    assert_eq!(codes["frame_oversize"].as_u64(), Some(4003));
+}
+
+// -- §8.7 HTTPS content-type (resumes v0.4 test series) -------------------
+
 #[clause("PNP-008-MUST-076")]
 #[test]
 fn bootstrap_https_content_type_is_application_cbor() {

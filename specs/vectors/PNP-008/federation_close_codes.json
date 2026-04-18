@@ -1,0 +1,11 @@
+{
+  "clauses": ["PNP-008-MUST-083", "PNP-008-MUST-084"],
+  "description": "Federation-link close status codes and dedup behaviour.",
+  "close_codes": {
+    "normal":          1000,
+    "dedup_dup_peer":  4000,
+    "rate_limit":      4001,
+    "unknown_type":    4002,
+    "frame_oversize":  4003
+  }
+}

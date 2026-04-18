@@ -1,11 +1,12 @@
 # PNP-008: Relay Federation & Network Resilience
 
-**Version:** 0.4
+**Version:** 0.5
 **Status:** CANDIDATE
 **Last-Updated:** 2026-04-17
 
 ## Changelog
 
+- **v0.5 (2026-04-17):** Locked the federation-link on-wire shape. Added §5.5 "On-Wire Framing" with `PNP-008-MUST-077` through `PNP-008-MUST-082` (WSS on `/federation/v1`, length-prefixed CBOR frames, 2 MiB cap, unknown-type = close, initial FederationSync ordering, mid-SYNC heartbeat policy). Added §5.6 "Link Deduplication & Close" with `PNP-008-MUST-083` and `PNP-008-MUST-084` (one link per peer, close semantics). No new payload types — these clauses lock what implementations must send on an already-allocated 0x06/0x07 frame.
 - **v0.4 (2026-04-17):** Tightened §8 Bootstrap Channels with six supplemental MUST clauses (`PNP-008-MUST-071` through `PNP-008-MUST-076`) covering BootstrapBundle version gating, 7-day freshness bound, DHT BEP-44 salt constant, per-channel 10-second attempt timeout, seed-list load-without-network invariant, and HTTPS content-type rejection. Addresses stale-bundle replay, cross-network DHT collisions, and content-sniffing attacks. No wire-format changes — existing clients that already validate signatures remain interoperable once they apply the new bounds.
 - **v0.3 (2026-04-17):** Added §Presence (`GET /peers/presence`), §Peer Lookup (`GET /peers/lookup?id=`), and §Federation Presence Fetch describing the 5-min poll and 1-hr TTL federation cache that underpins H12 Phase 2 cross-relay routing (client-side Option α). Added 8 new MUST clauses `PNP-008-MUST-063` through `PNP-008-MUST-070`. No breaking changes to the v0.2 federation state machine.
 - **v0.2 (2026-04-17):** Full rewrite from phased implementation plan to RFC-2119 normative specification. Split implementation roadmap to `/FEDERATION-IMPLEMENTATION.md`. Defined wire formats for `FederationSync` (0x06), `FederationHeartbeat` (0x07), `BridgeAnnouncement` (0x08) gossip payload types. Defined federation peer state machine, IBLT sync parameters, descriptor endorsement chain, reputation score rules, bootstrap channel fallback, bridge descriptor format. Added numbered `PNP-008-(MUST|SHOULD|MAY)-NNN` clause IDs.
@@ -187,6 +188,28 @@ Each relay maintains an independent state per potential federation peer.
 ### 5.4 Rate Limiting
 
 **PNP-008-MUST-022**: Per-federation-peer, a relay MUST enforce a token bucket rate limit of at most 100 descriptor deliveries per minute and at most 10 `FederationSync` initiations per hour. Exceeding either limit MUST trigger a reputation decrement per §7.
+
+### 5.5 On-Wire Framing
+
+Federation links run inside the TLS camouflage tunnel established by MUST-018. Inside that tunnel each `FederationSync` / `FederationHeartbeat` message is serialized per §4 and transmitted as a length-prefixed frame. The framing rules below apply to every byte that flows over the federation link after the PNP-002 handshake completes.
+
+**PNP-008-MUST-077**: Federation links MUST be carried over WebSocket Secure (WSS) at path `/federation/v1`. The TLS layer MUST use the camouflage profile from PNP-006 §2; the WebSocket sub-protocol header MUST be absent so probe traffic sees a generic-looking WSS upgrade. Path version bumps (e.g. `/federation/v2`) indicate breaking wire changes.
+
+**PNP-008-MUST-078**: Each federation message MUST be sent as a single binary WebSocket frame whose payload is `len_be32 || cbor_bytes`, where `len_be32` is the big-endian 32-bit length of `cbor_bytes` and `cbor_bytes` is the deterministic CBOR encoding of one `FederationSync` (0x06) or `FederationHeartbeat` (0x07) struct from §4. The first byte of `cbor_bytes` therefore doubles as the payload type discriminator visible inside the CBOR structure.
+
+**PNP-008-MUST-079**: Receivers MUST reject any frame whose declared length exceeds `2 * 1024 * 1024` bytes (2 MiB) and MUST close the transport immediately on such a frame. 2 MiB fits an IBLT at tier L (≈ 136 KiB) plus up to ~500 descriptors and leaves margin for CBOR overhead; legitimate federation traffic never approaches this bound.
+
+**PNP-008-MUST-080**: Receivers MUST close the transport immediately if a frame decodes to an unknown payload type code. Federation links do NOT have the forward-compatibility property of the PNP-005 gossip mesh — a peer sending an unrecognised type is either buggy or adversarial.
+
+**PNP-008-MUST-081**: After the PNP-002 handshake completes, the initiating peer MUST send a `FederationSync` before any `FederationHeartbeat`. The responding peer MUST answer with a `FederationSync` of its own carrying its local IBLT before either side transitions out of SYNC. Only after both sides have exchanged a `FederationSync` does either transition to ACTIVE.
+
+**PNP-008-MUST-082**: `FederationHeartbeat` frames MAY arrive during SYNC (the network path is live, and heartbeats piggyback liveness detection). A receiver MUST process such heartbeats per §4.2 semantics but MUST NOT use them to advance the peer state beyond SYNC.
+
+### 5.6 Link Deduplication & Close
+
+**PNP-008-MUST-083**: A relay MUST maintain at most one concurrent federation link per peer. If an inbound connection request arrives while an outbound link to the same peer is ACTIVE, the relay MUST close the newer connection with a clean WebSocket close frame (status 4000) and MUST NOT transition peer state.
+
+**PNP-008-MUST-084**: Federation-link close is transport-initiated: clean close uses WSS close frame status 1000 for protocol-normal shutdown, status 4001 for rate-limit violation, status 4002 for unknown-type rejection (MUST-080), status 4003 for frame-oversize rejection (MUST-079). Any close transitions the peer state machine to IDLE and starts the MUST-020 backoff clock.
 
 ---
 
@@ -517,7 +540,7 @@ Relays verify each fetched `PresenceEntry` signature against the home relay's Ed
 
 This specification declares:
 
-- **76 MUST** clauses (`PNP-008-MUST-001` through `PNP-008-MUST-076`)
+- **84 MUST** clauses (`PNP-008-MUST-001` through `PNP-008-MUST-084`)
 - **11 SHOULD** clauses (`PNP-008-SHOULD-001` through `PNP-008-SHOULD-011`)
 - **3 MAY** clauses (`PNP-008-MAY-001` through `PNP-008-MAY-003`)
 
