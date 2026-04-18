@@ -10,6 +10,7 @@
 //! - Gossip-based relay directory
 
 pub mod authority;
+pub mod bootstrap;
 pub mod circuit;
 pub mod directory;
 pub mod error;

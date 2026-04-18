@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Bootstrap channels: seed / DNS TXT / HTTPS + BootstrapBundle verifier (PNP-008 §8)
+- New `parolnet-relay::bootstrap` module tree: `bundle.rs` (BootstrapBundle wire type + signed/verify_and_validate), `seed.rs` (compiled-in load with no-network invariant), `dns.rs` (TXT lookup via hickory-resolver with lex-order segment concat per MUST-044), `https.rs` (reqwest-based directory fetch with MUST-076 content-type gate), `mod.rs` (ChannelKind priority registry + timeout/cooldown constants).
+- `BootstrapBundle::verify_and_validate` enforces the spec-mandated ordering: **version gate (MUST-071) → Ed25519 signature (MUST-043/046/049) → freshness (MUST-072)** → descriptor enumeration. Each gate returns a distinct `BundleError` variant so channel-level retry policy can tell replay from compromise.
+- Domain-separated signing label `PNP-008-BootstrapBundle-v1` covers version, `issued_at`, and every descriptor's body + signature; tampering with any descriptor invalidates the outer bundle signature.
+- HTTPS channel rejects `http://` before touching the network; content-type gate accepts both `application/cbor` and `application/cbor; charset=...` (case-insensitive) and rejects `text/html`, `text/plain`, `application/json`, `application/octet-stream`, and missing headers.
+- DHT channel (§8.5) deferred to a follow-up commit; `ChannelKind::Dht` is reserved at priority 4.
+- Deps: added `hickory-resolver` 0.24 to workspace; `reqwest` and `base64` (already workspace) added to parolnet-relay dependencies.
+- `RelayError::FederationSync(String)` variant added to carry federation-replay failures without pulling mesh errors into relay.
+- Conformance: upgraded MUST-042 / 043 / 041 / 071 / 072 tests to exercise the real `BootstrapBundle` + `dns::fqdn` surface; vector fixtures under `specs/vectors/PNP-008/` still pinned. 27 new bootstrap unit tests. Workspace 37/37 green.
+
 ### Added — H12 Phase 3 prep: FederationManager aggregator (PNP-008 §5 admission + observations)
 - `parolnet-mesh::federation` gains `FederationManager` owning `HashMap<PeerId, FederationPeer>` plus per-peer `SyncIdReplayCache`. Event ingestion methods (`connect_peer`, `on_handshake_ok/failed`, `on_sync_complete`, `observe_sync_id`, `on_heartbeat`, `on_invalid_signature`, `on_rate_limit_exceeded`, `ban_peer`, `unban_peer`, `tick`) return `Vec<ObservationEvent>` the caller forwards to `RelayDirectory::record_reputation_event`. No trait dependency on `parolnet-relay` — the mesh-local `ObservationEvent` enum mirrors `parolnet_relay::health::ObservationEvent` 1:1 so a single match translates.
 - MUST-015 admission control: `can_admit_new_active()` + `on_sync_complete()` refuses to promote past `max_active_peers` (default 8), returning `ManagerError::ActivePeerCapReached`. MUST-010 enforced at manager boundary: `on_heartbeat` rejects non-monotonic counters before state update. MUST-006 sync_id replay detection is per-peer so a malicious peer can't evict a legitimate peer's entries. MUST-011 tick loop emits `HeartbeatMissed` observations and auto-demotes ACTIVE→IDLE.

@@ -700,16 +700,36 @@ fn bootstrap_channels_do_not_grant_trust_only_descriptors() {
 #[clause("PNP-008-MUST-042")]
 #[test]
 fn bootstrap_bundle_version_is_one() {
-    let bundle_version: u8 = 0x01;
-    assert_eq!(bundle_version, 0x01);
+    use parolnet_relay::bootstrap::{BootstrapBundle, BUNDLE_VERSION};
+    assert_eq!(BUNDLE_VERSION, 0x01);
+    // Fresh bundle carries the version constant.
+    let signer = sk(1);
+    let b = BootstrapBundle::signed(vec![], 1_000, &signer);
+    assert_eq!(b.version, BUNDLE_VERSION);
+}
+
+#[clause("PNP-008-MUST-043")]
+#[test]
+fn bootstrap_bundle_signature_verified_before_descriptor_parsing() {
+    // Spec order: sig verify precedes descriptor use. Our type enforces
+    // this via verify_and_validate returning Err before exposing descriptors.
+    use parolnet_relay::bootstrap::{BootstrapBundle, BundleError};
+    let signer = sk(1);
+    let wrong_pk = sk(2).verifying_key().to_bytes();
+    let b = BootstrapBundle::signed(vec![], 1_000, &signer);
+    let err = b.verify_and_validate(&[wrong_pk], 1_100).unwrap_err();
+    assert_eq!(err, BundleError::SignatureInvalid);
 }
 
 #[clause("PNP-008-MUST-041")]
 #[test]
 fn bootstrap_dns_txt_record_name_is_parolnet_relay_tcp() {
-    let record_prefix = "_parolnet-relay._tcp.";
-    assert!(record_prefix.starts_with("_parolnet-relay."));
-    assert!(record_prefix.ends_with("._tcp."));
+    use parolnet_relay::bootstrap::dns::{fqdn, DNS_RECORD_PREFIX};
+    assert_eq!(DNS_RECORD_PREFIX, "_parolnet-relay._tcp.");
+    assert_eq!(
+        fqdn("relay.parol.social"),
+        "_parolnet-relay._tcp.relay.parol.social"
+    );
 }
 
 #[clause("PNP-008-MUST-050")]
@@ -736,36 +756,51 @@ fn bootstrap_channel_priority_order_matches_spec() {
 #[clause("PNP-008-MUST-071")]
 #[test]
 fn bootstrap_bundle_version_byte_checked_before_signature() {
-    // Load the vector fixture and enforce its shape.
+    // Exercise: tamper with version, supply an empty authority list so any
+    // signature attempt would error. If the check order is correct we see
+    // WrongVersion and never reach the signature step.
+    use parolnet_relay::bootstrap::{BootstrapBundle, BundleError};
+    let signer = sk(1);
+    let mut b = BootstrapBundle::signed(vec![], 1_000, &signer);
+    b.version = 0xFF;
+    let err = b.verify_and_validate(&[], 1_100).unwrap_err();
+    assert_eq!(err, BundleError::WrongVersion(0xFF));
+
+    // Vector fixture stays pinned too.
     let v: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../specs/vectors/PNP-008/bootstrap_bundle_version_byte.json"
     ))
     .unwrap();
-    assert_eq!(v["clause"], "PNP-008-MUST-071");
     assert_eq!(v["input"]["valid_version"], 1);
-    let rejected = v["input"]["rejected_versions"].as_array().unwrap();
-    assert!(rejected.iter().all(|x| x.as_u64() != Some(1)));
     assert_eq!(v["expected"]["version_field_precedes_signature_check"], true);
 }
 
 #[clause("PNP-008-MUST-072")]
 #[test]
 fn bootstrap_bundle_freshness_is_seven_days() {
+    use parolnet_relay::bootstrap::{BootstrapBundle, BundleError, BUNDLE_MAX_AGE_SECS};
+    assert_eq!(BUNDLE_MAX_AGE_SECS, 604_800);
+
+    let signer = sk(9);
+    let pk = signer.verifying_key().to_bytes();
+
+    // Exercise every case in the vector against the real verifier.
     let v: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../specs/vectors/PNP-008/bootstrap_bundle_freshness.json"
     ))
     .unwrap();
-    assert_eq!(v["max_age_secs"].as_u64().unwrap(), 604_800);
-    let max_age: u64 = 604_800;
-    assert_eq!(max_age, 7 * 86_400);
-    // Exercise every case in the vector — freshness predicate MUST match
-    // the spec's `now - issued_at <= 604800` rule.
     for case in v["cases"].as_array().unwrap() {
         let now = case["now"].as_u64().unwrap();
         let issued = case["issued_at"].as_u64().unwrap();
-        let expected = case["accept"].as_bool().unwrap();
-        let fresh = now.saturating_sub(issued) <= max_age;
-        assert_eq!(fresh, expected, "case {case:?}");
+        let expect_ok = case["accept"].as_bool().unwrap();
+        let bundle = BootstrapBundle::signed(vec![], issued, &signer);
+        let got = bundle.verify_and_validate(&[pk], now);
+        if expect_ok {
+            assert!(got.is_ok(), "case {case:?} — expected accept, got {got:?}");
+        } else {
+            let err = got.unwrap_err();
+            assert!(matches!(err, BundleError::Stale { .. }), "case {case:?}");
+        }
     }
 }
 
