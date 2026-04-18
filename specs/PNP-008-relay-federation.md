@@ -1,11 +1,12 @@
 # PNP-008: Relay Federation & Network Resilience
 
-**Version:** 0.3
+**Version:** 0.4
 **Status:** CANDIDATE
 **Last-Updated:** 2026-04-17
 
 ## Changelog
 
+- **v0.4 (2026-04-17):** Tightened §8 Bootstrap Channels with six supplemental MUST clauses (`PNP-008-MUST-071` through `PNP-008-MUST-076`) covering BootstrapBundle version gating, 7-day freshness bound, DHT BEP-44 salt constant, per-channel 10-second attempt timeout, seed-list load-without-network invariant, and HTTPS content-type rejection. Addresses stale-bundle replay, cross-network DHT collisions, and content-sniffing attacks. No wire-format changes — existing clients that already validate signatures remain interoperable once they apply the new bounds.
 - **v0.3 (2026-04-17):** Added §Presence (`GET /peers/presence`), §Peer Lookup (`GET /peers/lookup?id=`), and §Federation Presence Fetch describing the 5-min poll and 1-hr TTL federation cache that underpins H12 Phase 2 cross-relay routing (client-side Option α). Added 8 new MUST clauses `PNP-008-MUST-063` through `PNP-008-MUST-070`. No breaking changes to the v0.2 federation state machine.
 - **v0.2 (2026-04-17):** Full rewrite from phased implementation plan to RFC-2119 normative specification. Split implementation roadmap to `/FEDERATION-IMPLEMENTATION.md`. Defined wire formats for `FederationSync` (0x06), `FederationHeartbeat` (0x07), `BridgeAnnouncement` (0x08) gossip payload types. Defined federation peer state machine, IBLT sync parameters, descriptor endorsement chain, reputation score rules, bootstrap channel fallback, bridge descriptor format. Added numbered `PNP-008-(MUST|SHOULD|MAY)-NNN` clause IDs.
 - **v0.1:** Initial phased implementation plan (now at `/FEDERATION-IMPLEMENTATION.md`).
@@ -292,7 +293,7 @@ where `observation ∈ [0.0, 1.0]` is the normalized success value of that event
 
 ## 8. Bootstrap Channels
 
-A node with no prior state MUST obtain at least one valid relay descriptor before it can participate. Channels are attempted in priority order with a 10-second per-channel timeout.
+A node with no prior state MUST obtain at least one valid relay descriptor before it can participate. Channels are attempted in priority order with a per-channel attempt timeout bounded by `PNP-008-MUST-074`.
 
 ### 8.1 Channel Registry
 
@@ -355,6 +356,22 @@ struct BootstrapBundle {
 **PNP-008-MUST-050**: If all channels fail for 600 consecutive seconds, the node MUST emit a user-visible "no bootstrap" error and MUST NOT fall back to any unauthenticated discovery mechanism.
 
 **PNP-008-SHOULD-008**: Implementations SHOULD randomize the order within each priority tier (e.g., DNS domains, HTTPS URLs) to avoid deterministic censorship targeting.
+
+### 8.7 Bundle Integrity & Channel Hardening
+
+The clauses in this subsection are supplementary to §§8.2–8.6. They are non-optional security bounds that the individual channel descriptions elided for readability.
+
+**PNP-008-MUST-071**: Receivers MUST reject any `BootstrapBundle` whose `version` byte is not `0x01`. The version byte MUST be validated *before* the signature is verified so malformed bundles are discarded cheaply.
+
+**PNP-008-MUST-072**: Receivers MUST reject any `BootstrapBundle` where `now − issued_at > 7 × 86400` (7 days). The freshness check MUST be applied after the signature verifies but before any descriptor inside the bundle is parsed. An expired bundle constitutes a replay attack; the retrieving channel MUST be treated as failed for the purpose of the fallback chain in §8.6.
+
+**PNP-008-MUST-073**: Mainline DHT (§8.5) BEP-44 mutable-item lookups MUST use the constant salt `"PNP-008-bootstrap"` (ASCII, 17 bytes, no trailing null). Implementations MUST NOT reuse this salt for any other purpose and MUST NOT accept DHT values retrieved under a different salt. The salt domain-separates ParolNet bootstrap records from arbitrary third-party BEP-44 traffic under the same public key.
+
+**PNP-008-MUST-074**: Every bootstrap channel attempt (seed connect, DNS TXT query, HTTPS GET, DHT `get`) MUST enforce a 10-second per-attempt timeout measured from the first outbound byte. A timeout MUST be reported to the fallback chain as a channel failure; implementations MUST NOT retry the same endpoint within 60 seconds of a timeout.
+
+**PNP-008-MUST-075**: Seed-relay bundles (§8.2) MUST be available at node startup without requiring network access. Implementations MUST validate the compiled-in seed bundle signatures before any network channel is attempted and MUST fail startup if the compiled-in bundle fails `PNP-008-MUST-071` or `PNP-008-MUST-072`.
+
+**PNP-008-MUST-076**: HTTPS directory clients (§8.4) MUST reject responses whose `Content-Type` is not `application/cbor` (or `application/cbor; charset=binary`). The rejection MUST happen before body bytes are parsed, even if the body would have been a valid bundle. This defends against content-sniffing attacks where a malicious reverse proxy reclassifies the payload as `text/html` in hopes of triggering a browser-side parser.
 
 ---
 
@@ -500,7 +517,7 @@ Relays verify each fetched `PresenceEntry` signature against the home relay's Ed
 
 This specification declares:
 
-- **70 MUST** clauses (`PNP-008-MUST-001` through `PNP-008-MUST-070`)
+- **76 MUST** clauses (`PNP-008-MUST-001` through `PNP-008-MUST-076`)
 - **11 SHOULD** clauses (`PNP-008-SHOULD-001` through `PNP-008-SHOULD-011`)
 - **3 MAY** clauses (`PNP-008-MAY-001` through `PNP-008-MAY-003`)
 

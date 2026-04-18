@@ -1,0 +1,12 @@
+{
+  "clause": "PNP-008-MUST-071",
+  "description": "BootstrapBundle.version MUST be 0x01 and the version byte MUST be validated before signature verification.",
+  "input": {
+    "valid_version": 1,
+    "rejected_versions": [0, 2, 255]
+  },
+  "expected": {
+    "accept": true,
+    "version_field_precedes_signature_check": true
+  }
+}

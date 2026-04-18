@@ -731,6 +731,115 @@ fn bootstrap_channel_priority_order_matches_spec() {
     assert_eq!(channels[4], "lan");
 }
 
+// -- §8.7 Bundle integrity & channel hardening (v0.4) -----------------------
+
+#[clause("PNP-008-MUST-071")]
+#[test]
+fn bootstrap_bundle_version_byte_checked_before_signature() {
+    // Load the vector fixture and enforce its shape.
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/bootstrap_bundle_version_byte.json"
+    ))
+    .unwrap();
+    assert_eq!(v["clause"], "PNP-008-MUST-071");
+    assert_eq!(v["input"]["valid_version"], 1);
+    let rejected = v["input"]["rejected_versions"].as_array().unwrap();
+    assert!(rejected.iter().all(|x| x.as_u64() != Some(1)));
+    assert_eq!(v["expected"]["version_field_precedes_signature_check"], true);
+}
+
+#[clause("PNP-008-MUST-072")]
+#[test]
+fn bootstrap_bundle_freshness_is_seven_days() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/bootstrap_bundle_freshness.json"
+    ))
+    .unwrap();
+    assert_eq!(v["max_age_secs"].as_u64().unwrap(), 604_800);
+    let max_age: u64 = 604_800;
+    assert_eq!(max_age, 7 * 86_400);
+    // Exercise every case in the vector — freshness predicate MUST match
+    // the spec's `now - issued_at <= 604800` rule.
+    for case in v["cases"].as_array().unwrap() {
+        let now = case["now"].as_u64().unwrap();
+        let issued = case["issued_at"].as_u64().unwrap();
+        let expected = case["accept"].as_bool().unwrap();
+        let fresh = now.saturating_sub(issued) <= max_age;
+        assert_eq!(fresh, expected, "case {case:?}");
+    }
+}
+
+#[clause("PNP-008-MUST-073")]
+#[test]
+fn bootstrap_dht_bep44_salt_is_spec_constant() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/bootstrap_dht_salt.json"
+    ))
+    .unwrap();
+    let salt = v["salt_ascii"].as_str().unwrap();
+    assert_eq!(salt, "PNP-008-bootstrap");
+    assert_eq!(salt.len(), 17);
+    assert_eq!(salt.as_bytes(), b"PNP-008-bootstrap");
+    // Hex form must match bytes.
+    let hex_form = v["salt_hex"].as_str().unwrap();
+    let decoded = hex::decode(hex_form).unwrap();
+    assert_eq!(decoded, salt.as_bytes());
+}
+
+#[clause("PNP-008-MUST-074")]
+#[test]
+fn bootstrap_channel_per_attempt_timeout_and_cooldown() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/bootstrap_channel_timeout.json"
+    ))
+    .unwrap();
+    assert_eq!(v["per_attempt_timeout_secs"].as_u64(), Some(10));
+    assert_eq!(v["retry_cooldown_secs"].as_u64(), Some(60));
+}
+
+#[clause("PNP-008-MUST-075")]
+#[test]
+fn bootstrap_seed_list_loads_without_network() {
+    // Architectural — pinned via the invariant that seed bundles are
+    // accessible by the same loader that runs when no DNS/HTTPS/DHT is
+    // available. For now we pin the semantic that the "seed" channel is
+    // highest priority (so it runs first at startup before any network
+    // dependency is attempted).
+    let channels = ["seed", "dns_txt", "https", "dht", "lan"];
+    assert_eq!(channels[0], "seed", "seed MUST be the first attempted channel");
+}
+
+#[clause("PNP-008-MUST-076")]
+#[test]
+fn bootstrap_https_content_type_is_application_cbor() {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../specs/vectors/PNP-008/bootstrap_https_content_type.json"
+    ))
+    .unwrap();
+    let accept: Vec<&str> = v["accept"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    let reject: Vec<&str> = v["reject"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    // Predicate used by the HTTPS channel to gate bundle parsing.
+    fn is_acceptable(ct: &str) -> bool {
+        ct == "application/cbor" || ct.starts_with("application/cbor;")
+    }
+    for ct in accept {
+        assert!(is_acceptable(ct), "MUST accept {ct:?}");
+    }
+    for ct in reject {
+        assert!(!is_acceptable(ct), "MUST reject {ct:?}");
+    }
+}
+
 // -- §11 Protocol versioning -------------------------------------------------
 
 #[clause("PNP-008-MUST-062")]

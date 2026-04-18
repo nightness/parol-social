@@ -1,0 +1,6 @@
+{
+  "clause": "PNP-008-MUST-074",
+  "description": "Every bootstrap channel attempt MUST enforce a 10-second timeout; timed-out endpoints MUST NOT be retried within 60 seconds.",
+  "per_attempt_timeout_secs": 10,
+  "retry_cooldown_secs": 60
+}

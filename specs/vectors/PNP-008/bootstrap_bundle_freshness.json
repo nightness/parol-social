@@ -1,0 +1,11 @@
+{
+  "clause": "PNP-008-MUST-072",
+  "description": "BootstrapBundle MUST be rejected when now - issued_at > 7 days.",
+  "max_age_secs": 604800,
+  "cases": [
+    { "now": 1000000, "issued_at":  995000, "accept": true  },
+    { "now": 1604800, "issued_at": 1000000, "accept": true  },
+    { "now": 1604801, "issued_at": 1000000, "accept": false },
+    { "now": 9999999, "issued_at": 1000000, "accept": false }
+  ]
+}

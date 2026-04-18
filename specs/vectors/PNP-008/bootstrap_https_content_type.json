@@ -1,0 +1,15 @@
+{
+  "clause": "PNP-008-MUST-076",
+  "description": "HTTPS directory clients MUST accept only 'application/cbor' (optionally with charset=binary). Other content types MUST be rejected before the body is parsed.",
+  "accept": [
+    "application/cbor",
+    "application/cbor; charset=binary"
+  ],
+  "reject": [
+    "text/html",
+    "text/plain",
+    "application/json",
+    "application/octet-stream",
+    ""
+  ]
+}

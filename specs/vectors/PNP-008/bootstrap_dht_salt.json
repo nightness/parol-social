@@ -1,0 +1,7 @@
+{
+  "clause": "PNP-008-MUST-073",
+  "description": "BEP-44 mutable-item salt for ParolNet bootstrap is the constant ASCII string 'PNP-008-bootstrap' (17 bytes).",
+  "salt_ascii": "PNP-008-bootstrap",
+  "salt_hex": "504e502d3030382d626f6f747374726170",
+  "salt_len": 17
+}
