@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — PWA IndexedDB schema v5: contacts ↔ contact_state split
+- Bumped `DB_VERSION` from 4 to 5. New `contact_state` object store keyed by `peerId` carries the volatile fields (`lastMessage`, `lastTime`, `unread`, future typing state). The `contacts` store now carries only stable trust-anchor fields: `peerId`, `name`, `identityPubKey`, and any rotation bookkeeping (`previousIdentityPubKey`, `rotatedAt`, `rotatedGraceExpiresAt`).
+- `contact_state` is included in `ENCRYPTED_STORES` so volatile state is encrypted under the same cryptoStore key.
+- New `db.js` helpers: `updateContactState(peerId, patch)`, `loadContactState(peerId)`, `loadAllContactStates()`. Every call site that previously wrote `lastMessage`/`lastTime`/`unread` on a contact row now writes through `updateContactState` instead.
+- `ui-chat.js::loadContacts` / `renderContactList` fetches both stores in parallel and merges for display. `loadAddressBook` keeps reading only `contacts` — the address book doesn't need volatile state.
+- Rewired call sites in `messaging.js` (incoming message upsert, bootstrap-presenter handshake, identity rotation) and `ui-chat.js` (sent-message upsert, QR add flow, paste-code add flow) to separate stable identity writes from volatile state writes.
+- Rationale (PNP-008 MUST-089 parallel): a "clear chat history" action can now zero `contact_state` without touching the trust-anchor store that PNP-002 §8 identity rotation depends on. Panic wipe continues to obliterate the whole DB via WASM `panic_wipe()` + `kill-sw.html`.
+- PWA tests: 76/77 green (the 1 failing test is the pre-existing flaky shuffle-dependent bootstrap test, unrelated to this change). No schema-migration test added — pre-launch, no production data exists to migrate, and the onupgradeneeded handler is a simple additive `createObjectStore`.
+
 ### Changed — PWA i18n: 19 new toast keys + English-fallback chain
 - Added 19 previously-hardcoded user-facing strings from `pwa/src/messaging.js` (14) and `pwa/src/ui-chat.js` (14) to the i18n catalog: `toast.peerNotOnline`, `toast.enterGroupName`, `toast.groupCreateFailed`, `toast.enterPeerId`, `toast.alreadyMember`, `toast.microphoneError`, `toast.contactLoadFailed`, `toast.contactNotFound`, `toast.nameEmpty`, `toast.renameFailed`, `toast.noSecureSession`, `toast.encryptionFailed`, `toast.messageQueued`, `toast.avAccessError`, `toast.callFailed`, `toast.callSignalFailed`, `toast.callNoSecureSession`, `toast.qrUnrecognized`, `toast.qrSelf`. A few call sites were rewired to existing keys (`groupInvite`, `fileOffered`, `newMessage`) rather than duplicating.
 - All 19 keys seeded identically across the 16 supported language files (en + 15 others) so the existing placeholder-preservation test and the per-lang non-empty test still pass. Non-English values are the English strings as placeholders — translators localize next.

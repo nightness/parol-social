@@ -2,7 +2,7 @@
 import { cryptoStore } from './state.js';
 
 const DB_NAME = 'parolnet';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export function openDB() {
     return new Promise((resolve, reject) => {
@@ -39,6 +39,14 @@ export function openDB() {
                     const gmStore = db.createObjectStore('group_messages', { keyPath: 'id', autoIncrement: true });
                     gmStore.createIndex('groupId', 'groupId', { unique: false });
                     gmStore.createIndex('timestamp', 'timestamp', { unique: false });
+                }
+                // v5: volatile per-contact state split out of `contacts` so the
+                // trust-anchor fields (peerId, name, identityPubKey) and the
+                // fast-changing fields (lastMessage, lastTime, unread, typing)
+                // live in independent stores. `contact_state` is zeroed on
+                // panic-wipe without losing verified identities.
+                if (!db.objectStoreNames.contains('contact_state')) {
+                    db.createObjectStore('contact_state', { keyPath: 'peerId' });
                 }
             };
             req.onsuccess = () => { if (!resolved) { resolved = true; clearTimeout(timeout); resolve(req.result); } };
@@ -84,7 +92,9 @@ export async function dbGetRaw(storeName, key) {
 }
 
 // Stores that should be encrypted when crypto is active
-export const ENCRYPTED_STORES = new Set(['contacts', 'messages', 'settings', 'groups', 'group_messages']);
+export const ENCRYPTED_STORES = new Set([
+    'contacts', 'messages', 'settings', 'groups', 'group_messages', 'contact_state',
+]);
 
 function getKeyField(storeName) {
     if (storeName === 'contacts') return 'peerId';
@@ -93,7 +103,33 @@ function getKeyField(storeName) {
     if (storeName === 'crypto_meta') return 'key';
     if (storeName === 'groups') return 'groupId';
     if (storeName === 'group_messages') return 'id';
+    if (storeName === 'contact_state') return 'peerId';
     return 'id';
+}
+
+/// Upsert a partial patch into the `contact_state` store. Unknown fields on
+/// the patch are preserved; fields listed in the patch overwrite. Used by
+/// every call site that previously wrote `lastMessage`/`lastTime`/`unread`
+/// onto a contact row.
+export async function updateContactState(peerId, patch) {
+    const prior = (await dbGet('contact_state', peerId)) || { peerId };
+    const next = { ...prior, ...patch, peerId };
+    return dbPut('contact_state', next);
+}
+
+/// Fetch one contact's volatile state (or `null` if none recorded yet).
+export async function loadContactState(peerId) {
+    return (await dbGet('contact_state', peerId)) || null;
+}
+
+/// Fetch every contact's volatile state keyed by peerId.
+export async function loadAllContactStates() {
+    const rows = await dbGetAll('contact_state');
+    const map = new Map();
+    for (const row of rows) {
+        if (row && row.peerId) map.set(row.peerId, row);
+    }
+    return map;
 }
 
 // Encrypted wrappers

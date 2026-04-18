@@ -7,7 +7,10 @@ import {
     showToast, escapeHtml, escapeAttr, formatTime, formatSize,
     generateMsgId, requestNotificationPermission, showLocalNotification
 } from './utils.js';
-import { dbPut, dbGet, dbGetAll, dbGetByIndex } from './db.js';
+import {
+    dbPut, dbGet, dbGetAll, dbGetByIndex,
+    updateContactState, loadAllContactStates,
+} from './db.js';
 import { showView } from './views.js';
 import { initWebRTC, hasDirectConnection, sendViaWebRTC, rtcConnections,
          seenGossipMessages, markGossipSeen } from './webrtc.js';
@@ -28,15 +31,18 @@ function persistSessions() {
 // ── Contact List ────────────────────────────────────────────
 export async function loadContacts() {
     try {
-        const contacts = await dbGetAll('contacts');
-        renderContactList(contacts);
+        const [contacts, stateMap] = await Promise.all([
+            dbGetAll('contacts'),
+            loadAllContactStates(),
+        ]);
+        renderContactList(contacts, stateMap);
     } catch (e) {
         console.warn('Failed to load contacts:', e);
-        renderContactList([]);
+        renderContactList([], new Map());
     }
 }
 
-function renderContactList(contacts) {
+function renderContactList(contacts, stateMap) {
     const list = document.getElementById('contact-list');
     if (!list) return;
 
@@ -44,19 +50,22 @@ function renderContactList(contacts) {
         list.innerHTML = `<div class="empty-state"><p>${escapeHtml(t('empty.noMessages'))}</p><p>${escapeHtml(t('empty.addContact'))}</p></div>`;
         return;
     }
-    list.innerHTML = contacts.map(c => `
+    list.innerHTML = contacts.map(c => {
+        const s = stateMap.get(c.peerId) || {};
+        return `
         <div class="contact-item" onclick="openChat('${escapeAttr(c.peerId)}')">
             <div class="contact-avatar">${escapeHtml(c.name[0]?.toUpperCase() || '?')}</div>
             <div class="contact-info">
                 <div class="contact-name" dir="auto">${escapeHtml(c.name)}</div>
-                <div class="contact-last-msg" dir="auto">${escapeHtml(c.lastMessage || t('contact.noMessagesYet'))}</div>
+                <div class="contact-last-msg" dir="auto">${escapeHtml(s.lastMessage || t('contact.noMessagesYet'))}</div>
             </div>
             <div class="contact-meta">
-                <div class="contact-time">${escapeHtml(c.lastTime || '')}</div>
-                ${c.unread ? `<div class="unread-badge">${c.unread}</div>` : ''}
+                <div class="contact-time">${escapeHtml(s.lastTime || '')}</div>
+                ${s.unread ? `<div class="unread-badge">${s.unread}</div>` : ''}
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
 // ── Address Book ────────────────────────────────────────────
@@ -270,12 +279,10 @@ export async function sendMessage() {
     input.focus();
 
     try {
-        await dbPut('contacts', {
-            peerId: currentPeerId,
-            name: currentPeerId.slice(0, 8) + '...',
+        await updateContactState(currentPeerId, {
             lastMessage: text,
             lastTime: formatTime(Date.now()),
-            unread: 0
+            unread: 0,
         });
     } catch(e) { console.warn(e); }
 
@@ -667,18 +674,22 @@ function handleScannedQR(data) {
         return;
     }
 
-    showToast(sessionEstablished ? 'Secure contact added!' : 'Contact added (no encryption)');
-    dbPut('contacts', {
-        peerId: peerId,
-        name: peerId.slice(0, 8) + '...',
-        lastMessage: sessionEstablished ? 'Encrypted session established' : 'Connected via QR',
-        lastTime: formatTime(Date.now()),
-        unread: 0,
-        // PNP-002 §8: the contact's Ed25519 pubkey at original add-time is
-        // the trust anchor for future identity-rotation attestations. Without
-        // this stored anchor we cannot verify a rotation notice from them.
-        identityPubKey: theirIdentityKey
-    }).then(async () => {
+    showToast(sessionEstablished ? t('toast.secureContactAdded') : t('toast.contactAddedNoEncryption'));
+    Promise.all([
+        dbPut('contacts', {
+            peerId: peerId,
+            name: peerId.slice(0, 8) + '...',
+            // PNP-002 §8: the contact's Ed25519 pubkey at original add-time is
+            // the trust anchor for future identity-rotation attestations.
+            // Without this stored anchor we cannot verify a rotation notice.
+            identityPubKey: theirIdentityKey,
+        }),
+        updateContactState(peerId, {
+            lastMessage: sessionEstablished ? t('contact.sessionEstablished') : t('contact.connectedViaQR'),
+            lastTime: formatTime(Date.now()),
+            unread: 0,
+        }),
+    ]).then(async () => {
         loadContacts();
         if (sessionEstablished && wasm && wasm.get_public_key && wasm.envelope_encode) {
             const ourIk = wasm.get_public_key();
@@ -853,13 +864,17 @@ export function connectViaPassphrase() {
         return;
     }
 
-    dbPut('contacts', {
-        peerId: peerId,
-        name: peerId.slice(0, 8) + '...',
-        lastMessage: '',
-        lastTime: formatTime(Date.now()),
-        unread: 0
-    }).then(() => {
+    Promise.all([
+        dbPut('contacts', {
+            peerId: peerId,
+            name: peerId.slice(0, 8) + '...',
+        }),
+        updateContactState(peerId, {
+            lastMessage: '',
+            lastTime: formatTime(Date.now()),
+            unread: 0,
+        }),
+    ]).then(() => {
         input.value = '';
         showToast('Contact added!');
         loadContacts();

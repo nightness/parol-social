@@ -7,7 +7,7 @@ import {
     currentCallId, setCurrentCallId
 } from './state.js';
 import { showToast, escapeHtml, escapeAttr, formatTime, formatSize, showLocalNotification } from './utils.js';
-import { dbGet, dbPut, dbGetAll, dbGetByIndex, dbDelete } from './db.js';
+import { dbGet, dbPut, dbGetAll, dbGetByIndex, dbDelete, updateContactState } from './db.js';
 import { showView } from './views.js';
 import { hasDirectConnection, sendViaWebRTC, seenGossipMessages, markGossipSeen,
          handleRTCOffer, handleRTCAnswer, handleRTCIce } from './webrtc.js';
@@ -1096,12 +1096,18 @@ function handleChatPlaintext(fromPeerId, plaintext) {
         timestamp: Date.now()
     };
     dbPut('messages', msg).catch(e => console.warn('Failed to store message:', e));
+    // Upsert the stable identity row (name + future pubkey anchor if any) and
+    // the volatile state row separately. lastMessage/lastTime/unread live on
+    // contact_state (v5) so panic-wipe can zero them without losing trust
+    // anchors.
     dbPut('contacts', {
         peerId: fromPeerId,
         name: fromPeerId.slice(0, 8) + '...',
+    }).catch(() => {});
+    updateContactState(fromPeerId, {
         lastMessage: messageText.slice(0, 50),
         lastTime: formatTime(Date.now()),
-        unread: 1
+        unread: 1,
     }).catch(() => {});
 
     if (currentView === 'chat' && currentPeerId === fromPeerId) {
@@ -1125,15 +1131,19 @@ function handleSystemPlaintext(fromPeerId, plaintext) {
                 const result = wasm.complete_bootstrap_as_presenter(theirIkHex);
                 console.log('[Bootstrap] Responder session established for:', result.peer_id);
                 persistSessions();
-                dbPut('contacts', {
-                    peerId: result.peer_id,
-                    name: result.peer_id.slice(0, 8) + '...',
-                    lastMessage: 'Encrypted session established',
-                    lastTime: formatTime(Date.now()),
-                    unread: 0,
-                    // PNP-002 §8 trust anchor for identity-rotation verification.
-                    identityPubKey: theirIkHex
-                }).then(async () => {
+                Promise.all([
+                    dbPut('contacts', {
+                        peerId: result.peer_id,
+                        name: result.peer_id.slice(0, 8) + '...',
+                        // PNP-002 §8 trust anchor for identity-rotation verification.
+                        identityPubKey: theirIkHex,
+                    }),
+                    updateContactState(result.peer_id, {
+                        lastMessage: t('contact.sessionEstablished'),
+                        lastTime: formatTime(Date.now()),
+                        unread: 0,
+                    }),
+                ]).then(async () => {
                     showToast(t('toast.secureContact', { name: result.peer_id.slice(0, 8) }));
                     loadContacts();
                     showView('contacts');
@@ -1271,12 +1281,20 @@ async function handleIdentityRotatePlaintext(fromPeerId, plaintext) {
         previousIdentityPubKey: contact.identityPubKey,
         rotatedAt: result.rotated_at,
         rotatedGraceExpiresAt: result.grace_expires_at,
-        lastMessage: 'Identity rotated',
-        lastTime: formatTime(Date.now())
     };
+    // lastMessage/lastTime live in contact_state (v5) — trust anchors stay in
+    // contacts, everything volatile lives in the sibling store.
+    delete updated.lastMessage;
+    delete updated.lastTime;
+    delete updated.unread;
     try {
         await dbDelete('contacts', fromPeerId);
+        await dbDelete('contact_state', fromPeerId);
         await dbPut('contacts', updated);
+        await updateContactState(newPeerId, {
+            lastMessage: t('toast.identityRotated'),
+            lastTime: formatTime(Date.now()),
+        });
     } catch (e) {
         console.warn('[IdentityRotate] contact remap failed:', e);
         return;
