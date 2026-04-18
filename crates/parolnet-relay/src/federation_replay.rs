@@ -11,7 +11,7 @@
 //! ≈ 2^{-64} per collision), but keeping state keyed per peer also prevents
 //! a malicious peer from evicting a legitimate peer's entries.
 
-use crate::MeshError;
+use crate::RelayError;
 use std::collections::HashMap;
 
 use parolnet_protocol::federation::SYNC_ID_REPLAY_WINDOW_SECS;
@@ -45,11 +45,11 @@ impl SyncIdReplayCache {
     /// [`SYNC_ID_REPLAY_WINDOW_SECS`] seconds. After the window has slid past,
     /// the same `sync_id` becomes acceptable again — the cache evicts it on
     /// the next call and the insert succeeds.
-    pub fn observe(&mut self, sync_id: &[u8; 16], now: u64) -> Result<(), MeshError> {
+    pub fn observe(&mut self, sync_id: &[u8; 16], now: u64) -> Result<(), RelayError> {
         self.prune(now);
         if let Some(&prev) = self.seen.get(sync_id) {
             if now.saturating_sub(prev) < SYNC_ID_REPLAY_WINDOW_SECS {
-                return Err(MeshError::SyncError(format!(
+                return Err(RelayError::FederationSync(format!(
                     "PNP-008-MUST-006: sync_id replayed within {} s",
                     SYNC_ID_REPLAY_WINDOW_SECS
                 )));

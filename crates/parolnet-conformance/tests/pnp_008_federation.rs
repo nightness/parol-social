@@ -239,7 +239,7 @@ fn federation_manager_refuses_ninth_active_peer() {
     // End-to-end pin: once 8 peers are ACTIVE, on_sync_complete MUST fail
     // for the 9th. Caller must shed a peer (reputation-ban, timeout, or
     // operator eviction) before another can be admitted.
-    use parolnet_mesh::federation::{FederationManager, ManagerError};
+    use parolnet_relay::federation::{FederationManager, ManagerError};
     use parolnet_protocol::PeerId;
     let mut m = FederationManager::new();
     let mut t = 0u64;
@@ -269,7 +269,7 @@ fn federation_manager_refuses_ninth_active_peer() {
 fn federation_payloads_gated_by_state_machine() {
     // Federation payloads only legal in SYNC or ACTIVE — enforced by the
     // PeerState::can_send_federation_payload() invariant.
-    use parolnet_mesh::federation::PeerState;
+    use parolnet_relay::federation::PeerState;
     assert!(!PeerState::Init.can_send_federation_payload());
     assert!(!PeerState::Handshake.can_send_federation_payload());
     assert!(PeerState::Sync.can_send_federation_payload());
@@ -284,7 +284,7 @@ fn handshake_failure_transitions_to_idle_and_counts() {
     // MUST-019: the transport must close on unverifiable descriptor. Our
     // state machine routes this through handshake_failed → Idle, bumping
     // failures for the MUST-020 backoff to take effect.
-    use parolnet_mesh::federation::{FederationPeer, PeerState};
+    use parolnet_relay::federation::{FederationPeer, PeerState};
     use parolnet_protocol::PeerId;
     let mut p = FederationPeer::new(PeerId([7; 32]), 0);
     p.connect(1).unwrap();
@@ -296,7 +296,7 @@ fn handshake_failure_transitions_to_idle_and_counts() {
 #[clause("PNP-008-MUST-020")]
 #[test]
 fn reconnect_backoff_formula_is_30_times_two_to_failures_capped_at_3600() {
-    use parolnet_mesh::federation::reconnect_backoff_delay;
+    use parolnet_relay::federation::reconnect_backoff_delay;
     assert_eq!(reconnect_backoff_delay(0, 30, 3600), 30);
     assert_eq!(reconnect_backoff_delay(1, 30, 3600), 60);
     assert_eq!(reconnect_backoff_delay(2, 30, 3600), 120);
@@ -308,7 +308,7 @@ fn reconnect_backoff_formula_is_30_times_two_to_failures_capped_at_3600() {
 #[clause("PNP-008-MUST-022")]
 #[test]
 fn federation_rate_limits_are_100_per_min_descriptors_10_per_hour_syncs() {
-    use parolnet_mesh::federation::FederationPeer;
+    use parolnet_relay::federation::FederationPeer;
     use parolnet_protocol::PeerId;
     let mut p = FederationPeer::new(PeerId([1; 32]), 0);
     // Descriptor deliveries: 100 tokens at t=0, 101st rejected.
@@ -380,7 +380,7 @@ fn federation_sync_timestamp_window_is_300_seconds() {
 #[clause("PNP-008-MUST-006")]
 #[test]
 fn federation_sync_id_replay_window_is_five_minutes() {
-    use parolnet_mesh::replay::SyncIdReplayCache;
+    use parolnet_relay::federation_replay::SyncIdReplayCache;
     use parolnet_protocol::federation::SYNC_ID_REPLAY_WINDOW_SECS;
     assert_eq!(SYNC_ID_REPLAY_WINDOW_SECS, 300);
 
@@ -950,7 +950,7 @@ fn unverifiable_peer_descriptor_closes_transport() {
 #[clause("PNP-008-MUST-021")]
 #[test]
 fn failure_counter_resets_after_300s_active_session() {
-    use parolnet_mesh::federation::{FederationPeer, STABILIZATION_ACTIVE_SECS};
+    use parolnet_relay::federation::{FederationPeer, STABILIZATION_ACTIVE_SECS};
     use parolnet_protocol::PeerId;
     assert_eq!(STABILIZATION_ACTIVE_SECS, 300);
 

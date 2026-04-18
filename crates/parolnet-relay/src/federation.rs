@@ -16,7 +16,8 @@
 //! - §5.4 MUST-022 rate limits (100 desc/min, 10 syncs/hr) → [`TokenBucket`]
 //! - §4.2 MUST-011 heartbeat cadence / unreachable threshold → [`FederationPeer::tick`]
 
-use crate::replay::SyncIdReplayCache;
+use crate::federation_replay::SyncIdReplayCache;
+use crate::health::ObservationEvent;
 use parolnet_protocol::address::PeerId;
 use parolnet_protocol::federation::{
     HEARTBEAT_UNREACHABLE_SECS, RATE_LIMIT_DESCRIPTORS_PER_MIN, RATE_LIMIT_SYNC_INITS_PER_HOUR,
@@ -316,26 +317,6 @@ pub enum TransitionError {
     IllegalFrom(PeerState),
     /// Peer is currently BANNED and cannot reconnect.
     Banned,
-}
-
-/// The observations emitted by the manager for callers to forward to their
-/// reputation store. Re-exported from `parolnet-relay::health` via the
-/// PNP-008 §7.1 event table — spelled as a local enum here so
-/// `parolnet-mesh` doesn't acquire a dep on `parolnet-relay`.
-///
-/// The variant names mirror `parolnet_relay::health::ObservationEvent`
-/// exactly so callers can translate 1:1 with a single match. Keeping a
-/// local copy is deliberate — the reputation layer lives above mesh in the
-/// crate graph and the manager itself never reads observations.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ObservationEvent {
-    FederationSyncSuccess,
-    HeartbeatOnTime,
-    HeartbeatMissed,
-    DescriptorSignatureValid,
-    DescriptorSignatureInvalid,
-    RateLimitExceeded,
-    ReplayedWithinWindow,
 }
 
 /// Errors surfaced by `FederationManager` event-ingestion methods.
@@ -949,16 +930,4 @@ mod tests {
         assert!(m.observe_sync_id(&pid(1), &[0x11; 16], 101).unwrap().is_empty());
     }
 
-    #[test]
-    fn observation_event_variants_mirror_relay_reputation_table() {
-        // The mesh-local enum must parallel the PNP-008 §7.1 event table
-        // exactly so the relay adapter can translate 1:1.
-        let _ = ObservationEvent::FederationSyncSuccess;
-        let _ = ObservationEvent::HeartbeatOnTime;
-        let _ = ObservationEvent::HeartbeatMissed;
-        let _ = ObservationEvent::DescriptorSignatureValid;
-        let _ = ObservationEvent::DescriptorSignatureInvalid;
-        let _ = ObservationEvent::RateLimitExceeded;
-        let _ = ObservationEvent::ReplayedWithinWindow;
-    }
 }

@@ -34,4 +34,7 @@ pub enum RelayError {
 
     #[error("transport error: {0}")]
     Transport(#[from] parolnet_transport::TransportError),
+
+    #[error("federation sync error: {0}")]
+    FederationSync(String),
 }

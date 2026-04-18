@@ -13,6 +13,8 @@ pub mod authority;
 pub mod circuit;
 pub mod directory;
 pub mod error;
+pub mod federation;
+pub mod federation_replay;
 pub mod handshake;
 pub mod health;
 pub mod onion;
@@ -25,6 +27,8 @@ pub mod trust_roots;
 
 pub use directory::RelayHealth;
 pub use error::RelayError;
+pub use federation::{FederationManager, FederationPeer, PeerState, TransitionError};
+pub use federation_replay::SyncIdReplayCache;
 pub use health::{ObservationEvent, RelayFlags, RelayReputation};
 
 use async_trait::async_trait;
