@@ -1268,10 +1268,12 @@ describe('relay token pool', () => {
         const mod = await freshPool();
         assert.equal(typeof mod.TOKEN_POOL_LOW_WATER, 'number');
         assert.equal(typeof mod.TOKEN_POOL_DEFAULT_BATCH, 'number');
-        // LOW_WATER per the H9 brief.
-        assert.equal(mod.TOKEN_POOL_LOW_WATER, 128);
-        // Default batch is one epoch's worth per the relay's default budget.
-        assert.equal(mod.TOKEN_POOL_DEFAULT_BATCH, 8192);
+        // Batch size must be strictly larger than the low-water mark so a
+        // refill actually lifts the queue out of the refill zone.
+        assert.ok(mod.TOKEN_POOL_DEFAULT_BATCH > mod.TOKEN_POOL_LOW_WATER);
+        // Default batch must stay under the relay's per-epoch budget (8192)
+        // so a single reload does not drain the hourly cap.
+        assert.ok(mod.TOKEN_POOL_DEFAULT_BATCH <= 8192);
     });
 });
 

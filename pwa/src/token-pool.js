@@ -40,16 +40,20 @@ async function getWasm() {
 }
 
 // How many tokens to request per batch. The relay's per-epoch budget is
-// 8192 (see `TokenConfig::default` in parolnet-relay::tokens). Match that.
-const DEFAULT_BATCH_SIZE = 8192;
+// 8192 (see `TokenConfig::default` in parolnet-relay::tokens); we pull in
+// smaller increments so a browser reload doesn't drain the entire hourly
+// cap in one request. 256 gives ~32 refills per epoch which comfortably
+// covers reloads + steady-state sending.
+const DEFAULT_BATCH_SIZE = 256;
 // When the queue drops below this during an active epoch, trigger a
-// fire-and-forget refill. Needs to be lower than the cover-traffic tick
-// rate × epoch seconds so we never hit zero in steady state.
-const LOW_WATER = 128;
+// fire-and-forget refill. Sized well below DEFAULT_BATCH_SIZE so refills
+// land before the pool empties.
+const LOW_WATER = 64;
 // Epoch budget + grace guard: do not attempt refill if the active epoch
-// has less than this many seconds left (we'd hit the "already fetched in
-// this epoch" cap). Waiting for the boundary is the refill strategy.
-const EPOCH_TAIL_GUARD_SECS = 300;
+// has less than this many seconds left — the server applies the budget cap
+// per epoch, so near the boundary we wait for the reset rather than waste
+// the remaining cap.
+const EPOCH_TAIL_GUARD_SECS = 60;
 
 // Per-relay pool map: relayUrl -> pool state. Created lazily.
 const pools = new Map();
@@ -366,8 +370,9 @@ export async function requestBatch(relayUrl, batchSize = DEFAULT_BATCH_SIZE) {
 // Fires a fire-and-forget refill when:
 //   - queue is below LOW_WATER AND the active epoch has room (>EPOCH_TAIL_GUARD_SECS left); OR
 //   - the active epoch has fully crossed `currentExpiresAt` (time to ask again).
-// The one-per-identity-per-epoch cap means we can't refill mid-epoch once
-// we've already fetched — the server will 429. Crossing the boundary resets it.
+// The relay enforces a per-epoch budget (default 8192). Mid-epoch refills
+// are fine as long as the running total stays under the cap; when we hit
+// it we log and wait for the boundary.
 export function maybeRefill(relayUrl) {
     const pool = tokenPoolFor(relayUrl);
     if (pool.refilling) return;
@@ -382,13 +387,12 @@ export function maybeRefill(relayUrl) {
         requestBatch(relayUrl).catch(() => {});
         return;
     }
-    // Case B: mid-epoch low-water with room to fetch.
+    // Case B: mid-epoch low-water with room to fetch. Under the spec-aligned
+    // budget accounting (total tokens issued ≤ 8192 / epoch) this path is
+    // the normal steady-state refill — no special "already fetched" guard
+    // needed. If the per-epoch cap is hit the server returns 429 and we
+    // wait out the remainder of the hour.
     if (pool.queue.length < LOW_WATER && epochHasRoom) {
-        // But we've already fetched once in this epoch by construction — so
-        // this branch only fires when currentEpochId is null (cold start
-        // failed) or when the queue really did drain in one epoch (budget
-        // overrun, unrealistic in practice). We still try; if the server
-        // returns 429 we just log and wait out the epoch.
         requestBatch(relayUrl).catch(() => {});
     }
 }
