@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — TURN / coturn operations runbook (`ops/turn.md`)
+- New `ops/turn.md`: deployment (first-time `.env` fill-in, certbot prerequisites, startup verification), credential rotation procedure for `TURN_SECRET`, monitoring pointers (turn.log paths, relay Prometheus metrics, PWA WebRTC stats panel), and a failure-symptom → likely-cause table.
+- Documents the decision — **TURN pooling across federated relays is NOT in the PNP-008 protocol.** Each relay advertises its own coturn via `/turn-credentials`; cross-relay pooling is an operator-only concern that customized builds can bolt on. Rationale (ICE gathering latency, local attack surface, no authority-agreed TURN secret distribution path) is captured inline so future refactor PRs don't re-argue the decision.
+- New `ops/turn/coturn.conf.example`: sanitized copy of `server/turnserver.conf` with operator-facing inline comments on each directive (realm, secret, port range, external-ip, quota, TLS cert mount). Secrets stripped — values remain env-interpolated via entrypoint.
+- Operator follow-up lands concretely: one doc to hand a new operator, one copy-paste config to diff against their environment.
+
 ### Added — PWA end-to-end harness scaffolding (Puppeteer)
 - New `pwa/tests/e2e/` tree: `e2e.test.mjs` (5 stub tests covering golden-path WebRTC, PNP-007 file transfer, 1:1 call via coturn, PNP-009 group call, TURN credential round-trip) and `README.md` documenting the stack (relay + coturn + three Chromium contexts), invocation (`npm run test:e2e`), and the flakiness policy (retry ICE gather once, no `setTimeout` polling).
 - Scaffolding only — each test is currently `t.skip(...)` with a concrete description of what it will exercise when the dev `npm install puppeteer` lands. The suite skips cleanly when puppeteer isn't installed so the default `npm test` stays Chromium-free.

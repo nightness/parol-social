@@ -1,0 +1,59 @@
+# ParolNet TURN/STUN server — example configuration.
+#
+# This is a sanitized template. Values in ${...} are substituted by
+# entrypoint.sh at container start from environment variables in .env.
+# See ops/turn.md for deployment + rotation procedure.
+#
+# Secrets (${TURN_SECRET} especially) MUST NOT be checked into git — the
+# production config lives at server/turnserver.conf with env-var
+# interpolation and is never versioned with values baked in.
+
+listening-port=3478
+tls-listening-port=5349
+
+# Realm SHOULD match the bridge's cover-page hostname (PNP-008 §9.1.1)
+# so a probe that hits the TURN port sees a plausible response rather
+# than a ParolNet-branded one.
+realm=${TURN_REALM}
+
+# Time-limited credentials — the relay server mints per-session
+# username/passwords via /turn-credentials using this secret. See
+# crates/parolnet-relay-server/src/main.rs::handle_turn_credentials.
+use-auth-secret
+static-auth-secret=${TURN_SECRET}
+
+# Port range for relayed UDP. Must match the Docker compose
+# `49152-49252:49152-49252/udp` mapping; widening the range also requires
+# widening the published port set.
+min-port=49152
+max-port=49252
+
+# Public IP the TURN server advertises in ICE candidates. Set from
+# env in .env; a misconfiguration here causes ICE gathering to
+# succeed locally but fail from the public internet.
+external-ip=${TURN_EXTERNAL_IP}
+
+no-cli
+log-file=/var/log/turnserver/turn.log
+fingerprint
+lt-cred-mech
+
+# Anti-abuse: block relaying to private RFC1918 ranges so a TURN
+# allocation cannot be used as an internal-network pivot.
+no-multicast-peers
+no-loopback-peers
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+
+# Quotas. `total-quota=100` caps concurrent allocations per server;
+# bump with care — each allocation costs kernel sockets.
+total-quota=100
+bps-capacity=0
+stale-nonce=600
+max-bps=1000000
+
+# TLS for TURN-over-TLS (port 5349). Certs come from Let's Encrypt
+# via the letsencrypt mount in docker-compose.yml.
+cert=/etc/turn-certs/fullchain.pem
+pkey=/etc/turn-certs/privkey.pem
