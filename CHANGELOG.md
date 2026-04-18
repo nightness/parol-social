@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — H3 onion routing PWA integration (stash `h3-onion-wip-pre-h12` resumed)
+- Popped the pre-H12 stash `h3-onion-wip-pre-h12` now that multi-relay federation (#7) and envelope fragmentation (#5) are in place. `pwa/src/onion.js` opens a parallel main-thread WebSocket, builds a 3-hop onion circuit via the existing WASM `ws_connect` / `build_circuit` / `circuit_send` / `circuit_recv` / `circuit_destroy` exports, and drains DATA cells into the envelope dispatch path.
+- Settings: new "High anonymity mode" toggle under Network, persisted at `settings.onion_mode_enabled`, default OFF. Toggle-on shows a confirm dialog warning about the background-notification tradeoff; build failure rolls back the toggle and surfaces the error toast.
+- SW coordination: a `relay_disconnect` service-worker message suspends the SW-owned relay socket while onion mode is on; the onion module owns the main-thread socket for the duration. Direct-WebRTC peers stay on WebRTC unchanged.
+- `sendEnvelope` routing precedence: direct WebRTC > onion (if active) > cross-relay lookup > home relay. Onion sits above the H12 Phase 2 cross-relay fallback so enabling high-anonymity mode never leaks to the lookup path.
+- i18n: 6 new keys (`settings.onionMode*`, `error.onionBuildFailed`) translated across 16 languages.
+- PWA tests: 7 new cases in `pwa/tests/unit.test.mjs` covering enable/disable lifecycle, build-failure teardown, and `sendEnvelope` branch selection. All 7 new + 66 pre-existing PWA unit tests pass (1 pre-existing flaky shuffle-dependent test unrelated to this change).
+- Scope note: circuit hop selection currently uses the local bootstrap list (single-relay MVP). True multi-relay hops — one relay per hop drawn from the federation directory — become possible once federation sync populates enough peers; the circuit builder interface is already shape-compatible.
+
 ### Added — Pluggable transport impl: registry + domain-fronting + obfs primitives (PNP-008 §9.2)
 - Rewrote `parolnet-transport::pluggable` from stub to real trait + registry: `PluggableTransport` (id()-only marker, MUST-093), `TransportRegistry::new(…)` validating every id against `[a-z0-9_-]{1,32}` and enforcing the `direct_tls` baseline (MUST-097 → `RegistryError::MissingBaseline`), `TransportRegistry::choose` using `rand::seq::SliceRandom` for uniform-random per-session picks (MUST-098). Identifier constants `TRANSPORT_ID_DOMAIN_FRONT` / `TRANSPORT_ID_OBFS` / `TRANSPORT_ID_DIRECT_TLS` pinned.
 - New `parolnet-transport::domain_front`: `DomainFrontConfig::new(front, inner)` rejects `SNI == inner_host` at construction (MUST-094). `validate_inbound(sni, inner)` is a case-insensitive checker a bridge runs after TLS handshake + HTTP parse to reject unfronted connections. `DomainFrontTransport` impl carries the transport id.
@@ -121,7 +130,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Spec: PNP-001 v0.5 CANDIDATE adds §10 "Outer Relay Frame" + §10.2 "Token Auth (Privacy Pass)" with clauses `PNP-001-MUST-048` through `PNP-001-MUST-052`.
 - Conformance: 5 new tests in `pnp_001_outer_frame.rs` covering no-token drop, issue→spend round-trip, double-spend rejection, cross-epoch expiry, nonce tamper, and Ed25519 issuance guard.
 - Follow-up (commit 2 of 2): WASM exports + PWA wire-up so the client actually blinds, requests, spends, and re-provisions tokens end-to-end.
-
 ### Added — Identity Rotation (PNP-002 §8, H5)
 - New `IdentityRotationPayload` in `parolnet-protocol`: old/new PeerId, new Ed25519 pubkey, rotated_at, grace_expires_at, Ed25519 signature over canonical domain-separated byte sequence (`ParolNet-IdentityRotation-v1`).
 - `rotate_identity()` generates a new `IdentityKeyPair` and produces a signed rotation payload; `verify_identity_rotation()` checks signature under the old identity's Ed25519 public key.

@@ -368,6 +368,17 @@
                 </div>
                 <p style="font-size: 0.8em; opacity: 0.6; margin-bottom: 12px;" data-i18n="settings.coverTrafficDescription">Emits a small encrypted message roughly every half-second to hide your real activity. Uses about 8 KB/s of data when idle.</p>
 
+                <div class="setting-row" style="margin-bottom: 8px;">
+                    <span data-i18n="settings.onionMode">High anonymity mode</span>
+                    <label style="position:relative;display:inline-block;width:44px;height:24px;">
+                        <input type="checkbox" id="onion-mode-toggle"
+                            onchange="setOnionModeEnabled(this.checked)"
+                            style="opacity:0;width:0;height:0;">
+                        <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#444;border-radius:12px;transition:.3s;"></span>
+                    </label>
+                </div>
+                <p style="font-size: 0.8em; opacity: 0.6; margin-bottom: 12px;" data-i18n="settings.onionModeDescription">Route relay traffic through a 3-hop onion circuit so no single observer can link sender to recipient. Background notifications are disabled while this is on — the app must stay open to receive messages.</p>
+
                 <h3 style="color: #aaa; font-size: 13px; text-transform: uppercase; margin-bottom: 8px;" data-i18n="settings.relayServer">Relay Server</h3>
                 <div style="display: flex; gap: 8px; margin-bottom: 4px;">
                     <input type="url" id="custom-relay-input" placeholder="wss://www.parol.social/ws" data-i18n-placeholder="placeholder.relayUrl"

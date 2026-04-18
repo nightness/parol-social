@@ -30,7 +30,8 @@ import {
     handleExportData, handleImportData, updateNetworkSettings,
     addDuressCredential, setCoverTrafficEnabled, loadCoverTrafficSetting,
     startCoverTrafficFromSettings, regenerateIdentity, zeroizeExpiredRetiredIdentity,
-    addManualRelay
+    addManualRelay,
+    loadOnionModeSetting, setOnionModeEnabled, enableOnionModeFromBoot
 } from './settings.js';
 import { initI18n, t, changeLanguage, applyToDOM } from './i18n.js';
 import { showSafetyNumberModal } from './safety-number.js';
@@ -150,9 +151,16 @@ async function onWasmReady() {
     startCoverTrafficFromSettings();
 
     relayClient.setWasm(wasm);
+
+    // Load the H3 high-anonymity-mode preference. Actual circuit build
+    // happens after connMgr.start() so connMgr.relayUrl is populated.
+    await loadOnionModeSetting();
+
     relayClient.discover().then(relays => {
         console.log('[App] Discovered', relays.length, 'relays');
         connMgr.start();
+        enableOnionModeFromBoot().catch(e =>
+            console.warn('[App] onion boot enable failed:', e && e.message));
         updateConnectionStatus();
         // Poll for relay status until connected (challenge-response is async)
         let statusChecks = 0;
@@ -168,6 +176,8 @@ async function onWasmReady() {
     }).catch(e => {
         console.warn('[App] Relay discovery failed, using defaults:', e.message);
         connMgr.start();
+        enableOnionModeFromBoot().catch(err =>
+            console.warn('[App] onion boot enable failed:', err && err.message));
     });
 
     // Epoch-boundary watchdog: every 60 s the pool's maybeRefill decides
@@ -467,6 +477,7 @@ window.enableDecoyMode = enableDecoyMode;
 window.executePanicWipe = executePanicWipe;
 window.regenerateIdentity = regenerateIdentity;
 window.setCoverTrafficEnabled = setCoverTrafficEnabled;
+window.setOnionModeEnabled = setOnionModeEnabled;
 window.addDuressCredential = addDuressCredential;
 window.addManualRelay = addManualRelay;
 window.toggleMute = toggleMute;

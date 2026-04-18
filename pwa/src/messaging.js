@@ -14,6 +14,7 @@ import { hasDirectConnection, sendViaWebRTC, seenGossipMessages, markGossipSeen,
 import { sendToRelay, discoverPeers, startDiscoveryInterval, connMgr } from './connection.js';
 import { spendOneToken, maybeRefill, requestBatch, queueSize } from './token-pool.js';
 import { lookupHomeRelay } from './peer-relay-cache.js';
+import { isOnionActive, sendViaOnion } from './onion.js';
 import { loadContacts, appendMessage, answerIncomingCall, loadAddressBook } from './ui-chat.js';
 import { t } from './i18n.js';
 import {
@@ -24,6 +25,7 @@ import {
     MSG_TYPE_IDENTITY_ROTATE
 } from './protocol-constants.js';
 import { markRealSend } from './cover-traffic.js';
+import { isOnionActive, sendViaOnion } from './onion.js';
 
 // ── Session Persistence ──────────────────────────────────
 function persistSessions() {
@@ -76,6 +78,14 @@ async function sendEnvelope(toPeerId, msgType, obj) {
     markRealSend();
     if (hasDirectConnection(toPeerId)) {
         return sendViaWebRTC(toPeerId, env);
+    }
+    // High-anonymity mode: route relay traffic through the 3-hop onion
+    // circuit instead of the direct SW WebSocket. The onion module has
+    // already replaced the SW-owned socket with its own main-thread
+    // socket in this mode. Onion takes priority over the home-relay and
+    // cross-relay paths — it's an explicit user preference.
+    if (isOnionActive()) {
+        return sendViaOnion(toPeerId, env);
     }
 
     // Resolve which relay the recipient is home-connected to.

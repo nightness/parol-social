@@ -9,6 +9,7 @@ import { exportData, importData, validateExport } from './data-export.js';
 import { t } from './i18n.js';
 import { startCoverTraffic, stopCoverTraffic } from './cover-traffic.js';
 import { sendToRelay } from './connection.js';
+import { enableOnion, disableOnion, isOnionActive } from './onion.js';
 
 // ── Cover Traffic (PNP-006) ────────────────────────────────
 // Default ON: the threat model requires decoy traffic to hide real activity.
@@ -60,6 +61,99 @@ export function startCoverTrafficFromSettings() {
     }
 }
 
+// ── High anonymity mode (H3 onion, opt-in) ─────────────────
+// Default OFF. When ON, relay sends route through a 3-hop onion circuit
+// opened over a main-thread WebSocket. The service-worker relay socket
+// is suspended while this is active — tradeoff: background notifications
+// stop until the user turns the toggle off.
+let onionModeEnabled = false;
+
+export async function loadOnionModeSetting() {
+    try {
+        const saved = await dbGet('settings', 'onion_mode_enabled');
+        if (saved) onionModeEnabled = saved.value === 'true';
+    } catch {}
+    return onionModeEnabled;
+}
+
+export function isOnionModeEnabled() {
+    return onionModeEnabled;
+}
+
+function currentRelayUrl() {
+    return connMgr.relayUrl
+        || ((typeof location !== 'undefined'
+            ? (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws'
+            : null));
+}
+
+export function updateOnionModeUI() {
+    const toggle = document.getElementById('onion-mode-toggle');
+    if (toggle) toggle.checked = onionModeEnabled && isOnionActive();
+}
+
+export async function enableOnionModeFromBoot() {
+    if (!onionModeEnabled) return;
+    const relayUrl = currentRelayUrl();
+    if (!relayUrl) return;
+    try {
+        await enableOnion({ relayUrl });
+    } catch (e) {
+        // Boot-time failure: fall back silently to SW path, roll the
+        // persisted flag back so the next boot doesn't retry this.
+        console.warn('[Onion] boot enable failed:', e && e.message);
+        onionModeEnabled = false;
+        try { await dbPut('settings', { key: 'onion_mode_enabled', value: 'false' }); } catch {}
+        showToast(t('error.onionBuildFailed'));
+    }
+    updateOnionModeUI();
+}
+
+export async function setOnionModeEnabled(enabled) {
+    const want = !!enabled;
+    if (want === onionModeEnabled) {
+        updateOnionModeUI();
+        return;
+    }
+    const toggle = document.getElementById('onion-mode-toggle');
+
+    if (want) {
+        // Confirm: user is opting into the background-notifications tradeoff.
+        const proceed = confirm(t('settings.onionModeConfirm'));
+        if (!proceed) {
+            if (toggle) toggle.checked = false;
+            return;
+        }
+        const relayUrl = currentRelayUrl();
+        if (!relayUrl) {
+            if (toggle) toggle.checked = false;
+            showToast(t('error.onionBuildFailed'));
+            return;
+        }
+        try {
+            await enableOnion({ relayUrl });
+        } catch (e) {
+            console.warn('[Onion] enable failed:', e && e.message);
+            if (toggle) toggle.checked = false;
+            showToast(t('error.onionBuildFailed'));
+            return;
+        }
+        onionModeEnabled = true;
+        try { await dbPut('settings', { key: 'onion_mode_enabled', value: 'true' }); } catch {}
+        showToast(t('settings.onionModeEnabled'));
+    } else {
+        try {
+            await disableOnion({ relayUrl: currentRelayUrl() });
+        } catch (e) {
+            console.warn('[Onion] disable failed:', e && e.message);
+        }
+        onionModeEnabled = false;
+        try { await dbPut('settings', { key: 'onion_mode_enabled', value: 'false' }); } catch {}
+        showToast(t('settings.onionModeDisabled'));
+    }
+    updateOnionModeUI();
+}
+
 // ── Settings ────────────────────────────────────────────────
 export function openSettings() {
     showView('settings');
@@ -67,6 +161,7 @@ export function openSettings() {
     updateWebRTCPrivacyUI();
     updateCoverTrafficUI();
     updateRelaySection();
+    updateOnionModeUI();
 
     const encSetup = document.getElementById('encryption-setup');
     const encStatus = document.getElementById('encryption-status');

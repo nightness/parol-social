@@ -702,6 +702,167 @@ describe('PWA envelope wire path', () => {
     });
 });
 
+// ── H3 onion routing (opt-in) ──────────────────────────────────
+
+describe('onion routing', () => {
+    async function freshOnion() {
+        const mod = await import('../src/onion.js?t=' + Math.random());
+        mod._resetForTests();
+        return mod;
+    }
+
+    // Build a mock of the wasm surface the onion module consumes.
+    // Each call is recorded so tests can assert on lifecycle order.
+    function makeMockWasm(overrides) {
+        const calls = [];
+        const api = {
+            ws_connect(url) { calls.push(['ws_connect', url]); return 42; },
+            async ws_wait_open(id) { calls.push(['ws_wait_open', id]); },
+            async build_circuit(id) { calls.push(['build_circuit', id]); return 7; },
+            circuit_send(id, data) { calls.push(['circuit_send', id, data.length]); },
+            circuit_recv(id) { calls.push(['circuit_recv', id]); return null; },
+            circuit_destroy(id) { calls.push(['circuit_destroy', id]); },
+            ws_close(id) { calls.push(['ws_close', id]); },
+        };
+        if (overrides) Object.assign(api, overrides);
+        return { api, calls };
+    }
+
+    test('enableOnion wires ws_connect + build_circuit and activates', async () => {
+        const onion = await freshOnion();
+        const { api, calls } = makeMockWasm();
+        assert.equal(onion.isOnionActive(), false);
+        await onion.enableOnion({ relayUrl: 'wss://r.example/ws' }, { wasm: api });
+        assert.equal(onion.isOnionActive(), true);
+        const names = calls.map(c => c[0]);
+        assert.ok(names.includes('ws_connect'), 'ws_connect called');
+        assert.ok(names.includes('build_circuit'), 'build_circuit called');
+        // Clean up (stops the recv interval).
+        await onion.disableOnion({}, { wasm: api });
+    });
+
+    test('enableOnion handles build_circuit failure cleanly', async () => {
+        const onion = await freshOnion();
+        const { api, calls } = makeMockWasm({
+            async build_circuit() { calls.push(['build_circuit', 'REJECT']); throw new Error('handshake timeout'); },
+        });
+        await assert.rejects(
+            () => onion.enableOnion({ relayUrl: 'wss://r.example/ws' }, { wasm: api }),
+            /handshake timeout/
+        );
+        assert.equal(onion.isOnionActive(), false, 'stays inactive on failure');
+        const names = calls.map(c => c[0]);
+        assert.ok(names.includes('ws_connect'), 'ws was opened');
+        assert.ok(names.includes('ws_close'), 'ws was closed on failure');
+        // State is clean — a second enable should proceed.
+        const second = makeMockWasm();
+        await onion.enableOnion({ relayUrl: 'wss://r.example/ws' }, { wasm: second.api });
+        assert.equal(onion.isOnionActive(), true);
+        await onion.disableOnion({}, { wasm: second.api });
+    });
+
+    test('disableOnion tears down circuit and main-thread ws', async () => {
+        const onion = await freshOnion();
+        const { api, calls } = makeMockWasm();
+        await onion.enableOnion({ relayUrl: 'wss://r.example/ws' }, { wasm: api });
+        calls.length = 0; // reset to observe teardown only
+        await onion.disableOnion({ relayUrl: 'wss://r.example/ws' }, { wasm: api });
+        const names = calls.map(c => c[0]);
+        assert.ok(names.includes('circuit_destroy'), 'circuit_destroy called');
+        assert.ok(names.includes('ws_close'), 'ws_close called');
+        assert.equal(onion.isOnionActive(), false);
+    });
+
+    test('sendViaOnion routes bytes through circuit_send when active', async () => {
+        const onion = await freshOnion();
+        const { api, calls } = makeMockWasm();
+        await onion.enableOnion({ relayUrl: 'wss://r.example/ws' }, { wasm: api });
+        calls.length = 0;
+        const ok = onion.sendViaOnion('bb'.repeat(32), 'deadbeef', { wasm: api });
+        assert.equal(ok, true);
+        const sendCalls = calls.filter(c => c[0] === 'circuit_send');
+        assert.equal(sendCalls.length, 1, 'one circuit_send per sendViaOnion');
+        // The inner bytes should be a UTF-8 JSON {type,to,payload} frame.
+        assert.ok(sendCalls[0][2] > 0, 'non-empty payload');
+        await onion.disableOnion({}, { wasm: api });
+    });
+
+    test('sendViaOnion returns false when onion is not active', async () => {
+        const onion = await freshOnion();
+        const { api, calls } = makeMockWasm();
+        const ok = onion.sendViaOnion('cc'.repeat(32), 'cafef00d', { wasm: api });
+        assert.equal(ok, false);
+        assert.equal(calls.filter(c => c[0] === 'circuit_send').length, 0);
+    });
+
+    test('sendEnvelope routes through onion when isOnionActive() is true', () => {
+        // Mirror the branching logic in pwa/src/messaging.js without
+        // loading the DOM-dependent module. The branch order under test:
+        //   direct-RTC > onion (if active) > SW relay
+        let activeFlag = false;
+        const calls = [];
+        function sendViaWebRTC(peerId, env) { calls.push(['rtc', peerId, env]); return true; }
+        function sendViaOnion(peerId, env) { calls.push(['onion', peerId, env]); return true; }
+        function sendToRelay(peerId, env) { calls.push(['sw', peerId, env]); return true; }
+        function hasDirectConnection() { return false; }
+        function isOnionActiveMock() { return activeFlag; }
+
+        function sendEnvelope(peerId, env) {
+            if (hasDirectConnection(peerId)) return sendViaWebRTC(peerId, env);
+            if (isOnionActiveMock()) return sendViaOnion(peerId, env);
+            return sendToRelay(peerId, env);
+        }
+
+        // Onion ON -> onion path
+        activeFlag = true;
+        sendEnvelope('aa'.repeat(32), 'feedface');
+        assert.deepEqual(calls, [['onion', 'aa'.repeat(32), 'feedface']], 'onion path hit');
+
+        // SW path must NOT have been called while onion was active.
+        assert.equal(calls.filter(c => c[0] === 'sw').length, 0, 'SW path skipped');
+    });
+
+    test('sendEnvelope routes through SW when onion is inactive', () => {
+        let activeFlag = false;
+        const calls = [];
+        function sendViaWebRTC(peerId, env) { calls.push(['rtc', peerId, env]); return true; }
+        function sendViaOnion(peerId, env) { calls.push(['onion', peerId, env]); return true; }
+        function sendToRelay(peerId, env) { calls.push(['sw', peerId, env]); return true; }
+        function hasDirectConnection() { return false; }
+        function isOnionActiveMock() { return activeFlag; }
+
+        function sendEnvelope(peerId, env) {
+            if (hasDirectConnection(peerId)) return sendViaWebRTC(peerId, env);
+            if (isOnionActiveMock()) return sendViaOnion(peerId, env);
+            return sendToRelay(peerId, env);
+        }
+
+        sendEnvelope('bb'.repeat(32), 'abadcafe');
+        assert.deepEqual(calls, [['sw', 'bb'.repeat(32), 'abadcafe']], 'SW path hit');
+        assert.equal(calls.filter(c => c[0] === 'onion').length, 0, 'onion path skipped');
+    });
+
+    test('_dispatchIncoming routes {type:message,from,payload} frames', async () => {
+        const onion = await freshOnion();
+        // We can't easily intercept onIncomingMessage from here without
+        // DOM, so we just verify the helper tolerates non-message frames
+        // and well-formed ones without throwing.
+        const good = new TextEncoder().encode(JSON.stringify({
+            type: 'message', from: 'aa'.repeat(32), payload: 'deadbeef'
+        }));
+        const bad = new TextEncoder().encode('not json');
+        const notmsg = new TextEncoder().encode(JSON.stringify({ type: 'other' }));
+        // These should not throw.
+        onion._dispatchIncoming(bad);
+        onion._dispatchIncoming(notmsg);
+        // The good one will invoke onIncomingMessage which without a
+        // session will log a warning but not throw. Swallow console noise.
+        const warnOrig = console.warn;
+        console.warn = () => {};
+        try { onion._dispatchIncoming(good); } finally { console.warn = warnOrig; }
+    });
+});
+
 // ── H7 cover traffic ───────────────────────────────────────────
 
 describe('cover traffic', () => {

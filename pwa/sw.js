@@ -277,7 +277,14 @@ let relayReconnectTimer = null;
 let relayReconnectDelay = 1000;
 let relayConnected = false;
 
+// When true, the page has explicitly asked the SW to stand down its
+// relay socket (H3 onion mode uses a main-thread WebSocket instead).
+// This suppresses the normal auto-reconnect loop until the page asks us
+// to resume.
+let relaySuspended = false;
+
 function swConnectRelay() {
+    if (relaySuspended) return;
     if (relayWs && (relayWs.readyState === 0 || relayWs.readyState === 1)) return;
     if (!relayUrl) return;
     try {
@@ -319,12 +326,32 @@ function swConnectRelay() {
 }
 
 function swScheduleReconnect() {
+    if (relaySuspended) return;
     if (relayReconnectTimer) return;
     relayReconnectTimer = setTimeout(() => {
         relayReconnectTimer = null;
         relayReconnectDelay = Math.min(relayReconnectDelay * 2, 30000);
         swConnectRelay();
     }, relayReconnectDelay);
+}
+
+// Close the relay socket and suspend auto-reconnect. Called when the
+// page enters high-anonymity mode and wants to own the relay connection
+// itself (main-thread WebSocket + onion circuit).
+function swSuspendRelay() {
+    relaySuspended = true;
+    if (relayReconnectTimer) {
+        clearTimeout(relayReconnectTimer);
+        relayReconnectTimer = null;
+    }
+    if (relayWs) {
+        try { relayWs.close(); } catch {}
+    }
+    relayWs = null;
+    if (relayConnected) {
+        relayConnected = false;
+        swBroadcastStatus(false);
+    }
 }
 
 function swBroadcastStatus(connected) {
@@ -391,9 +418,18 @@ self.addEventListener('message', event => {
 
     switch (d.type) {
         case 'relay_connect':
-            relayUrl = d.url;
-            relayPeerId = d.peerId;
+            relayUrl = d.url || relayUrl;
+            relayPeerId = d.peerId || relayPeerId;
+            // Waking back up from a suspension (page left onion mode) —
+            // reset the backoff and open a fresh socket.
+            if (relaySuspended) {
+                relaySuspended = false;
+                relayReconnectDelay = 1000;
+            }
             swConnectRelay();
+            break;
+        case 'relay_disconnect':
+            swSuspendRelay();
             break;
         case 'relay_register':
             relayPeerId = d.peerId;
