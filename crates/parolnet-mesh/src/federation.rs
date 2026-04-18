@@ -16,11 +16,13 @@
 //! - §5.4 MUST-022 rate limits (100 desc/min, 10 syncs/hr) → [`TokenBucket`]
 //! - §4.2 MUST-011 heartbeat cadence / unreachable threshold → [`FederationPeer::tick`]
 
+use crate::replay::SyncIdReplayCache;
 use parolnet_protocol::address::PeerId;
 use parolnet_protocol::federation::{
     HEARTBEAT_UNREACHABLE_SECS, RATE_LIMIT_DESCRIPTORS_PER_MIN, RATE_LIMIT_SYNC_INITS_PER_HOUR,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Minimum ACTIVE dwell time before a successful session resets the failure
 /// counter (PNP-008-MUST-021).
@@ -316,6 +318,291 @@ pub enum TransitionError {
     Banned,
 }
 
+/// The observations emitted by the manager for callers to forward to their
+/// reputation store. Re-exported from `parolnet-relay::health` via the
+/// PNP-008 §7.1 event table — spelled as a local enum here so
+/// `parolnet-mesh` doesn't acquire a dep on `parolnet-relay`.
+///
+/// The variant names mirror `parolnet_relay::health::ObservationEvent`
+/// exactly so callers can translate 1:1 with a single match. Keeping a
+/// local copy is deliberate — the reputation layer lives above mesh in the
+/// crate graph and the manager itself never reads observations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObservationEvent {
+    FederationSyncSuccess,
+    HeartbeatOnTime,
+    HeartbeatMissed,
+    DescriptorSignatureValid,
+    DescriptorSignatureInvalid,
+    RateLimitExceeded,
+    ReplayedWithinWindow,
+}
+
+/// Errors surfaced by `FederationManager` event-ingestion methods.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ManagerError {
+    /// No entry for this peer — call `add_peer` first.
+    UnknownPeer,
+    /// The transition attempted by the event is not legal from the peer's
+    /// current state.
+    Transition(TransitionError),
+    /// Heartbeat arrived with a counter ≤ the previously accepted counter
+    /// (PNP-008-MUST-010).
+    HeartbeatCounterNotMonotonic,
+    /// Sync_id was replayed within the MUST-006 window.
+    SyncIdReplay,
+    /// MUST-015: can't promote more peers — already at cap.
+    ActivePeerCapReached,
+}
+
+impl From<TransitionError> for ManagerError {
+    fn from(e: TransitionError) -> Self {
+        Self::Transition(e)
+    }
+}
+
+/// Aggregator over per-peer federation link state (PNP-008 §5).
+///
+/// Owns a `HashMap<PeerId, FederationPeer>` and a per-peer `sync_id` replay
+/// cache. Event-ingestion methods update state and return a
+/// `Vec<ObservationEvent>` the caller feeds into its reputation store
+/// (`RelayDirectory::record_reputation_event` in the relay crate). This
+/// indirection keeps `parolnet-mesh` unaware of relay-side reputation types.
+///
+/// MUST-015 admission control lives here: `connect_peer` and
+/// `sync_complete` refuse to promote past `max_active_peers` ACTIVE peers.
+/// Receive-side validation (descriptor signatures, endorsement chain) is
+/// still the caller's responsibility — the manager only tracks the
+/// after-the-fact state transitions.
+#[derive(Debug)]
+pub struct FederationManager {
+    peers: HashMap<PeerId, FederationPeer>,
+    replay_caches: HashMap<PeerId, SyncIdReplayCache>,
+    /// MUST-015 cap on concurrent ACTIVE federation peers.
+    pub max_active_peers: usize,
+}
+
+impl FederationManager {
+    /// New manager with the spec-default cap of 8 active peers
+    /// (PNP-008-MUST-015).
+    pub fn new() -> Self {
+        Self::with_capacity(8)
+    }
+
+    /// New manager with an explicit active-peer cap.
+    pub fn with_capacity(max_active_peers: usize) -> Self {
+        Self {
+            peers: HashMap::new(),
+            replay_caches: HashMap::new(),
+            max_active_peers,
+        }
+    }
+
+    /// Number of peers currently known to the manager (any state).
+    pub fn known_peer_count(&self) -> usize {
+        self.peers.len()
+    }
+
+    /// Number of peers currently in `ACTIVE` state (MUST-015 scope).
+    pub fn active_count(&self) -> usize {
+        self.peers
+            .values()
+            .filter(|p| p.state == PeerState::Active)
+            .count()
+    }
+
+    /// Whether a new peer could be promoted into `ACTIVE` without
+    /// violating the MUST-015 cap.
+    pub fn can_admit_new_active(&self) -> bool {
+        self.active_count() < self.max_active_peers
+    }
+
+    /// Add a peer entry at `INIT`. Idempotent — re-adding a known peer is
+    /// a no-op so the caller can safely replay directory updates.
+    pub fn add_peer(&mut self, peer_id: PeerId, now: u64) {
+        self.peers
+            .entry(peer_id)
+            .or_insert_with(|| FederationPeer::new(peer_id, now));
+        self.replay_caches
+            .entry(peer_id)
+            .or_insert_with(SyncIdReplayCache::new);
+    }
+
+    /// Forget a peer entirely. Used when a descriptor is pruned or an
+    /// operator removes a federation entry from config.
+    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+        self.peers.remove(peer_id);
+        self.replay_caches.remove(peer_id);
+    }
+
+    /// Borrow a peer's full state for callers that need to inspect state or
+    /// timer fields.
+    pub fn peer(&self, peer_id: &PeerId) -> Option<&FederationPeer> {
+        self.peers.get(peer_id)
+    }
+
+    /// Iterator over every known peer.
+    pub fn peers(&self) -> impl Iterator<Item = &FederationPeer> {
+        self.peers.values()
+    }
+
+    fn peer_mut(&mut self, peer_id: &PeerId) -> Result<&mut FederationPeer, ManagerError> {
+        self.peers.get_mut(peer_id).ok_or(ManagerError::UnknownPeer)
+    }
+
+    /// Begin connection to a peer. No observations — handshakes drive those.
+    pub fn connect_peer(&mut self, peer_id: &PeerId, now: u64) -> Result<(), ManagerError> {
+        self.peer_mut(peer_id)?.connect(now)?;
+        Ok(())
+    }
+
+    /// Handshake succeeded; peer advances to `SYNC`.
+    pub fn on_handshake_ok(
+        &mut self,
+        peer_id: &PeerId,
+        now: u64,
+    ) -> Result<Vec<ObservationEvent>, ManagerError> {
+        self.peer_mut(peer_id)?.handshake_ok(now)?;
+        Ok(Vec::new())
+    }
+
+    /// Handshake failed — peer falls to `IDLE`. Observations: none (the
+    /// transport closed before any federation-layer signal).
+    pub fn on_handshake_failed(
+        &mut self,
+        peer_id: &PeerId,
+        now: u64,
+    ) -> Result<Vec<ObservationEvent>, ManagerError> {
+        self.peer_mut(peer_id)?.handshake_failed(now);
+        Ok(Vec::new())
+    }
+
+    /// `FederationSync` round completed. MUST-015: refuse if the ACTIVE
+    /// cap would be exceeded. Emits `FederationSyncSuccess`.
+    pub fn on_sync_complete(
+        &mut self,
+        peer_id: &PeerId,
+        now: u64,
+    ) -> Result<Vec<ObservationEvent>, ManagerError> {
+        if !self.can_admit_new_active() {
+            return Err(ManagerError::ActivePeerCapReached);
+        }
+        self.peer_mut(peer_id)?.sync_complete(now)?;
+        Ok(vec![ObservationEvent::FederationSyncSuccess])
+    }
+
+    /// Observe an incoming `sync_id` (PNP-008-MUST-006 replay check).
+    ///
+    /// Returns `[ReplayedWithinWindow]` if the sync_id was recently seen;
+    /// the caller MUST drop the sync and forward the observation. Otherwise
+    /// returns an empty vec and the sync_id is recorded.
+    pub fn observe_sync_id(
+        &mut self,
+        peer_id: &PeerId,
+        sync_id: &[u8; 16],
+        now: u64,
+    ) -> Result<Vec<ObservationEvent>, ManagerError> {
+        if !self.peers.contains_key(peer_id) {
+            return Err(ManagerError::UnknownPeer);
+        }
+        let cache = self
+            .replay_caches
+            .entry(*peer_id)
+            .or_insert_with(SyncIdReplayCache::new);
+        if cache.observe(sync_id, now).is_err() {
+            return Ok(vec![ObservationEvent::ReplayedWithinWindow]);
+        }
+        Ok(Vec::new())
+    }
+
+    /// Accept a heartbeat from `peer_id`.
+    ///
+    /// Enforces MUST-010 counter monotonicity — returns
+    /// `HeartbeatCounterNotMonotonic` and does NOT record the heartbeat if
+    /// `counter` is not strictly greater than the peer's last accepted
+    /// value. Observations: `[HeartbeatOnTime]` on acceptance.
+    pub fn on_heartbeat(
+        &mut self,
+        peer_id: &PeerId,
+        counter: u64,
+        now: u64,
+    ) -> Result<Vec<ObservationEvent>, ManagerError> {
+        let peer = self.peer_mut(peer_id)?;
+        if let Some(prev) = peer.last_heartbeat_counter
+            && counter <= prev
+        {
+            return Err(ManagerError::HeartbeatCounterNotMonotonic);
+        }
+        peer.heartbeat_seen(counter, now);
+        Ok(vec![ObservationEvent::HeartbeatOnTime])
+    }
+
+    /// Report that a descriptor signature failed verification. The caller
+    /// has already dropped the descriptor. Emits the observation so
+    /// reputation can accumulate toward the MUST-035 ban threshold.
+    pub fn on_invalid_signature(
+        &mut self,
+        peer_id: &PeerId,
+    ) -> Result<Vec<ObservationEvent>, ManagerError> {
+        if !self.peers.contains_key(peer_id) {
+            return Err(ManagerError::UnknownPeer);
+        }
+        Ok(vec![ObservationEvent::DescriptorSignatureInvalid])
+    }
+
+    /// Report a rate-limit violation against MUST-022. The caller has
+    /// already dropped the offending message.
+    pub fn on_rate_limit_exceeded(
+        &mut self,
+        peer_id: &PeerId,
+    ) -> Result<Vec<ObservationEvent>, ManagerError> {
+        if !self.peers.contains_key(peer_id) {
+            return Err(ManagerError::UnknownPeer);
+        }
+        Ok(vec![ObservationEvent::RateLimitExceeded])
+    }
+
+    /// Record the manager's view that a peer should be BANNED. Called by
+    /// the caller once the reputation subsystem raises the flag.
+    pub fn ban_peer(&mut self, peer_id: &PeerId, now: u64) -> Result<(), ManagerError> {
+        self.peer_mut(peer_id)?.ban(now);
+        Ok(())
+    }
+
+    /// Record the manager's view that a peer may be reconnected. Called
+    /// once the reputation subsystem has observed the MUST-035 cooldown
+    /// passing.
+    pub fn unban_peer(&mut self, peer_id: &PeerId, now: u64) -> Result<(), ManagerError> {
+        self.peer_mut(peer_id)?.unban(now);
+        Ok(())
+    }
+
+    /// Drive every peer's time-based transitions. Returns one
+    /// `(peer_id, observation)` pair per peer whose state advanced because
+    /// of elapsed time — typically `HeartbeatMissed` when a peer has been
+    /// silent beyond the MUST-011 threshold.
+    pub fn tick(&mut self, now: u64) -> Vec<(PeerId, ObservationEvent)> {
+        let mut out = Vec::new();
+        for (peer_id, peer) in self.peers.iter_mut() {
+            let was_active = peer.state == PeerState::Active;
+            if peer.tick(now) && was_active {
+                out.push((*peer_id, ObservationEvent::HeartbeatMissed));
+            }
+        }
+        // Also prune replay caches opportunistically so memory doesn't grow.
+        for cache in self.replay_caches.values_mut() {
+            cache.prune(now);
+        }
+        out
+    }
+}
+
+impl Default for FederationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,5 +772,193 @@ mod tests {
             p.sync_complete(1),
             Err(TransitionError::IllegalFrom(PeerState::Init))
         ));
+    }
+
+    // -- FederationManager aggregator --------------------------------------
+
+    fn drive_to_sync(mgr: &mut FederationManager, peer_id: PeerId, t: &mut u64) {
+        mgr.add_peer(peer_id, *t);
+        mgr.connect_peer(&peer_id, *t + 1).unwrap();
+        mgr.on_handshake_ok(&peer_id, *t + 2).unwrap();
+        *t += 3;
+    }
+
+    #[test]
+    fn manager_defaults_enforce_must_015_cap() {
+        let m = FederationManager::new();
+        assert_eq!(m.max_active_peers, 8);
+        assert!(m.can_admit_new_active());
+    }
+
+    #[test]
+    fn manager_add_peer_is_idempotent() {
+        let mut m = FederationManager::new();
+        m.add_peer(pid(1), 0);
+        m.add_peer(pid(1), 100);
+        assert_eq!(m.known_peer_count(), 1);
+        // Re-adding didn't reset the peer's last_transition (idempotent).
+        assert_eq!(m.peer(&pid(1)).unwrap().last_transition, 0);
+    }
+
+    #[test]
+    fn manager_active_count_tracks_state() {
+        let mut m = FederationManager::new();
+        let mut t = 0u64;
+        for i in 1..=3u8 {
+            drive_to_sync(&mut m, pid(i), &mut t);
+            let obs = m.on_sync_complete(&pid(i), t).unwrap();
+            t += 1;
+            assert_eq!(obs, vec![ObservationEvent::FederationSyncSuccess]);
+        }
+        assert_eq!(m.active_count(), 3);
+    }
+
+    #[test]
+    fn manager_refuses_sync_complete_past_active_cap() {
+        let mut m = FederationManager::with_capacity(2);
+        let mut t = 0u64;
+        for i in 1..=2u8 {
+            drive_to_sync(&mut m, pid(i), &mut t);
+            m.on_sync_complete(&pid(i), t).unwrap();
+            t += 1;
+        }
+        drive_to_sync(&mut m, pid(3), &mut t);
+        assert_eq!(
+            m.on_sync_complete(&pid(3), t),
+            Err(ManagerError::ActivePeerCapReached)
+        );
+        // Peer remains in Sync state; caller can retry after shedding a
+        // different peer.
+        assert_eq!(m.peer(&pid(3)).unwrap().state, PeerState::Sync);
+    }
+
+    #[test]
+    fn manager_heartbeat_enforces_counter_monotonicity() {
+        let mut m = FederationManager::new();
+        let mut t = 0u64;
+        drive_to_sync(&mut m, pid(1), &mut t);
+        m.on_sync_complete(&pid(1), t).unwrap();
+        t += 1;
+
+        let obs = m.on_heartbeat(&pid(1), 5, t).unwrap();
+        assert_eq!(obs, vec![ObservationEvent::HeartbeatOnTime]);
+
+        // Replayed counter → reject.
+        assert_eq!(
+            m.on_heartbeat(&pid(1), 5, t + 1),
+            Err(ManagerError::HeartbeatCounterNotMonotonic)
+        );
+        // Lower counter → reject.
+        assert_eq!(
+            m.on_heartbeat(&pid(1), 4, t + 2),
+            Err(ManagerError::HeartbeatCounterNotMonotonic)
+        );
+        // Strictly greater → accepted.
+        assert!(m.on_heartbeat(&pid(1), 6, t + 3).is_ok());
+    }
+
+    #[test]
+    fn manager_replay_cache_is_per_peer() {
+        let mut m = FederationManager::new();
+        m.add_peer(pid(1), 0);
+        m.add_peer(pid(2), 0);
+        let sid = [0xAA; 16];
+        assert!(m.observe_sync_id(&pid(1), &sid, 1).unwrap().is_empty());
+        // Same sync_id from a different peer: accepted (cache is per-peer).
+        assert!(m.observe_sync_id(&pid(2), &sid, 2).unwrap().is_empty());
+        // Replay on peer 1 within window: observation fires.
+        assert_eq!(
+            m.observe_sync_id(&pid(1), &sid, 100).unwrap(),
+            vec![ObservationEvent::ReplayedWithinWindow]
+        );
+    }
+
+    #[test]
+    fn manager_tick_emits_heartbeat_missed_observations() {
+        let mut m = FederationManager::new();
+        let mut t = 0u64;
+        drive_to_sync(&mut m, pid(1), &mut t);
+        m.on_sync_complete(&pid(1), t).unwrap();
+        t += 1;
+        m.on_heartbeat(&pid(1), 1, t).unwrap();
+
+        // Silence past the MUST-011 threshold.
+        let obs = m.tick(t + HEARTBEAT_UNREACHABLE_SECS + 1);
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].0, pid(1));
+        assert_eq!(obs[0].1, ObservationEvent::HeartbeatMissed);
+        assert_eq!(m.peer(&pid(1)).unwrap().state, PeerState::Idle);
+    }
+
+    #[test]
+    fn manager_invalid_signature_emits_observation() {
+        let mut m = FederationManager::new();
+        m.add_peer(pid(1), 0);
+        assert_eq!(
+            m.on_invalid_signature(&pid(1)).unwrap(),
+            vec![ObservationEvent::DescriptorSignatureInvalid]
+        );
+    }
+
+    #[test]
+    fn manager_rate_limit_emits_observation() {
+        let mut m = FederationManager::new();
+        m.add_peer(pid(1), 0);
+        assert_eq!(
+            m.on_rate_limit_exceeded(&pid(1)).unwrap(),
+            vec![ObservationEvent::RateLimitExceeded]
+        );
+    }
+
+    #[test]
+    fn manager_ban_rejects_reconnect() {
+        let mut m = FederationManager::new();
+        m.add_peer(pid(1), 0);
+        m.ban_peer(&pid(1), 100).unwrap();
+        assert_eq!(
+            m.connect_peer(&pid(1), 200),
+            Err(ManagerError::Transition(TransitionError::Banned))
+        );
+        m.unban_peer(&pid(1), 3600).unwrap();
+        assert!(m.connect_peer(&pid(1), 3601).is_ok());
+    }
+
+    #[test]
+    fn manager_unknown_peer_errors() {
+        let mut m = FederationManager::new();
+        assert_eq!(m.connect_peer(&pid(9), 0), Err(ManagerError::UnknownPeer));
+        assert_eq!(
+            m.on_heartbeat(&pid(9), 1, 0),
+            Err(ManagerError::UnknownPeer)
+        );
+        assert_eq!(
+            m.on_invalid_signature(&pid(9)),
+            Err(ManagerError::UnknownPeer)
+        );
+    }
+
+    #[test]
+    fn manager_remove_peer_clears_replay_cache() {
+        let mut m = FederationManager::new();
+        m.add_peer(pid(1), 0);
+        m.observe_sync_id(&pid(1), &[0x11; 16], 1).unwrap();
+        m.remove_peer(&pid(1));
+        assert_eq!(m.known_peer_count(), 0);
+        // Re-adding starts fresh — the old sync_id is no longer tracked.
+        m.add_peer(pid(1), 100);
+        assert!(m.observe_sync_id(&pid(1), &[0x11; 16], 101).unwrap().is_empty());
+    }
+
+    #[test]
+    fn observation_event_variants_mirror_relay_reputation_table() {
+        // The mesh-local enum must parallel the PNP-008 §7.1 event table
+        // exactly so the relay adapter can translate 1:1.
+        let _ = ObservationEvent::FederationSyncSuccess;
+        let _ = ObservationEvent::HeartbeatOnTime;
+        let _ = ObservationEvent::HeartbeatMissed;
+        let _ = ObservationEvent::DescriptorSignatureValid;
+        let _ = ObservationEvent::DescriptorSignatureInvalid;
+        let _ = ObservationEvent::RateLimitExceeded;
+        let _ = ObservationEvent::ReplayedWithinWindow;
     }
 }

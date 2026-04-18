@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — H12 Phase 3 prep: FederationManager aggregator (PNP-008 §5 admission + observations)
+- `parolnet-mesh::federation` gains `FederationManager` owning `HashMap<PeerId, FederationPeer>` plus per-peer `SyncIdReplayCache`. Event ingestion methods (`connect_peer`, `on_handshake_ok/failed`, `on_sync_complete`, `observe_sync_id`, `on_heartbeat`, `on_invalid_signature`, `on_rate_limit_exceeded`, `ban_peer`, `unban_peer`, `tick`) return `Vec<ObservationEvent>` the caller forwards to `RelayDirectory::record_reputation_event`. No trait dependency on `parolnet-relay` — the mesh-local `ObservationEvent` enum mirrors `parolnet_relay::health::ObservationEvent` 1:1 so a single match translates.
+- MUST-015 admission control: `can_admit_new_active()` + `on_sync_complete()` refuses to promote past `max_active_peers` (default 8), returning `ManagerError::ActivePeerCapReached`. MUST-010 enforced at manager boundary: `on_heartbeat` rejects non-monotonic counters before state update. MUST-006 sync_id replay detection is per-peer so a malicious peer can't evict a legitimate peer's entries. MUST-011 tick loop emits `HeartbeatMissed` observations and auto-demotes ACTIVE→IDLE.
+- Conformance: new integration test driving 8 peers to ACTIVE then confirming the 9th is rejected with `ActivePeerCapReached`.
+- 13 new manager tests (26 total in the federation module). Workspace green: 37 suites, 86 PNP-008 conformance tests.
+
 ### Added — H12 Phase 3 prep: FederationPeer state machine + per-peer rate limits (PNP-008 §5)
 - New `parolnet-mesh::federation` module: pure-data `PeerState` enum (INIT→HANDSHAKE→SYNC→ACTIVE→IDLE→BANNED matching PNP-008 §5 diagram), `FederationPeer` struct with transition methods (connect, handshake_ok/fail, sync_complete, heartbeat_seen, tick, ban, unban). `TransitionError::{IllegalFrom, Banned}` captures forbidden edges. No I/O — the FederationManager drives the machine from event callbacks.
 - Per-peer `TokenBucket` enforces MUST-022: `charge_descriptor_delivery` (100/min) and `charge_sync_init` (10/hr). Refill uses period-based proportional math so both fast (100/min) and slow (10/hr) rates hydrate smoothly across arbitrary elapsed-time granularities.

@@ -233,6 +233,37 @@ fn federation_peer_concurrent_cap_is_eight() {
     assert_eq!(FederationConfig::default().max_active_peers, 8);
 }
 
+#[clause("PNP-008-MUST-015")]
+#[test]
+fn federation_manager_refuses_ninth_active_peer() {
+    // End-to-end pin: once 8 peers are ACTIVE, on_sync_complete MUST fail
+    // for the 9th. Caller must shed a peer (reputation-ban, timeout, or
+    // operator eviction) before another can be admitted.
+    use parolnet_mesh::federation::{FederationManager, ManagerError};
+    use parolnet_protocol::PeerId;
+    let mut m = FederationManager::new();
+    let mut t = 0u64;
+    for i in 1u8..=8 {
+        let pid = PeerId([i; 32]);
+        m.add_peer(pid, t);
+        m.connect_peer(&pid, t + 1).unwrap();
+        m.on_handshake_ok(&pid, t + 2).unwrap();
+        m.on_sync_complete(&pid, t + 3).unwrap();
+        t += 4;
+    }
+    assert_eq!(m.active_count(), 8);
+    assert!(!m.can_admit_new_active());
+
+    let ninth = PeerId([9; 32]);
+    m.add_peer(ninth, t);
+    m.connect_peer(&ninth, t + 1).unwrap();
+    m.on_handshake_ok(&ninth, t + 2).unwrap();
+    assert_eq!(
+        m.on_sync_complete(&ninth, t + 3),
+        Err(ManagerError::ActivePeerCapReached)
+    );
+}
+
 #[clause("PNP-008-MUST-018")]
 #[test]
 fn federation_payloads_gated_by_state_machine() {
