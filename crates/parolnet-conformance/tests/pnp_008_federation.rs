@@ -854,11 +854,19 @@ fn federation_link_path_is_version_one() {
     ))
     .unwrap();
     assert_eq!(v["wss_path"].as_str(), Some("/federation/v1"));
+    // Pin the relay-crate constant to the same value.
+    assert_eq!(
+        parolnet_relay::federation_codec::FEDERATION_LINK_PATH,
+        "/federation/v1"
+    );
 }
 
 #[clause("PNP-008-MUST-078")]
 #[test]
 fn federation_frame_length_prefix_is_big_endian_u32() {
+    use parolnet_protocol::federation::{FederationHeartbeat, HeartbeatFlags, LoadHint};
+    use parolnet_relay::federation_codec::{encode_frame, FederationFrame, FRAME_LEN_PREFIX_BYTES};
+
     let v: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../specs/vectors/PNP-008/federation_link_framing.json"
     ))
@@ -866,40 +874,63 @@ fn federation_frame_length_prefix_is_big_endian_u32() {
     assert_eq!(v["length_prefix_bytes"].as_u64(), Some(4));
     assert_eq!(v["length_prefix_encoding"].as_str(), Some("big-endian u32"));
 
-    // Pin the framing construction: len_be32 || cbor_bytes.
-    let payload = vec![0u8; 64];
-    let len_be32 = (payload.len() as u32).to_be_bytes();
-    let frame: Vec<u8> = len_be32.iter().chain(payload.iter()).copied().collect();
-    assert_eq!(frame.len(), 4 + 64);
-    assert_eq!(&frame[..4], &[0, 0, 0, 64]);
+    // Exercise the real codec: the 4-byte prefix MUST equal the CBOR body length
+    // in big-endian encoding.
+    let hb = FederationHeartbeat {
+        counter: 42,
+        load_hint: LoadHint::default(),
+        flags: HeartbeatFlags::empty(),
+        timestamp: 1_700_000_000,
+        signature: [0u8; 64],
+    };
+    let bytes = encode_frame(&FederationFrame::Heartbeat(hb)).unwrap();
+    assert!(bytes.len() > FRAME_LEN_PREFIX_BYTES);
+    let declared =
+        u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    assert_eq!(declared, bytes.len() - FRAME_LEN_PREFIX_BYTES);
 }
 
 #[clause("PNP-008-MUST-079")]
 #[test]
 fn federation_frame_max_bytes_is_2mib() {
+    use parolnet_relay::federation_codec::{
+        decode_frame, CodecError, CLOSE_OVERSIZE, FRAME_LEN_PREFIX_BYTES, MAX_FRAME_BYTES,
+    };
+
     let v: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../specs/vectors/PNP-008/federation_link_framing.json"
     ))
     .unwrap();
     let max = v["max_frame_bytes"].as_u64().unwrap();
     assert_eq!(max, 2 * 1024 * 1024);
-    // Pin the Rust constant form the relay crate will expose.
-    const FRAME_MAX: usize = 2 * 1024 * 1024;
-    assert_eq!(FRAME_MAX as u64, max);
+    assert_eq!(MAX_FRAME_BYTES as u64, max);
+
+    // Exercise the enforcement path: an oversized declared length must be
+    // rejected before any CBOR parsing, and must map to close code 4003
+    // (MUST-084).
+    let mut bytes = vec![0u8; FRAME_LEN_PREFIX_BYTES];
+    let oversized = (MAX_FRAME_BYTES as u32) + 1;
+    bytes[..FRAME_LEN_PREFIX_BYTES].copy_from_slice(&oversized.to_be_bytes());
+    bytes.push(0x00);
+    let err = decode_frame(&bytes).unwrap_err();
+    assert!(matches!(err, CodecError::Oversize { .. }));
+    assert_eq!(err.close_code(), CLOSE_OVERSIZE);
 }
 
 #[clause("PNP-008-MUST-080")]
 #[test]
 fn federation_unknown_type_closes_transport() {
-    // Pin semantic: any type code not in FederationPayloadType MUST cause
-    // immediate close. FederationPayloadType covers 0x06..=0x08 only.
     use parolnet_protocol::federation::FederationPayloadType;
+    use parolnet_relay::federation_codec::{CodecError, CLOSE_UNKNOWN_TYPE};
     for code in [0x00u8, 0x01, 0x05, 0x09, 0xFF] {
         assert!(
             FederationPayloadType::from_u8(code).is_none(),
             "code 0x{code:02x} MUST be unknown on federation link"
         );
     }
+    // Any CodecError::UnknownType MUST map to close code 4002 (MUST-084).
+    let err = CodecError::UnknownType { byte: 0xFF };
+    assert_eq!(err.close_code(), CLOSE_UNKNOWN_TYPE);
 }
 
 #[clause("PNP-008-MUST-081")]
@@ -929,16 +960,39 @@ fn heartbeat_permitted_during_sync_does_not_advance_state() {
 #[clause("PNP-008-MUST-083")]
 #[test]
 fn federation_dedup_close_code_is_4000() {
+    use parolnet_protocol::PeerId;
+    use parolnet_relay::federation_codec::CLOSE_DUP_PEER;
+    use parolnet_relay::federation_link::{FederationLink, FederationLinkError, FederationLinkRole};
+    use parolnet_relay::FederationManager;
+
     let v: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../specs/vectors/PNP-008/federation_close_codes.json"
     ))
     .unwrap();
     assert_eq!(v["close_codes"]["dedup_dup_peer"].as_u64(), Some(4000));
+
+    // Exercise dedup: second admission for an ACTIVE peer rejects with 4000.
+    let mut mgr = FederationManager::new();
+    let pid = PeerId([0xAA; 32]);
+    mgr.add_peer(pid, 1000);
+    mgr.connect_peer(&pid, 1000).unwrap();
+    mgr.on_handshake_ok(&pid, 1001).unwrap();
+
+    let link = FederationLink::new(pid, FederationLinkRole::Responder);
+    let err = link.admit_inbound(&mut mgr, 1002).unwrap_err();
+    assert!(matches!(err, FederationLinkError::DuplicatePeer(_)));
+    assert_eq!(
+        FederationLink::duplicate_peer_shutdown().close_code(),
+        CLOSE_DUP_PEER
+    );
 }
 
 #[clause("PNP-008-MUST-084")]
 #[test]
 fn federation_close_code_registry_matches_spec() {
+    use parolnet_relay::federation_codec::{
+        CLOSE_DUP_PEER, CLOSE_NORMAL, CLOSE_OVERSIZE, CLOSE_RATE_LIMIT, CLOSE_UNKNOWN_TYPE,
+    };
     let v: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../specs/vectors/PNP-008/federation_close_codes.json"
     ))
@@ -949,6 +1003,13 @@ fn federation_close_code_registry_matches_spec() {
     assert_eq!(codes["rate_limit"].as_u64(), Some(4001));
     assert_eq!(codes["unknown_type"].as_u64(), Some(4002));
     assert_eq!(codes["frame_oversize"].as_u64(), Some(4003));
+    // Pin each constant against the relay crate's registry so drift here
+    // causes a conformance failure.
+    assert_eq!(CLOSE_NORMAL, 1000);
+    assert_eq!(CLOSE_DUP_PEER, 4000);
+    assert_eq!(CLOSE_RATE_LIMIT, 4001);
+    assert_eq!(CLOSE_UNKNOWN_TYPE, 4002);
+    assert_eq!(CLOSE_OVERSIZE, 4003);
 }
 
 // -- §8.7 HTTPS content-type (resumes v0.4 test series) -------------------

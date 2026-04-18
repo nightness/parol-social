@@ -15,6 +15,8 @@ pub mod circuit;
 pub mod directory;
 pub mod error;
 pub mod federation;
+pub mod federation_codec;
+pub mod federation_link;
 pub mod federation_replay;
 pub mod handshake;
 pub mod health;
@@ -29,6 +31,11 @@ pub mod trust_roots;
 pub use directory::RelayHealth;
 pub use error::RelayError;
 pub use federation::{FederationManager, FederationPeer, PeerState, TransitionError};
+pub use federation_codec::{
+    CodecError, FederationFrame, CLOSE_DUP_PEER, CLOSE_NORMAL, CLOSE_OVERSIZE, CLOSE_RATE_LIMIT,
+    CLOSE_UNKNOWN_TYPE, FEDERATION_LINK_PATH, FEDERATION_SUBPROTOCOL, MAX_FRAME_BYTES,
+};
+pub use federation_link::{FederationLink, FederationLinkError, FederationLinkRole, LinkShutdown};
 pub use federation_replay::SyncIdReplayCache;
 pub use health::{ObservationEvent, RelayFlags, RelayReputation};
 
