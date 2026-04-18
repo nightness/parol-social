@@ -1,12 +1,16 @@
 # PNP-001: ParolNet Wire Protocol
 
 ### Status: CANDIDATE
-### Version: 0.6
-### Date: 2026-04-17
+### Version: 0.7
+### Date: 2026-04-18
 
 ---
 
 ## Changelog
+
+**v0.7 (2026-04-18) — Token issuance accounting clarified**
+
+- Added `PNP-001-MUST-063` to §10.2 making the `budget_per_epoch` cap explicitly cumulative per (identity, epoch). Prior text referenced the 8192 cap only in the request-body schema comment, which left implementations free to interpret the limit as "one batch per epoch" — stricter than the spec intended. The new clause locks the semantic: any number of issuance requests MUST be accepted as long as the running total stays under the cap; rejections on overflow MUST return HTTP 429 and MUST NOT advance the counter.
 
 **v0.6 (2026-04-17) — Envelope fragmentation & reassembly**
 
@@ -500,6 +504,8 @@ On receiving an outer frame the relay MUST:
 3. Check the per-epoch spent-set for `nonce`. If the nonce is already present, reject. Otherwise insert it and route the frame. **PNP-001-MUST-050**
 
 All three rejection paths drop the frame silently (no error to the sender).
+
+**Issuance accounting.** The relay MUST track the cumulative number of BlindedElements it has evaluated for each (identity, epoch) pair and MUST reject any issuance request that would push that running total above `budget_per_epoch` (default 8192). **PNP-001-MUST-063** Requests that remain under the cap MUST be served regardless of how many prior requests from the same identity succeeded in the epoch — the cap is on total tokens, not on batch count. On epoch rotation the counter for every identity MUST reset. A rejection for this reason MUST return HTTP 429 and the counter MUST NOT advance (partial-batch rejections leave the budget intact).
 
 **Epoch rotation.** Each epoch lasts **3600 seconds**. At every epoch boundary the relay generates a fresh VOPRF secret for the new epoch and retains the previous epoch's secret for a **300-second grace window** so tokens that were issued just before the boundary still verify. Once the grace window elapses, the prior secret and its spent-set MUST be dropped. **PNP-001-MUST-051**
 

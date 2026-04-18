@@ -19,10 +19,8 @@ use parolnet_relay::bridge::{
     IP_LOG_SCRUBBER_INTERVAL_SECS,
 };
 use parolnet_relay::federation_codec::{
-    CLOSE_DUP_PEER, CLOSE_OVERSIZE, CLOSE_UNKNOWN_TYPE, FEDERATION_LINK_PATH,
+    CLOSE_OVERSIZE, CLOSE_UNKNOWN_TYPE, FEDERATION_LINK_PATH,
 };
-use parolnet_relay::federation_link::{FederationLink, FederationLinkRole};
-use parolnet_relay::FederationManager;
 use parolnet_relay::presence::{PresenceAuthority, PresenceConfig, PresenceEntry};
 use parolnet_relay::tokens::{Suite, Token, TokenAuthority, TokenConfig};
 use parolnet_transport::{Connection, TransportError};
@@ -1346,46 +1344,20 @@ async fn relay_directory_sync(
 
 /// WSS `/federation/v1` — accepts inbound federation links (PNP-008 §5.5).
 ///
-/// Enforces MUST-077..080 + MUST-083/084 on the wire. The peer-identity
-/// handshake (MUST-018: PNP-002 over PNP-006 camouflage) is still pinned to
-/// the spec; full cryptographic admission lands in the pluggable-transport
-/// commit. This handler already:
-///   - parses `len_be32 || cbor` frames via [`parolnet_relay::federation_codec`];
-///   - rejects unknown payload types with close code 4002;
-///   - rejects oversized frames with close code 4003;
-///   - deduplicates concurrent links per peer with close code 4000.
-async fn handle_federation_link(
-    mut socket: WebSocket,
-    peer_addr: std::net::SocketAddr,
-    manager: Arc<Mutex<FederationManager>>,
-    remote_peer_id: PeerId,
-) {
-    let link = FederationLink::new(remote_peer_id, FederationLinkRole::Responder);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    {
-        let mut mgr = manager.lock().await;
-        if let Err(err) = link.admit_inbound(&mut mgr, now) {
-            // MUST-083: dup-peer collision closes with 4000.
-            let code = match err {
-                parolnet_relay::FederationLinkError::DuplicatePeer(_) => CLOSE_DUP_PEER,
-                _ => 1002,
-            };
-            let _ = socket
-                .send(Message::Close(Some(axum::extract::ws::CloseFrame {
-                    code,
-                    reason: "federation link admission rejected".into(),
-                })))
-                .await;
-            return;
-        }
-    }
-    info!(
-        "federation link accepted from {peer_addr} peer={:?}",
-        remote_peer_id
-    );
+/// Enforces MUST-077/078/079/080 on the wire: WSS path, `len_be32 || cbor`
+/// framing, 2 MiB cap, unknown-type close (4002). Peer-identity admission
+/// (MUST-018: PNP-002 handshake inside PNP-006 TLS camouflage) is not yet
+/// wired — the handler currently accepts the upgrade and runs the frame
+/// decode loop without admitting any peer into [`FederationManager`]. Dedup
+/// (MUST-083) and reputation accounting therefore do NOT fire on this path
+/// until the handshake commit lands; unit tests on `FederationLink::admit_inbound`
+/// continue to exercise that code path directly.
+///
+/// No admission-by-header: a header-claimed peer_id has no cryptographic
+/// proof, and admitting on it would let any prober dedup-kick a legitimate
+/// peer's link (claim their id, get kicked, repeat).
+async fn handle_federation_link(mut socket: WebSocket, peer_addr: std::net::SocketAddr) {
+    info!("federation link upgrade accepted from {peer_addr}");
 
     while let Some(msg) = socket.recv().await {
         let data = match msg {
@@ -1393,18 +1365,15 @@ async fn handle_federation_link(
             Ok(Message::Close(_)) | Err(_) => break,
             Ok(_) => continue,
         };
-        match link.decode(&data) {
+        match parolnet_relay::federation_codec::decode_frame(&data) {
             Ok(_frame) => {
-                // Frame ingestion into FederationManager will happen in
-                // follow-up commits (Ed25519 verification, IBLT decode,
-                // heartbeat counter wiring). This commit seats the wire
-                // framing and close-code dispatch only.
+                // Frame ingestion into FederationManager lands alongside the
+                // PNP-002 handshake wiring (MUST-018): verify Ed25519 sig on
+                // the first FederationSync, extract peer_id from the signed
+                // descriptor, THEN admit through FederationManager.
             }
             Err(err) => {
-                let code = match &err {
-                    parolnet_relay::FederationLinkError::Codec(c) => c.close_code(),
-                    _ => CLOSE_UNKNOWN_TYPE,
-                };
+                let code = err.close_code();
                 let reason = match code {
                     CLOSE_OVERSIZE => "frame exceeds 2 MiB cap".into(),
                     CLOSE_UNKNOWN_TYPE => "unknown federation payload type".into(),
@@ -1420,10 +1389,6 @@ async fn handle_federation_link(
             }
         }
     }
-
-    // On disconnect, remove peer so backoff+dedup accounting stays accurate.
-    let mut mgr = manager.lock().await;
-    mgr.remove_peer(&remote_peer_id);
 }
 
 /// GET /peers — returns JSON list of currently connected peer IDs.
@@ -1509,11 +1474,6 @@ async fn main() {
     let stats = Arc::new(analytics::Stats::new());
     let client_stats = Arc::new(ClientStats::new());
     let directory: Arc<Mutex<RelayDirectory>> = Arc::new(Mutex::new(RelayDirectory::new()));
-
-    // H12 Phase 3: federation link aggregator (PNP-008 §5). Drives per-peer
-    // state/backoff/admission for all inbound and outbound federation links.
-    let federation_manager: Arc<Mutex<FederationManager>> =
-        Arc::new(Mutex::new(FederationManager::new()));
 
     // Bridge disclosure counter (PNP-008-MUST-089). In-memory only — a
     // process restart zeroes it, which is the whole point: a seized bridge
@@ -1794,31 +1754,11 @@ async fn main() {
         .route(
             FEDERATION_LINK_PATH,
             get({
-                let manager = federation_manager.clone();
                 move |ws: WebSocketUpgrade,
-                      headers: axum::http::HeaderMap,
-                      connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>| {
-                    let manager = manager.clone();
-                    async move {
-                        // MUST-077: the remote MUST present its relay identity
-                        // via `X-Parolnet-Peer-Id` (32-byte hex) during the
-                        // WSS upgrade. Full PNP-002 handshake over this link
-                        // lands with the pluggable-transport refactor.
-                        let peer_id = headers
-                            .get("x-parolnet-peer-id")
-                            .and_then(|v| v.to_str().ok())
-                            .and_then(|s| hex::decode(s).ok())
-                            .and_then(|b| <[u8; 32]>::try_from(b.as_slice()).ok())
-                            .map(PeerId);
-                        let Some(peer_id) = peer_id else {
-                            return StatusCode::BAD_REQUEST.into_response();
-                        };
-                        let peer_addr = connect_info.0;
-                        ws.on_upgrade(move |socket| {
-                            handle_federation_link(socket, peer_addr, manager, peer_id)
-                        })
+                      connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>| async move {
+                    let peer_addr = connect_info.0;
+                    ws.on_upgrade(move |socket| handle_federation_link(socket, peer_addr))
                         .into_response()
-                    }
                 }
             }),
         )
