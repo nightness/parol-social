@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — PWA i18n: 19 new toast keys + English-fallback chain
+- Added 19 previously-hardcoded user-facing strings from `pwa/src/messaging.js` (14) and `pwa/src/ui-chat.js` (14) to the i18n catalog: `toast.peerNotOnline`, `toast.enterGroupName`, `toast.groupCreateFailed`, `toast.enterPeerId`, `toast.alreadyMember`, `toast.microphoneError`, `toast.contactLoadFailed`, `toast.contactNotFound`, `toast.nameEmpty`, `toast.renameFailed`, `toast.noSecureSession`, `toast.encryptionFailed`, `toast.messageQueued`, `toast.avAccessError`, `toast.callFailed`, `toast.callSignalFailed`, `toast.callNoSecureSession`, `toast.qrUnrecognized`, `toast.qrSelf`. A few call sites were rewired to existing keys (`groupInvite`, `fileOffered`, `newMessage`) rather than duplicating.
+- All 19 keys seeded identically across the 16 supported language files (en + 15 others) so the existing placeholder-preservation test and the per-lang non-empty test still pass. Non-English values are the English strings as placeholders — translators localize next.
+- `pwa/src/i18n.js`: added an English-strings fallback cache so `t(key)` now falls back to `enStrings[key]` before the raw key name. Newly added keys missing from a translator's pending catalog now show English instead of `toast.foo`.
+- New unit tests in `pwa/tests/unit.test.mjs`: (a) `messaging.js` / `ui-chat.js` grep-test that fails if any of the 15 known English phrases appears verbatim in source; (b) `en.json` schema test asserting every new key is present. **PWA tests: 77/77 green.**
+
 ### Added — H3 onion routing PWA integration (stash `h3-onion-wip-pre-h12` resumed)
 - Popped the pre-H12 stash `h3-onion-wip-pre-h12` now that multi-relay federation (#7) and envelope fragmentation (#5) are in place. `pwa/src/onion.js` opens a parallel main-thread WebSocket, builds a 3-hop onion circuit via the existing WASM `ws_connect` / `build_circuit` / `circuit_send` / `circuit_recv` / `circuit_destroy` exports, and drains DATA cells into the envelope dispatch path.
 - Settings: new "High anonymity mode" toggle under Network, persisted at `settings.onion_mode_enabled`, default OFF. Toggle-on shows a confirm dialog warning about the background-notification tradeoff; build failure rolls back the toggle and surfaces the error toast.

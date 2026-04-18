@@ -9,30 +9,44 @@ const SUPPORTED_LANGS = [
 const RTL_LANGS = ['ar', 'fa'];
 
 let strings = {};
+let enStrings = {};
 let currentLang = 'en';
 
 export async function initI18n(savedLang) {
     currentLang = savedLang || detectLanguage();
+    // Always load English first so missing-key fallback works even after
+    // switching to another language whose catalog lacks a new key.
+    try {
+        const enResp = await fetch('./lang/en.json');
+        if (enResp.ok) enStrings = await enResp.json();
+    } catch {
+        // Offline / cache miss — enStrings stays empty and t() falls back
+        // to the key itself, same as the legacy behaviour.
+    }
     await loadStrings(currentLang);
     applyToDOM();
 }
 
 async function loadStrings(lang) {
+    if (lang === 'en') {
+        strings = enStrings;
+        return;
+    }
     try {
         const resp = await fetch('./lang/' + lang + '.json');
         if (!resp.ok) throw new Error(resp.status);
         strings = await resp.json();
     } catch {
-        if (lang !== 'en') {
-            const resp = await fetch('./lang/en.json');
-            strings = await resp.json();
-            currentLang = 'en';
-        }
+        strings = enStrings;
+        currentLang = 'en';
     }
 }
 
 export function t(key, params) {
-    let str = strings[key] || key;
+    // Fallback chain: current-language string → English string → key name.
+    // This keeps new keys readable in non-English locales until a translator
+    // localizes them, instead of showing "toast.foo" to end users.
+    let str = strings[key] || enStrings[key] || key;
     if (params) {
         for (const [k, v] of Object.entries(params)) {
             str = str.replaceAll('{' + k + '}', v);

@@ -198,7 +198,7 @@ export function handleRelayMessage(msg) {
         case 'error':
             console.warn('Relay error:', msg.message);
             if (msg.message === 'peer not connected') {
-                showToast('Peer is not online');
+                showToast(t('toast.peerNotOnline'));
             }
             break;
     }
@@ -272,7 +272,7 @@ export async function createGroup() {
     const nameInput = document.getElementById('create-group-name');
     if (!nameInput) return;
     const name = nameInput.value.trim();
-    if (!name) { showToast('Enter a group name'); return; }
+    if (!name) { showToast(t('toast.enterGroupName')); return; }
     const groupId = 'grp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
     const myPeerId = window._peerId || '';
     const group = {
@@ -289,10 +289,10 @@ export async function createGroup() {
         if (wasm && wasm.create_sender_key) {
             try { wasm.create_sender_key(groupId); } catch(e) { console.warn('[Group] Sender key init:', e); }
         }
-        showToast('Group created');
+        showToast(t('toast.groupCreated'));
         openGroupChat(groupId);
     } catch (e) {
-        showToast('Failed to create group');
+        showToast(t('toast.groupCreateFailed'));
         console.error('[Group] Create failed:', e);
     }
 }
@@ -416,7 +416,7 @@ async function handleIncomingGroupMessage(msg) {
     if (currentView === 'group-chat' && currentGroupId === msg.groupId) {
         appendGroupMessage(stored);
     } else {
-        showToast('New group message');
+        showToast(t('toast.newGroupMessage'));
         showLocalNotification('Group Message', (msg.content || '').slice(0, 100), msg.groupId);
     }
 }
@@ -460,7 +460,7 @@ export async function addMemberFromInput() {
     const input = document.getElementById('add-member-input');
     if (!input) return;
     const peerId = input.value.trim();
-    if (!peerId) { showToast('Enter a peer ID'); return; }
+    if (!peerId) { showToast(t('toast.enterPeerId')); return; }
     await addMemberToGroup(peerId);
     input.value = '';
 }
@@ -469,7 +469,7 @@ export async function addMemberToGroup(peerId) {
     if (!currentGroupId || !peerId) return;
     const group = await dbGet('groups', currentGroupId);
     if (!group) return;
-    if (group.members.includes(peerId)) { showToast('Already a member'); return; }
+    if (group.members.includes(peerId)) { showToast(t('toast.alreadyMember')); return; }
     group.members.push(peerId);
     await dbPut('groups', group);
 
@@ -498,7 +498,7 @@ export async function addMemberToGroup(peerId) {
         } catch(e) { console.warn('[Group] Sender key distribution:', e); }
     }
 
-    showToast('Member added');
+    showToast(t('toast.memberAdded'));
     showGroupMembers();
 }
 
@@ -512,7 +512,7 @@ export async function removeMemberFromGroup(peerId) {
     const badgeEl = document.getElementById('group-member-count');
     if (badgeEl) badgeEl.textContent = group.members.length;
 
-    showToast('Member removed');
+    showToast(t('toast.memberRemoved'));
     showGroupMembers();
 }
 
@@ -523,7 +523,7 @@ export async function leaveCurrentGroup() {
     closeGroupMembers();
     showView('contacts');
     switchListTab('groups');
-    showToast('Left group');
+    showToast(t('toast.groupLeft'));
 }
 
 async function handleGroupInvite(msg) {
@@ -540,7 +540,7 @@ async function handleGroupInvite(msg) {
     };
     try {
         await dbPut('groups', group);
-        showToast('Invited to group: ' + msg.groupName);
+        showToast(t('toast.groupInvite', { groupName: msg.groupName }));
         if (currentView === 'contacts') loadGroups();
     } catch(e) {
         console.warn('[Group] Invite save failed:', e);
@@ -576,7 +576,7 @@ function handleFileOffer(msg) {
     if (currentView === 'chat' && currentPeerId === msg.from) {
         showFileOfferInChat(msg);
     } else {
-        showToast('File offered: ' + (msg.fileName || 'file'));
+        showToast(t('toast.fileOffered', { fileName: msg.fileName || 'file' }));
         showLocalNotification('File Offer', msg.fileName || 'file', msg.from);
     }
 }
@@ -793,7 +793,7 @@ export async function startGroupCall() {
     try {
         setLocalStream(await navigator.mediaDevices.getUserMedia({ audio: true }));
     } catch(e) {
-        showToast('Could not access microphone: ' + e.message);
+        showToast(t('toast.microphoneError', { error: e.message }));
         return;
     }
 
@@ -871,7 +871,7 @@ export async function joinGroupCall() {
     try {
         setLocalStream(await navigator.mediaDevices.getUserMedia({ audio: true }));
     } catch(e) {
-        showToast('Could not access microphone: ' + e.message);
+        showToast(t('toast.microphoneError', { error: e.message }));
         setIncomingCallInfo(null);
         return;
     }
@@ -1108,7 +1108,7 @@ function handleChatPlaintext(fromPeerId, plaintext) {
         appendMessage(msg);
     } else {
         showLocalNotification('New Message', messageText.slice(0, 100), fromPeerId);
-        showToast('Message from ' + fromPeerId.slice(0, 8) + '...');
+        showToast(t('toast.newMessage', { name: fromPeerId.slice(0, 8) }));
         if (currentView === 'contacts') {
             loadContacts();
         }
@@ -1169,7 +1169,7 @@ function handleCallSignalPlaintext(fromPeerId, plaintext) {
     if (obj.action === 'offer') {
         handleIncomingCall({ ...obj, from: fromPeerId });
     } else if (obj.action === 'reject') {
-        showToast('Call declined');
+        showToast(t('toast.callDeclined'));
     } else {
         console.warn('[CallSignal] unknown action:', obj.action);
     }

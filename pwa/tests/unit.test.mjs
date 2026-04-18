@@ -1475,3 +1475,66 @@ describe('H12 Phase 2 cross-relay', () => {
         assert.deepEqual(dropped, [url]);
     });
 });
+
+// ── i18n string discipline ──────────────────────────────────────────
+describe('i18n source guard', () => {
+    const toastFiles = ['src/messaging.js', 'src/ui-chat.js'];
+
+    const forbiddenRaw = [
+        "showToast('Peer is not online')",
+        "showToast('Enter a group name')",
+        "showToast('Failed to create group')",
+        "showToast('Enter a peer ID')",
+        "showToast('Already a member')",
+        "showToast('Failed to load contact')",
+        "showToast('Contact not found')",
+        "showToast('Name cannot be empty')",
+        "showToast('Cannot send: secure session not established with this contact')",
+        "showToast('Encryption failed — message not sent')",
+        "showToast('Message queued — will send when connected')",
+        "showToast('Call signal failed')",
+        "showToast('Cannot start call: no secure session with this contact')",
+        "showToast('Unrecognized QR code')",
+        "showToast(\"That's your own QR code!\")",
+    ];
+
+    for (const file of toastFiles) {
+        test(`${file} does not hardcode user-facing strings`, () => {
+            const body = readFileSync(join(__dirname, '..', file), 'utf8');
+            for (const needle of forbiddenRaw) {
+                assert.ok(
+                    !body.includes(needle),
+                    `${file} MUST NOT contain raw string ${needle} — wrap with t('toast.*')`
+                );
+            }
+        });
+    }
+
+    test('en.json carries every toast.* key the source imports', () => {
+        const en = JSON.parse(readFileSync(join(__dirname, '..', 'lang', 'en.json'), 'utf8'));
+        const requiredKeys = [
+            'toast.peerNotOnline',
+            'toast.enterGroupName',
+            'toast.groupCreateFailed',
+            'toast.enterPeerId',
+            'toast.alreadyMember',
+            'toast.microphoneError',
+            'toast.contactLoadFailed',
+            'toast.contactNotFound',
+            'toast.nameEmpty',
+            'toast.renameFailed',
+            'toast.noSecureSession',
+            'toast.encryptionFailed',
+            'toast.messageQueued',
+            'toast.avAccessError',
+            'toast.callFailed',
+            'toast.callSignalFailed',
+            'toast.callNoSecureSession',
+            'toast.qrUnrecognized',
+            'toast.qrSelf',
+        ];
+        for (const k of requiredKeys) {
+            assert.ok(k in en, `en.json is missing key ${k}`);
+        }
+    });
+});

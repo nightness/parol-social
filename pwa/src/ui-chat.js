@@ -130,28 +130,28 @@ export async function renameContact(peerId) {
     try {
         contacts = await dbGetAll('contacts');
     } catch (e) {
-        showToast('Failed to load contact');
+        showToast(t('toast.contactLoadFailed'));
         return;
     }
     const contact = contacts.find(c => c.peerId === peerId);
-    if (!contact) { showToast('Contact not found'); return; }
+    if (!contact) { showToast(t('toast.contactNotFound')); return; }
 
     const newName = prompt('Set name for this contact:', contact.name || '');
     if (newName === null) return;
     const trimmed = newName.trim();
-    if (!trimmed) { showToast('Name cannot be empty'); return; }
+    if (!trimmed) { showToast(t('toast.nameEmpty')); return; }
 
     contact.name = trimmed;
     try {
         await dbPut('contacts', contact);
-        showToast('Contact renamed');
+        showToast(t('toast.contactRenamed'));
         loadAddressBook();
         if (window.currentPeerId === peerId) {
             const nameEl = document.getElementById('chat-peer-name');
             if (nameEl) nameEl.textContent = trimmed;
         }
     } catch (e) {
-        showToast('Failed to rename: ' + e.message);
+        showToast(t('toast.renameFailed', { error: e.message }));
     }
 }
 
@@ -221,7 +221,7 @@ export async function sendMessage() {
     let sent = false;
     let relayPayload = null;
     if (!wasm || !wasm.envelope_encode || !wasm.has_session || !wasm.has_session(currentPeerId)) {
-        showToast('Cannot send: secure session not established with this contact');
+        showToast(t('toast.noSecureSession'));
         return;
     }
     try {
@@ -239,12 +239,12 @@ export async function sendMessage() {
         }
     } catch (e) {
         console.error('Envelope encode failed:', e);
-        showToast('Encryption failed — message not sent');
+        showToast(t('toast.encryptionFailed'));
         return;
     }
     if (!sent) {
         queueMessage(currentPeerId, relayPayload);
-        showToast('Message queued — will send when connected');
+        showToast(t('toast.messageQueued'));
     }
 
     // Broadcast via gossip mesh for redundancy
@@ -329,7 +329,7 @@ export async function initiateCall(peerId, withVideo) {
             }
         }
     } catch (e) {
-        showToast('Could not access microphone/camera: ' + e.message);
+        showToast(t('toast.avAccessError', { error: e.message }));
         return;
     }
 
@@ -337,7 +337,7 @@ export async function initiateCall(peerId, withVideo) {
         try {
             setCurrentCallId(wasm.start_call(peerId));
         } catch (e) {
-            showToast('Call failed: ' + e.message);
+            showToast(t('toast.callFailed', { error: e.message }));
             stopLocalMedia();
             return;
         }
@@ -358,11 +358,11 @@ export async function initiateCall(peerId, withVideo) {
             sendToRelay(peerId, envelope);
         } catch (e) {
             console.warn('[Call] envelope_encode failed:', e);
-            showToast('Call signal failed');
+            showToast(t('toast.callSignalFailed'));
             return;
         }
     } else {
-        showToast('Cannot start call: no secure session with this contact');
+        showToast(t('toast.callNoSecureSession'));
         return;
     }
 
@@ -657,13 +657,13 @@ function handleScannedQR(data) {
     }
 
     if (!peerId || peerId.length !== 64) {
-        showToast('Unrecognized QR code');
+        showToast(t('toast.qrUnrecognized'));
         console.warn('[QR] Invalid peerId from scan:', data.slice(0, 40));
         return;
     }
 
     if (peerId === window._peerId) {
-        showToast("That's your own QR code!");
+        showToast(t('toast.qrSelf'));
         return;
     }
 
