@@ -180,6 +180,48 @@ async function onWasmReady() {
             console.warn('[App] onion boot enable failed:', err && err.message));
     });
 
+    // SW-relay keepalive watchdog.
+    //
+    // Chrome aggressively terminates idle service workers. When the SW is
+    // evicted, any `setTimeout`-based reconnect chain inside sw.js dies with
+    // it, so the relay WebSocket never reopens when the SW restarts. The
+    // relay then stores inbound "message" frames into the offline queue and
+    // the user perceives missing messages (the exact bootstrap-bug symptom:
+    // "receiver is receiving nothing"). We also nudge on visibilitychange/
+    // focus so returning to the tab doesn't require a full tick.
+    let _lastRelayStatusReply = Date.now();
+    function _nudgeRelay() {
+        if (!connMgr.relayUrl) return;
+        if (connMgr.isRelayConnected()) return;
+        connMgr._swPost({
+            type: 'relay_connect',
+            url: connMgr.relayUrl,
+            peerId: window._peerId || null,
+        });
+    }
+    navigator.serviceWorker?.addEventListener('message', (ev) => {
+        const d = ev.data;
+        if (d && d.type === 'relay_status') _lastRelayStatusReply = Date.now();
+    });
+    setInterval(() => {
+        if (!connMgr.relayUrl) return;
+        // Ask the SW for status; if it replies "connected" we're fine. If
+        // we don't hear back within ~8 s the SW is likely dead — kick it.
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'relay_status_query' });
+        }
+        if (Date.now() - _lastRelayStatusReply > 8_000) {
+            _nudgeRelay();
+            _lastRelayStatusReply = Date.now();
+        } else if (!connMgr.isRelayConnected()) {
+            _nudgeRelay();
+        }
+    }, 10_000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') _nudgeRelay();
+    });
+    window.addEventListener('focus', _nudgeRelay);
+
     // Epoch-boundary watchdog: every 60 s the pool's maybeRefill decides
     // whether to cross a new epoch boundary and replenish the token
     // supply. The relay caps issuance at one batch per identity per epoch
